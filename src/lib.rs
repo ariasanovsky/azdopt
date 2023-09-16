@@ -4,22 +4,22 @@ pub trait Path: Default + Ord {
     fn add_action(&mut self, action: usize);
 }
 
-pub struct VisibleRewardTree<S, P: Path, R: Reward, F: FutureGain<R>, const A_TOTAL: usize> {
+pub struct VisibleRewardTree<S, P: Path, F: FutureGain, const A_TOTAL: usize> {
     root: S,
-    stats: BTreeMap<P, VisibleRewardStateStats<R, F>>
+    stats: BTreeMap<P, VisibleRewardStateStats<F>>
 }
 
-struct VisibleRewardStateStats<R: Reward, F: FutureGain<R>> {
+struct VisibleRewardStateStats<F: FutureGain> {
     actions_taken: usize,
-    action_stats: Vec<VisibleRewardActionStats<R, F>>
+    action_stats: Vec<VisibleRewardActionStats<F>>
 }
 
-impl<R: Reward, F: FutureGain<R>> VisibleRewardStateStats<R, F> {
-    fn best_action(&self) -> &VisibleRewardActionStats<R, F> {
+impl<F: FutureGain> VisibleRewardStateStats<F> {
+    fn best_action(&self) -> &VisibleRewardActionStats<F> {
         self.action_stats.first().unwrap()
     }
 
-    fn update(&mut self, action: usize, future_reward: R, evaluation: f32) {
+    fn update(&mut self, action: usize, future_reward: F::R, evaluation: f32) {
         let Self { actions_taken, action_stats } = self;
         action_stats[action].update(future_reward, evaluation);
         *actions_taken += 1;
@@ -31,16 +31,16 @@ impl<R: Reward, F: FutureGain<R>> VisibleRewardStateStats<R, F> {
     }
 }
 
-struct VisibleRewardActionStats<R: Reward, F: FutureGain<R>> {
+struct VisibleRewardActionStats<F: FutureGain> {
     action: usize,
     frequency: usize,
-    reward: R,
+    reward: F::R,
     probability: f32,
     total_future_gains: F
 }
 
-impl<R: Reward, F: FutureGain<R>> VisibleRewardActionStats<R, F> {
-    fn update(&mut self, future_reward: R, evaluation: f32) {
+impl<F: FutureGain> VisibleRewardActionStats<F> {
+    fn update(&mut self, future_reward: F::R, evaluation: f32) {
         let Self { action: _, frequency, reward: _, probability: _, total_future_gains } = self;
         *frequency += 1;
         total_future_gains.add_reward(future_reward);
@@ -62,10 +62,10 @@ const C_PUCT: f32 = 1.0;
 
 
 
-impl<R: Reward, F: FutureGain<R>> VisibleRewardStateStats<R, F> {
-    fn new<S: State<R>, const A_TOTAL: usize>(state: &S, probabilities: Vec<f32>) -> Self
+impl<F: FutureGain> VisibleRewardStateStats<F> {
+    fn new<S: State, const A_TOTAL: usize>(state: &S, probabilities: Vec<f32>) -> Self
     where
-        F: FutureGain<R>,
+        F: FutureGain<R = S::R>,
     {
         let mut action_stats: Vec<_> = (0..A_TOTAL).filter_map(|action| {
             state.reward(action).map(|reward| {
@@ -98,8 +98,9 @@ pub trait Evaluate<S> {
     fn evaluate(&self, state: &S) -> (Vec::<f32>, f32);
 }
 
-pub trait State<R: Reward> {
-    fn reward(&self, action: usize) -> Option<R>;
+pub trait State {
+    type R: Reward;
+    fn reward(&self, action: usize) -> Option<Self::R>;
     fn is_terminal(&self) -> bool;
     fn act(&mut self, action: usize);
 }
@@ -119,14 +120,16 @@ impl Reward for i32 {
     }
 }
 
-pub trait FutureGain<R: Reward> {
-    fn add_reward(&mut self, reward: R);
+pub trait FutureGain {
+    type R: Reward;
+    fn add_reward(&mut self, reward: Self::R);
     fn add_evaluation(&mut self, evaluation: f32);
     fn zero() -> Self;
     fn to_f32(&self) -> f32;
 }
 
-impl FutureGain<i32> for f32 {
+impl FutureGain for f32 {
+    type R = i32;
     fn add_reward(&mut self, reward: i32) {
         *self += reward as f32;
     }
@@ -144,17 +147,22 @@ impl FutureGain<i32> for f32 {
     }
 }
 
-impl<S: Clone, P: Path + Clone, R: Reward + Clone, F, const A_TOTAL: usize>
-VisibleRewardTree<S, P, R, F, A_TOTAL>
+impl<S, P: Path, F, const A_TOTAL: usize>
+VisibleRewardTree<S, P, F, A_TOTAL>
 where
-    S: State<R>,
-    F: FutureGain<R>,
+    S: State,
+    F: FutureGain<R = S::R>,
 {
     pub fn new(root: S) -> Self {
         Self { root, stats: Default::default() }
     }
 
-    pub fn simulate_and_update<E: Evaluate<S>>(&mut self, sims: usize, evaluate: &E) {
+    pub fn simulate_and_update<E: Evaluate<S>>(&mut self, sims: usize, evaluate: &E)
+    where
+        S: Clone,
+        P: Clone,
+        S::R: Clone,
+    {
         for i in 0..sims {
            let (rewards, results) = self.simulate();
             match results {
@@ -173,7 +181,12 @@ where
         }
     }
 
-    fn simulate(&self) -> (Vec<(usize, R)>, SimulationResults<S, P>) {
+    fn simulate(&self) -> (Vec<(usize, S::R)>, SimulationResults<S, P>)
+    where
+        S: Clone,
+        P: Clone,
+        S::R: Clone,
+    {
         let mut state = self.root.clone();
         let mut path = P::default();
         let mut paths = Vec::new();
@@ -194,18 +207,24 @@ where
 
     
     
-    fn update_with_rewards(&mut self, rewards: Vec<(usize, R)>, paths: Vec<P>) {
+    fn update_with_rewards(&mut self, rewards: Vec<(usize, S::R)>, paths: Vec<P>)
+    where
+        S::R: Clone,
+    {
         self.update_with_rewards_and_evaluation(paths, rewards, 0.0);
     }
 
-    fn update_with_rewards_and_evaluation(&mut self, paths: Vec<P>, rewards: Vec<(usize, R)>, end_evaluation: f32) {
+    fn update_with_rewards_and_evaluation(&mut self, paths: Vec<P>, rewards: Vec<(usize, S::R)>, end_evaluation: f32)
+    where
+        S::R: Clone,
+    {
         dbg!(rewards.iter().map(|(_, reward)| reward.to_f32()).collect::<Vec<_>>());
         assert_eq!(paths.len(), rewards.len());
         // let mut future_rewards = vec![];
         // let mut future_reward = R::zero();
         let mut rewards_iter = rewards.into_iter();
         let (mut future_rewards, mut future_reward, first_action, first_reward) = if let Some((action, reward)) = rewards_iter.next() {
-            (vec![], R::zero(), action, reward)
+            (vec![], S::R::zero(), action, reward)
         } else {
             return;
         };

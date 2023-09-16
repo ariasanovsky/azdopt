@@ -81,7 +81,8 @@ impl azopt::Evaluate<R33State> for R33Evaluate {
     }
 }
 
-impl azopt::State<R33Reward> for R33State {
+impl azopt::State for R33State {
+    type R = R33Reward;
     fn reward(&self, action: usize) -> Option<R33Reward> {
         let (edge, old_color) = self.edges.get(action).unwrap();
         let (u, v) = (edge.0, edge.1);
@@ -118,7 +119,6 @@ fn main() {
     let mut tree = VisibleRewardTree::<
         R33State,
         R33Path,
-        R33Reward,
         R33FutureReward,
         A_TOTAL,
     >::new(root);
