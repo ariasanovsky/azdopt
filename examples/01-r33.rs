@@ -110,19 +110,25 @@ impl azopt::State for R33State {
     }
 }
 
+struct R33SearchConfig;
+
+impl azopt::VisibleRewardSearchConfig for R33SearchConfig {
+    type S = R33State;
+    type P = R33Path;
+    type F = R33FutureReward;
+}
+
+struct R33ModelConfig;
+impl azopt::VisibleRewardModelConfig for R33ModelConfig {}
+
 fn main() {
     use azopt::State;
     let total_time = 5;
     let root = R33State::new(total_time);
     dbg!(root.reward(0));
     let eval = R33Evaluate;
-    let mut tree = VisibleRewardTree::<
-        R33State,
-        R33Path,
-        R33FutureReward,
-        A_TOTAL,
-    >::new(root);
+    let mut tree = VisibleRewardTree::<R33SearchConfig, R33ModelConfig>::new(root);
     let sims: usize = 100_000;
-    tree.simulate_and_update(sims, &eval);
+    tree.simulate_and_update::<_, A_TOTAL>(sims, &eval);
     let best = tree.best();
 }
