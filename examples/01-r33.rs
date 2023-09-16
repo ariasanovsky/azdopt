@@ -1,22 +1,31 @@
-use azopt::{VisibleRewardTree, SearchPath};
+use std::collections::HashSet;
+
+use azopt::{VisibleRewardTree, Path};
 
 #[derive(Clone)]
-struct R33State;
+struct R33State {
+    edges: HashSet<(usize, usize)>,
+    time_remaining: usize,
+}
 
 impl R33State {
-    fn new() -> Self {
-        Self
+    fn new(t: usize) -> Self {
+        Self { edges: Default::default(), time_remaining: t }
     }
 }
 
-#[derive(Default, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Default, PartialOrd, Ord, PartialEq, Eq, Clone)]
 struct R33Path;
 
-impl SearchPath for R33Path {}
+impl Path for R33Path {
+    fn add_action(&mut self, action: usize) {
+        todo!()
+    }
+}
 
 type R33Reward = i32;
 
-type R33FutureReward = i32;
+type R33FutureReward = f32;
 
 const A_TOTAL: usize = 10;
 
@@ -32,10 +41,19 @@ impl azopt::State<R33Reward> for R33State {
     fn reward(&self, action: usize) -> Option<R33Reward> {
         todo!()
     }
+
+    fn is_terminal(&self) -> bool {
+        todo!()
+    }
+
+    fn act(&mut self, action: usize) {
+        todo!()
+    }
 }
 
 fn main() {
-    let root = R33State::new();
+    let total_time = 10;
+    let root = R33State::new(total_time);
     let eval = R33Evaluate;
     let mut tree = VisibleRewardTree::<
         R33State,
@@ -43,9 +61,8 @@ fn main() {
         R33Reward,
         R33FutureReward,
         A_TOTAL,
-    >::new::<R33Evaluate>(root, &eval);
+    >::new(root);
     let sims: usize = 100;
-    let depth: usize = 10;
-    tree.simulate(sims, depth, &eval);
+    tree.simulate_and_update(sims, &eval);
     let best = tree.best();
 }
