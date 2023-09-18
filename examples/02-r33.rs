@@ -1,4 +1,4 @@
-use azopt::{VisibleRewardTree, visible_tree::{*, config::*}, impl_config};
+use azopt::{VisibleRewardTree, visible_tree::{*, config::*}};
     
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Edge(usize, usize);
@@ -7,6 +7,16 @@ struct Edge(usize, usize);
 struct GraphState {
     edges: Vec<(Edge, Color)>,
     time_remaining: usize,
+}
+
+impl State for GraphState {
+    fn is_terminal(&self) -> bool {
+        todo!()
+    }
+
+    fn act(&mut self, action: usize) {
+        todo!()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +71,16 @@ struct GraphPath {
     actions: Vec<usize>,
 }
 
+impl Path for GraphPath {
+    fn new(action: usize) -> Self {
+        Self { actions: vec![action] }
+    }
+
+    fn push(&mut self, action: usize) {
+        self.actions.push(action);
+    }
+}
+
 struct GraphPrediction;
 struct GraphModel;
 impl GraphModel {
@@ -71,20 +91,33 @@ impl GraphModel {
 
 impl Model<GraphState, GraphPrediction> for GraphModel {
     fn predict(&self, state: &GraphState) -> GraphPrediction {
-        todo!()
+        GraphPrediction
     }
 }
 
 struct GraphRootData;
+
 impl Prediction<GraphRootData> for GraphPrediction {
-    fn data(&self) -> GraphRootData {
+    fn new_data(&self) -> GraphRootData {
         todo!()
     }
 }
 
 struct GraphStateData;
 impl Prediction<GraphStateData> for GraphPrediction {
-    fn data(&self) -> GraphStateData {
+    fn new_data(&self) -> GraphStateData {
+        todo!()
+    }
+}
+
+impl SortedActions<i32> for GraphRootData {
+    fn best_action(&self) -> (usize, i32) {
+        todo!()
+    }
+}
+
+impl SortedActions<i32> for GraphStateData {
+    fn best_action(&self) -> (usize, i32) {
         todo!()
     }
 }
@@ -98,8 +131,9 @@ impl Config for GraphConfig {
     type Path = GraphPath;
     type State = GraphState;
     type Model = GraphModel;
+    type Reward = i32;
 }
-impl_config!(GraphConfig);
+// impl_config!(GraphConfig);
 
 type VSTree = VisibleRewardTree!(GraphConfig);
 
@@ -108,4 +142,5 @@ fn main() {
     let root = GraphState::new(10);
     let root_prediction = model.predict(&root);
     let mut tree: VSTree = VSTree::new::<GraphConfig>(root, root_prediction);
+    tree.simulate_once::<GraphConfig>();
 }
