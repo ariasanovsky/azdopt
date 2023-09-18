@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+pub mod visible_tree;
+
 pub trait Path: Default + Ord {
     fn add_action(&mut self, action: usize);
 }
