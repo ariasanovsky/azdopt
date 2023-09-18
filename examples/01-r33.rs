@@ -111,7 +111,6 @@ impl azopt::State for R33State {
 }
 
 struct R33SearchConfig;
-
 impl azopt::VisibleRewardSearchConfig for R33SearchConfig {
     type S = R33State;
     type P = R33Path;

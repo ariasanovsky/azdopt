@@ -4,10 +4,10 @@ pub trait Path: Default + Ord {
     fn add_action(&mut self, action: usize);
 }
 
-pub struct VisibleRewardTree<C: VisibleRewardSearchConfig, D: VisibleRewardModelConfig> {
+pub struct VisibleRewardTree<C: VisibleRewardSearchConfig, M: VisibleRewardModelConfig> {
     root: C::S,
     stats: BTreeMap<C::P, VisibleRewardStateStats<C::F>>,
-    phantom: std::marker::PhantomData<D>
+    phantom: std::marker::PhantomData<M>
 }
 
 struct VisibleRewardStateStats<F: FutureGain> {
@@ -20,13 +20,13 @@ impl<F: FutureGain> VisibleRewardStateStats<F> {
         self.action_stats.first().unwrap()
     }
 
-    fn update<C: VisibleRewardModelConfig>(&mut self, action: usize, future_reward: F::R, evaluation: f32) {
+    fn update<M: VisibleRewardModelConfig>(&mut self, action: usize, future_reward: F::R, evaluation: f32) {
         let Self { actions_taken, action_stats } = self;
         action_stats[action].update(future_reward, evaluation);
         *actions_taken += 1;
         action_stats.sort_unstable_by(|a, b| {
-            let u_first = a.upper_estimate::<C>(*actions_taken);
-            let u_second = b.upper_estimate::<C>(*actions_taken);
+            let u_first = a.upper_estimate::<M>(*actions_taken);
+            let u_second = b.upper_estimate::<M>(*actions_taken);
             u_second.total_cmp(&u_first)
         });
     }
@@ -48,12 +48,12 @@ impl<F: FutureGain> VisibleRewardActionStats<F> {
         total_future_gains.add_evaluation(evaluation);
     }
 
-    fn upper_estimate<C: VisibleRewardModelConfig>(&self, actions: usize) -> f32 {
+    fn upper_estimate<M: VisibleRewardModelConfig>(&self, actions: usize) -> f32 {
         let Self { action: _, frequency, reward, probability, total_future_gains } = self;
         let reward = reward.to_f32();
         let probability = *probability;
         let total_future_gains = total_future_gains.to_f32();
-        C::action_estimate(reward, probability, actions, *frequency, total_future_gains)
+        M::action_estimate(reward, probability, actions, *frequency, total_future_gains)
         // reward + total_future_gains / *frequency as f32
         // + C_PUCT * probability * (actions as f32).sqrt() / (1 + frequency) as f32
     }
@@ -61,7 +61,7 @@ impl<F: FutureGain> VisibleRewardActionStats<F> {
 
 
 impl<F: FutureGain> VisibleRewardStateStats<F> {
-    fn new<S: State, const A_TOTAL: usize, C: VisibleRewardModelConfig>(state: &S, probabilities: Vec<f32>) -> Self
+    fn new<S: State, const A_TOTAL: usize, M: VisibleRewardModelConfig>(state: &S, probabilities: Vec<f32>) -> Self
     where
         F: FutureGain<R = S::R>,
     {
@@ -81,8 +81,8 @@ impl<F: FutureGain> VisibleRewardStateStats<F> {
             action_stats.probability /= probability_sum;
         });
         action_stats.sort_unstable_by(|a, b| {
-            let u_first = C::new_state_action_estimate(a.reward.to_f32(), a.probability);
-            let u_second = C::new_state_action_estimate(b.reward.to_f32(), b.probability);
+            let u_first = M::new_state_action_estimate(a.reward.to_f32(), a.probability);
+            let u_second = M::new_state_action_estimate(b.reward.to_f32(), b.probability);
             u_second.total_cmp(&u_first)
         });
         Self {
@@ -146,8 +146,8 @@ impl FutureGain for f32 {
 }
 
 pub trait VisibleRewardSearchConfig {
-    type S: State;
-    type P: Path;
+    type S: State + Clone;
+    type P: Path + Clone;
     type F: FutureGain<R = <Self::S as State>::R>;
 }
 
@@ -164,14 +164,13 @@ pub trait VisibleRewardModelConfig {
     }
 }
 
-impl<C: VisibleRewardSearchConfig, D: VisibleRewardModelConfig> VisibleRewardTree<C, D> {
+impl<C: VisibleRewardSearchConfig, M: VisibleRewardModelConfig> VisibleRewardTree<C, M> {
     pub fn new(root: C::S) -> Self {
         Self { root, stats: Default::default(), phantom: Default::default() }
     }
 
     pub fn simulate_and_update<E: Evaluate<C::S>, const A_TOTAL: usize>(&mut self, sims: usize, evaluate: &E)
     where
-        C::S: Clone,
         C::P: Clone,
         <C::S as State>::R: Clone,
     {
@@ -185,7 +184,7 @@ impl<C: VisibleRewardSearchConfig, D: VisibleRewardModelConfig> VisibleRewardTre
                 SimulationResults::New(paths, path, state) => {
                     dbg!(i, "new");
                     let (probabilities, evaluation) = evaluate.evaluate(&state);
-                    let stats = VisibleRewardStateStats::new::<_, A_TOTAL, D>(&state, probabilities);
+                    let stats = VisibleRewardStateStats::new::<_, A_TOTAL, M>(&state, probabilities);
                     self.stats.insert(path, stats);
                     self.update_with_rewards_and_evaluation(paths, rewards, evaluation);
                 },
@@ -195,8 +194,6 @@ impl<C: VisibleRewardSearchConfig, D: VisibleRewardModelConfig> VisibleRewardTre
 
     fn simulate(&self) -> (Vec<(usize, <C::S as State>::R)>, SimulationResults<C::S, C::P>)
     where
-        C::S: Clone,
-        C::P: Clone,
         <C::S as State>::R: Clone,
     {
         let mut state = self.root.clone();
@@ -229,7 +226,7 @@ impl<C: VisibleRewardSearchConfig, D: VisibleRewardModelConfig> VisibleRewardTre
     fn update_with_rewards_and_evaluation(&mut self, paths: Vec<C::P>, rewards: Vec<(usize, <C::S as State>::R)>, end_evaluation: f32)
     where
         <C::S as State>::R: Clone,
-        D: VisibleRewardModelConfig,
+        M: VisibleRewardModelConfig,
     {
         dbg!(rewards.iter().map(|(_, reward)| reward.to_f32()).collect::<Vec<_>>());
         assert_eq!(paths.len(), rewards.len());
@@ -257,7 +254,7 @@ impl<C: VisibleRewardSearchConfig, D: VisibleRewardModelConfig> VisibleRewardTre
         dbg!(future_rewards.iter().map(|(_, reward)| reward.to_f32()).collect::<Vec<_>>());
         paths.into_iter().zip(future_rewards.into_iter()).enumerate().for_each(|(i, (path, (action, future_reward)))| {
             let stats = self.stats.get_mut(&path).unwrap();
-            stats.update::<D>(action, future_reward, end_evaluation);
+            stats.update::<M>(action, future_reward, end_evaluation);
         });
     }
 
