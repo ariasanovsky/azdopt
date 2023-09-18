@@ -133,9 +133,9 @@ impl Config for GraphConfig {
     type Model = GraphModel;
     type Reward = i32;
 }
-// impl_config!(GraphConfig);
 
 type VSTree = VisibleRewardTree!(GraphConfig);
+// type VSTree = <GraphConfig as ToVisibleRewardTree>::VRewardTree;
 
 fn main() {
     let mut model = GraphModel::new();

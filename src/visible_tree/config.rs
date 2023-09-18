@@ -6,6 +6,17 @@ pub trait Config {
     type State;
     type Model;
     type Reward;
+    /* type VRewardTree = VisibleRewardTree<
+        Self::State,
+        Self::Path,
+        Self::RootData,
+        Self::StateData,
+    >; 
+    = note: see issue #29661 <https://github.com/rust-lang/rust/issues/29661> for more information
+    = help: add `#![feature(associated_type_defaults)]` to the crate attributes to enable
+    
+    For more information about this error, try `rustc --explain E0658`.
+    */
 }
 
 pub trait HasPrediction {
@@ -20,18 +31,6 @@ pub trait HasReward {
     type R;
 }
 
-// #[macro_export]
-// macro_rules! impl_config {
-//     ($config:ty) => {
-//         impl HasPrediction for $config {
-//             type P = <$config as Config>::Prediction;
-//         }
-//         impl HasReward for $config {
-//             type R = <$config as Config>::Reward;
-//         }
-//     };
-// }
-
 impl<C: Config> HasPrediction for C {
     type P = C::Prediction;
 }
@@ -40,11 +39,10 @@ impl<C: Config> HasReward for C {
     type R = C::Reward;
 }
 
-
 #[macro_export]
 macro_rules! VisibleRewardTree {
     ($config:ty) => {
-        VRewardTree<
+        $crate::visible_tree::VRewardTree<
             <$config as $crate::visible_tree::config::Config>::State,
             <$config as $crate::visible_tree::config::Config>::Path,
             <$config as $crate::visible_tree::config::Config>::RootData,
@@ -52,3 +50,17 @@ macro_rules! VisibleRewardTree {
         >
     };
 }
+
+// I don't like the ergonomics -- to get the type, you need to qualify with <_ as _> stuff
+// pub trait ToVisibleRewardTree {
+//     type VRewardTree;
+// }
+
+// impl<C: Config> ToVisibleRewardTree for C {
+//     type VRewardTree = super::VRewardTree<
+//         C::State,
+//         C::Path,
+//         C::RootData,
+//         C::StateData,
+//     >;
+// }
