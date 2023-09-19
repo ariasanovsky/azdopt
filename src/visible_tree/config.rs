@@ -1,3 +1,5 @@
+use super::HasExpectedFutureGain;
+
 pub trait Config {
     type RootData;
     type StateData;
@@ -6,6 +8,7 @@ pub trait Config {
     type State;
     type Model;
     type Reward;
+    type ExpectedFutureGain;
     /* type VRewardTree = VisibleRewardTree<
         Self::State,
         Self::Path,
@@ -37,6 +40,10 @@ impl<C: Config> HasPrediction for C {
 
 impl<C: Config> HasReward for C {
     type R = C::Reward;
+}
+
+impl<C: Config> HasExpectedFutureGain for C {
+    type G = C::ExpectedFutureGain;
 }
 
 #[macro_export]

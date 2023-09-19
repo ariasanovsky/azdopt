@@ -1,4 +1,6 @@
 use azopt::{VisibleRewardTree, visible_tree::{*, config::*}};
+use rand::Rng;
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
     
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Edge(usize, usize);
@@ -25,6 +27,16 @@ enum Color {
     Blue,
 }
 
+impl rand::distributions::Distribution<Color> for rand::distributions::Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Color {
+        if rng.gen() {
+            Color::Red
+        } else {
+            Color::Blue
+        }
+    }
+}
+
 impl GraphState {
     fn new(t: usize) -> Self {
         let edges = vec![
@@ -39,6 +51,16 @@ impl GraphState {
             (Edge(2, 4), Color::Red),
             (Edge(3, 4), Color::Red),
         ];
+        Self { edges, time_remaining: t }
+    }
+
+    fn generate_random<R: rand::Rng>(t: usize, rng: &mut R) -> Self {
+        let mut edges = Vec::new();
+        for j in 0..5 {
+            for i in 0..j {
+                edges.push((Edge(i, j), rng.gen()));
+            }
+        }
         Self { edges, time_remaining: t }
     }
 
@@ -98,26 +120,48 @@ impl Model<GraphState, GraphPrediction> for GraphModel {
 struct GraphRootData;
 
 impl Prediction<GraphRootData> for GraphPrediction {
-    fn new_data(&self) -> GraphRootData {
+    type G = f32;
+    fn new_data(&self) -> (GraphRootData, Self::G) {
         todo!()
     }
 }
 
 struct GraphStateData;
 impl Prediction<GraphStateData> for GraphPrediction {
-    fn new_data(&self) -> GraphStateData {
+    type G = f32;
+    fn new_data(&self) -> (GraphStateData, Self::G) {
         todo!()
     }
 }
 
-impl SortedActions<i32> for GraphRootData {
+impl SortedActions for GraphRootData {
+    type R = i32;
+    type G = f32;
     fn best_action(&self) -> (usize, i32) {
+        todo!()
+    }
+
+    fn update_future_reward(&mut self, action: usize, reward: &Self::R) {
+        todo!()
+    }
+
+    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G) {
         todo!()
     }
 }
 
-impl SortedActions<i32> for GraphStateData {
+impl SortedActions for GraphStateData {
+    type R = i32;
+    type G = f32;
     fn best_action(&self) -> (usize, i32) {
+        todo!()
+    }
+
+    fn update_future_reward(&mut self, action: usize, reward: &Self::R) {
+        todo!()
+    }
+
+    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G) {
         todo!()
     }
 }
@@ -132,6 +176,7 @@ impl Config for GraphConfig {
     type State = GraphState;
     type Model = GraphModel;
     type Reward = i32;
+    type ExpectedFutureGain = f32;
 }
 
 type VSTree = VisibleRewardTree!(GraphConfig);
@@ -139,8 +184,27 @@ type VSTree = VisibleRewardTree!(GraphConfig);
 
 fn main() {
     let mut model = GraphModel::new();
-    let root = GraphState::new(10);
-    let root_prediction = model.predict(&root);
-    let mut tree: VSTree = VSTree::new::<GraphConfig>(root, root_prediction);
-    tree.simulate_once::<GraphConfig>();
+    let trees = 
+        (0..16)
+        .into_par_iter()
+        .map(|_| GraphState::generate_random(10, &mut rand::thread_rng()))
+        .map(|state| {
+            let prediction = model.predict(&state);
+            VSTree::new::<GraphConfig>(state, prediction)
+        });
+    let trees = trees
+        .map(|tree| (tree.simulate_once::<GraphConfig>(), tree))
+        .map(|((first_action, transitions, final_state), mut tree)| {
+            match final_state {
+                FinalState::Leaf => {
+                    tree.update_with_transitions::<GraphConfig>(first_action, transitions);
+                },
+                FinalState::New(path, s) => {
+                    let prediction = model.predict(&s);
+                    let eval = tree.insert::<GraphConfig>(path, prediction);
+                    tree.update_with_transitions_and_evaluation::<GraphConfig>(first_action, transitions, eval);
+                },
+            }
+            tree
+        }).collect::<Vec<_>>();
 }
