@@ -8,9 +8,9 @@ use config::*;
 use self::stats::SortedActions;
 
 pub struct VRewardTree<S, P, D0, D> {
-    root: S,
-    root_data: D0,
-    data: BTreeMap<P, D>
+    pub root: S,
+    pub root_data: D0,
+    pub data: BTreeMap<P, D>
 }
 
 impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
@@ -34,8 +34,9 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
     pub fn simulate_once<C>(&self) -> (usize, Vec<(usize, C::R, P)>, FinalState<P, S>)
     where
         S: Clone + State,
-        D0: SortedActions,
+        D0: SortedActions<R = C::R>,
         C: HasReward,
+        C::R: Clone,
         P: Path + Clone + Ord,
         D: SortedActions<R = C::R>,
     {
@@ -75,12 +76,14 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
     pub fn update_with_transitions<C>(&mut self, first_action: usize, transitions: Vec<(usize, C::R, P)>)
     where
         C: HasReward,
-        C: HasExpectedFutureGain,
         C::R: Reward,
         C::R: for<'a> core::ops::AddAssign<&'a C::R>,
+        C: HasExpectedFutureGain,
+        C::G: ExpectedFutureGain,
+        C::G: for<'a> core::ops::AddAssign<&'a C::G>,
         P: Ord,
-        D: SortedActions<R = C::R>,
-        D0: SortedActions<R = C::R>,
+        D: SortedActions<R = C::R, G = C::G>,
+        D0: SortedActions<R = C::R, G = C::G>,
     {
         /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
             we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
@@ -102,9 +105,11 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
     pub fn update_with_transitions_and_evaluation<C>(&mut self, first_action: usize, transitions: Vec<(usize, C::R, P)>, evaluation: C::G)
     where
         C: HasReward,
-        C: HasExpectedFutureGain,
         C::R: Reward,
         C::R: for<'a> core::ops::AddAssign<&'a C::R>,
+        C: HasExpectedFutureGain,
+        C::G: ExpectedFutureGain,
+        C::G: for<'a> core::ops::AddAssign<&'a C::G>,
         P: Ord,
         D: SortedActions<R = C::R, G = C::G>,
         D0: SortedActions<R = C::R, G = C::G>,

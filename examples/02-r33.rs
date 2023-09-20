@@ -14,11 +14,16 @@ impl State for GraphState {
     type R = i32;
 
     fn is_terminal(&self) -> bool {
-        todo!()
+        self.time_remaining == 0
     }
 
     fn act(&mut self, action: usize) {
-        todo!()
+        let color = self.edges.get_mut(action).map(|(_, c)| c).unwrap();
+        *color = match color {
+            Color::Red => Color::Blue,
+            Color::Blue => Color::Red,
+        };
+        self.time_remaining -= 1;
     }
 
     fn cost(&self) -> Self::R {
@@ -137,7 +142,7 @@ impl GraphState {
     }
 }
 
-#[derive(Default, PartialOrd, Ord, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialOrd, Ord, PartialEq, Eq, Clone)]
 struct GraphPath {
     actions: Vec<usize>,
 }
@@ -177,7 +182,9 @@ impl Prediction<GraphStateData, GraphRootData> for GraphPrediction {
     type R = i32;
 
     fn new_data(&self, transitions: Vec<(usize, Self::R)>) -> (GraphStateData, Self::G) {
-        (todo!(), 0.0)
+        (GraphStateData::new(transitions.into_iter().map(|(i, r)| {
+            (i, r, 0.1)
+        }).collect()), 0.0)
     }
 
     fn new_root_data(&self, cost: Self::R, transitions: Vec<(usize, Self::R)>) -> GraphRootData {
@@ -268,4 +275,11 @@ fn main() {
             }
             tree
         }).collect::<Vec<_>>();
+    for tree in trees {
+        let VRewardTree { root, root_data, data } = tree;
+        for (path, data) in data {
+            dbg!(path);
+            dbg!(data);
+        }
+    }
 }
