@@ -47,13 +47,13 @@ impl<C: Config> HasExpectedFutureGain for C {
 }
 
 #[macro_export]
-macro_rules! VisibleRewardTree {
+macro_rules! VRewardTree {
     ($config:ty) => {
-        $crate::visible_tree::VRewardTree<
-            <$config as $crate::visible_tree::config::Config>::State,
-            <$config as $crate::visible_tree::config::Config>::Path,
-            <$config as $crate::visible_tree::config::Config>::RootData,
-            <$config as $crate::visible_tree::config::Config>::StateData,
+        $crate::visible_reward::VRewardTree<
+            <$config as $crate::visible_reward::config::Config>::State,
+            <$config as $crate::visible_reward::config::Config>::Path,
+            <$config as $crate::visible_reward::config::Config>::RootData,
+            <$config as $crate::visible_reward::config::Config>::StateData,
         >
     };
 }

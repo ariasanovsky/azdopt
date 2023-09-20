@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
 
 pub mod config;
+pub mod stats;
 
 use config::*;
+
+use self::stats::SortedActions;
 
 pub struct VRewardTree<S, P, D0, D> {
     root: S,
@@ -13,10 +16,14 @@ pub struct VRewardTree<S, P, D0, D> {
 impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
     pub fn new<C>(root: S, root_prediction: C::P) -> Self
     where
-        C: HasPrediction, 
-        C::P: Prediction<D0>,
+        C: HasPrediction,
+        C: HasReward,
+        C::P: Prediction<D, D0, R = C::R>,
+        S: State<R = C::R>,
     {
-        let (root_data, _) = root_prediction.new_data();
+        let root_cost = root.cost();
+        let transitions = root.transitions();
+        let root_data = root_prediction.new_root_data(root_cost, transitions);
         Self {
             root,
             root_data,
@@ -52,14 +59,15 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         (first_action, transitions, FinalState::Leaf)
     }
 
-    pub fn insert<C>(&mut self, path: P, prediction: C::P) -> C::G
+    pub fn insert<C>(&mut self, path: P, transitions: Vec<(usize, C::R)>, prediction: C::P) -> C::G
     where
+        C: HasReward,
         C: HasPrediction,
         C: HasExpectedFutureGain,
-        C::P: Prediction<D, G = C::G>,
+        C::P: Prediction<D, D0, R = C::R, G = C::G>,
         P: Ord,
     {
-        let (data, gain) = prediction.new_data();
+        let (data, gain) = prediction.new_data(transitions);
         self.data.insert(path, data);
         gain
     }
@@ -130,30 +138,38 @@ impl Reward for i32 {
     }
 }
 
-pub trait Prediction<D> {
+pub trait Prediction<D, D0> {
     type G;
-    fn new_data(&self) -> (D, Self::G);
+    type R;
+    fn new_data(&self, transitions: Vec<(usize, Self::R)>) -> (D, Self::G);
+    fn new_root_data(&self, cost: Self::R, transitions: Vec<(usize, Self::R)>) -> D0;
 }
 
 pub trait HasExpectedFutureGain {
     type G;
 }
 
-pub trait SortedActions {
-    type R;
-    type G;
-    fn best_action(&self) -> (usize, Self::R);
-    fn update_future_reward(&mut self, action: usize, reward: &Self::R);
-    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G);
+pub trait ExpectedFutureGain {
+    fn zero() -> Self;
 }
 
-pub trait Model<S, P> {
-    fn predict(&self, state: &S) -> P;
+impl ExpectedFutureGain for f32 {
+    fn zero() -> Self {
+        0.0
+    }
+}
+
+pub trait Model<S> {
+    type P;
+    fn predict(&self, state: &S) -> Self::P;
 }
 
 pub trait State {
+    type R;
     fn is_terminal(&self) -> bool;
     fn act(&mut self, action: usize);
+    fn cost(&self) -> Self::R;
+    fn transitions(&self) -> Vec<(usize, Self::R)>;
 }
 
 pub trait Path {
