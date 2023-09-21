@@ -2,6 +2,7 @@ pub trait SortedActions {
     type R;
     type G;
     fn best_action(&self) -> (usize, Self::R) where Self::R: Clone;
+    fn sort_actions(&mut self);
     fn update_future_reward(&mut self, action: usize, reward: &Self::R)
     where
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
@@ -18,25 +19,30 @@ pub trait SortedActions {
 pub struct VRewardRootData<R, G> {
     cost: R,
     frequency: usize,
-    actions: Vec<VRewardActionData<R, G>>,
+    actions: Vec<(VRewardActionData<R, G>, f32)>,
 }
 
 impl<R, G> VRewardRootData<R, G> {
-    pub fn new(cost: R, actions: Vec<(usize, R, f32)>) -> Self
+    pub fn new<C>(cost: R, actions: Vec<(usize, R, f32)>) -> Self
     where
         R: super::Reward,
         G: super::ExpectedFutureGain,
+        C: UpperEstimate<VRewardActionData<R, G>>,
     {
         Self {
             cost,
             frequency: 0,
-            actions: actions.into_iter().map(|(action, reward, probability)| VRewardActionData {
-                action,
-                frequency: 0,
-                probability,
-                reward,
-                future_reward_sum: R::zero(),
-                future_gain_estimate_sum: G::zero(),
+            actions: actions.into_iter().map(|(action, reward, probability)| {
+                let action_data = VRewardActionData {
+                    action,
+                    frequency: 0,
+                    probability,
+                    reward,
+                    future_reward_sum: R::zero(),
+                    future_gain_estimate_sum: G::zero(),
+                };
+                let upper_estimate = C::upper_estimate(&action_data);
+                (action_data, upper_estimate)
             }).collect()
         }
     }
@@ -45,27 +51,38 @@ impl<R, G> VRewardRootData<R, G> {
 #[derive(Debug)]
 pub struct VRewardStateData<R, G> {
     frequency: usize,
-    actions: Vec<VRewardActionData<R, G>>,
+    actions: Vec<(VRewardActionData<R, G>, f32)>,
 }
 
 impl<R, G> VRewardStateData<R, G> {
-    pub fn new(actions: Vec<(usize, R, f32)>) -> Self
+    pub fn new<C>(actions: Vec<(usize, R, f32)>) -> Self
     where
         R: super::Reward,
         G: super::ExpectedFutureGain,
+        C: UpperEstimate<VRewardActionData<R, G>>,
     {
-        Self {
+        let mut state_data = Self {
             frequency: 0,
-            actions: actions.into_iter().map(|(action, reward, probability)| VRewardActionData {
-                action,
-                frequency: 0,
-                probability,
-                reward,
-                future_reward_sum: R::zero(),
-                future_gain_estimate_sum: G::zero(),
+            actions: actions.into_iter().map(|(action, reward, probability)| {
+                let action_data = VRewardActionData {
+                    action,
+                    frequency: 0,
+                    probability,
+                    reward,
+                    future_reward_sum: R::zero(),
+                    future_gain_estimate_sum: G::zero(),
+                };
+                let upper_estimate = C::upper_estimate(&action_data);
+                (action_data, upper_estimate)
             }).collect()
-        }
+        };
+        state_data.sort_actions();
+        state_data
     }
+}
+
+pub trait UpperEstimate<D> {
+    fn upper_estimate(data: &D) -> f32;
 }
 
 #[derive(Debug)]
@@ -86,7 +103,13 @@ impl<R, G> SortedActions for VRewardRootData<R, G> {
     where
         R: Clone,
     {
-        self.actions.first().map(|action| (action.action, action.reward.clone())).unwrap()
+        self.actions.first().map(|action| (action.0.action, action.0.reward.clone())).unwrap()
+    }
+
+    fn sort_actions(&mut self) {
+        self.actions.sort_unstable_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap()
+        });
     }
 
     fn update_future_reward(&mut self, action: usize, reward: &Self::R)
@@ -94,7 +117,17 @@ impl<R, G> SortedActions for VRewardRootData<R, G> {
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
     {
-        todo!()
+        let (VRewardActionData {
+            action: _,
+            frequency,
+            probability: _,
+            reward: _,
+            future_reward_sum,
+            future_gain_estimate_sum: _,
+        }, _) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        *frequency += 1;
+        *future_reward_sum += reward;
+        self.sort_actions();
     }
 
     fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G)
@@ -102,17 +135,18 @@ impl<R, G> SortedActions for VRewardRootData<R, G> {
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
     {
-        let VRewardActionData {
+        let (VRewardActionData {
             action: _,
             frequency,
             probability: _,
             reward: _,
             future_reward_sum,
             future_gain_estimate_sum,
-        } = self.actions.iter_mut().find(|action_data| action_data.action == action).unwrap();
+        }, _) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
         *frequency += 1;
         *future_reward_sum += reward;
         *future_gain_estimate_sum += gain;
+        self.sort_actions();
         
     }
 }
@@ -122,6 +156,10 @@ impl<R, G> SortedActions for VRewardStateData<R, G> {
     type G = G;
 
     fn best_action(&self) -> (usize, Self::R) {
+        todo!()
+    }
+
+    fn sort_actions(&mut self) {
         todo!()
     }
 
