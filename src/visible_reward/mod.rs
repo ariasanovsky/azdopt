@@ -5,7 +5,7 @@ pub mod stats;
 
 use config::*;
 
-use self::stats::SortedActions;
+use self::stats::{SortedActions, UpperEstimate};
 
 pub struct VRewardTree<S, P, D0, D> {
     pub root: S,
@@ -84,6 +84,8 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         P: Ord,
         D: SortedActions<R = C::R, G = C::G>,
         D0: SortedActions<R = C::R, G = C::G>,
+        D::A: UpperEstimate,
+        D0::A: UpperEstimate,
     {
         /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
             we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
@@ -113,6 +115,8 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         P: Ord,
         D: SortedActions<R = C::R, G = C::G>,
         D0: SortedActions<R = C::R, G = C::G>,
+        D::A: UpperEstimate,
+        D0::A: UpperEstimate,
     {
         /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
             we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
