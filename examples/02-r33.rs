@@ -1,4 +1,4 @@
-use azopt::{VRewardTree, visible_reward::{*, config::*, stats::*}, VRewardRootData, VRewardStateData};
+use azopt::{VRewardTree, visible_reward::{*, config::*, transitions::Transitions}, VRewardRootData, VRewardStateData};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
     
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl State for GraphState {
         cost
     }
 
-    fn transitions(&self) -> Vec<(usize, Self::R)> {
+    fn action_rewards(&self) -> Vec<(usize, Self::R)> {
         self.edges.iter().enumerate().map(|(i, (Edge(u, v), c))| {
             let red_triangles: i32 = self.triangles(*u, *v, Color::Red);
             let blue_triangles: i32 = self.triangles(*u, *v, Color::Blue);
@@ -181,6 +181,10 @@ impl Prediction<GraphStateData, GraphRootData> for GraphPrediction {
     type G = f32;
     type R = i32;
 
+    fn value(&self) -> &Self::G {
+        &0.0
+    }
+
     fn new_data(&self, transitions: Vec<(usize, Self::R)>) -> (GraphStateData, Self::G) {
         (GraphStateData::new(transitions.into_iter().map(|(i, r)| {
             (i, r, 0.1)
@@ -249,6 +253,44 @@ impl Config for GraphConfig {
 type VSTree = VRewardTree!(GraphConfig);
 // type VSTree = <GraphConfig as ToVisibleRewardTree>::VRewardTree;
 
+#[derive(Default)]
+struct BasicGraphLog {
+    pub data: Vec<BasicGraphLogData>,
+}
+
+struct BasicGraphLogData {
+    pub transitions: Vec<(usize, i32)>,
+    pub end: BasicGraphLogEnd,
+}
+
+enum BasicGraphLogEnd {
+    Leaf,
+    New(f32),
+}
+
+impl BasicGraphLogData {
+    fn new<'a, I>(a1: usize, r1: i32, next_transitions: I, end: BasicGraphLogEnd) -> Self
+    where
+        I: Iterator<Item = (&'a usize, &'a i32)>,
+    {
+        let mut transitions = vec![(a1, r1)];
+        transitions.extend(next_transitions.map(|(a, r)| (*a, *r)));
+        Self { transitions, end }
+    }
+}
+
+impl BasicGraphLog {
+    fn update(&mut self, data: BasicGraphLogData) {
+        self.data.push(data);
+    }
+}
+
+impl core::fmt::Display for BasicGraphLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
 fn main() {
     let mut model = GraphModel::new();
     let trees = 
@@ -257,29 +299,43 @@ fn main() {
         .map(|_| GraphState::generate_random(10, &mut rand::thread_rng()))
         .map(|state| {
             let prediction = model.predict(&state);
-            VSTree::new::<GraphConfig>(state, prediction)
+            (VSTree::new::<GraphConfig>(state, prediction), BasicGraphLog::default())
         });
     let trees = trees
-        .map(|tree| (tree.simulate_once::<GraphConfig>(), tree))
-        .map(|((first_action, transitions, final_state), mut tree)| {
-            match final_state {
-                FinalState::Leaf => {
-                    tree.update_with_transitions::<GraphConfig>(first_action, transitions);
+        .map(|(tree, log)| (tree.simulate_once::<GraphConfig>(), tree, log))
+        .map(|(transitions, mut tree, mut log)| {
+            let Transitions { a1, r1, transitions, end } = transitions;
+            match end {
+                transitions::FinalState::Leaf(p, s) => {
+                    let trans = transitions.iter().map(|(_, a, r)| (a, r));
+                    let data = BasicGraphLogData::new(a1, r1, trans, BasicGraphLogEnd::Leaf);
+                    log.update(data);
+                    tree.update_with_transitions::<GraphConfig>(a1, transitions);
                 },
-                FinalState::New(path, s) => {
+                transitions::FinalState::New(p, s) => {
                     let prediction = model.predict(&s);
-                    let t = s.transitions();
-                    let eval = tree.insert::<GraphConfig>(path, t, prediction);
-                    tree.update_with_transitions_and_evaluation::<GraphConfig>(first_action, transitions, eval);
+                    let end = BasicGraphLogEnd::New(*prediction.value());
+                    let data = BasicGraphLogData::new(a1, r1, transitions.iter().map(|(_, a, r)| (a, r)), end);
+                    log.update(data);
+                    let t = s.action_rewards();
+                    let eval = tree.insert::<GraphConfig>(p, t, prediction);
+                    tree.update_with_transitions_and_evaluation::<GraphConfig>(a1, transitions, eval)
                 },
             }
-            tree
+            // match final_state {
+            //     FinalState::Leaf => {
+            //         tree.update_with_transitions::<GraphConfig>(first_action, transitions);
+            //     },
+            //     FinalState::New(path, s) => {
+            //         let prediction = model.predict(&s);
+            //         let t = s.transitions();
+            //         let eval = tree.insert::<GraphConfig>(path, t, prediction);
+            //         tree.update_with_transitions_and_evaluation::<GraphConfig>(first_action, transitions, eval);
+            //     },
+            // }
+            (tree, log)
         }).collect::<Vec<_>>();
-    for tree in trees {
-        let VRewardTree { root, root_data, data } = tree;
-        for (path, data) in data {
-            dbg!(path);
-            dbg!(data);
-        }
+    for (_, log) in trees {
+        println!("{log}")
     }
 }
