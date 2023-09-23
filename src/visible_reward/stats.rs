@@ -24,9 +24,9 @@ pub trait UpperEstimate {
 
 #[derive(Debug)]
 pub struct VRewardRootData<R, G> {
-    cost: R,
-    frequency: usize,
-    actions: Vec<(VRewardActionData<R, G>, f32)>,
+    pub cost: R,
+    pub frequency: usize,
+    pub actions: Vec<(VRewardActionData<R, G>, f32)>,
 }
 
 impl<R, G> VRewardRootData<R, G> {
