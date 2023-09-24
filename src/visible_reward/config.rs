@@ -15,10 +15,10 @@ pub trait Config {
         Self::Path,
         Self::RootData,
         Self::StateData,
-    >; 
+    >;
     = note: see issue #29661 <https://github.com/rust-lang/rust/issues/29661> for more information
     = help: add `#![feature(associated_type_defaults)]` to the crate attributes to enable
-    
+
     For more information about this error, try `rustc --explain E0658`.
     */
 }

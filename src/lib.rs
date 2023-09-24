@@ -61,7 +61,6 @@ pub mod visible_reward;
 //     }
 // }
 
-
 // impl<F: FutureGain> VisibleRewardStateStats<F> {
 //     fn new<S: State, const A_TOTAL: usize, M: VisibleRewardModelConfig>(state: &S, probabilities: Vec<f32>) -> Self
 //     where
@@ -158,7 +157,7 @@ pub mod visible_reward;
 //         const C_PUCT: f32 = 1.0;
 //         reward + C_PUCT * probability
 //     }
-    
+
 //     fn action_estimate(reward: f32, probability: f32, actions: usize, frequency: usize, total_future_gains: f32) -> f32 {
 //         const C_PUCT: f32 = 1.0;
 //         reward + total_future_gains / frequency as f32
@@ -216,8 +215,6 @@ pub mod visible_reward;
 //         return (rewards, SimulationResults::Leaf(paths));
 //     }
 
-    
-    
 //     fn update_with_rewards(&mut self, rewards: Vec<(usize, <C::S as State>::R)>, paths: Vec<C::P>)
 //     where
 //         <C::S as State>::R: Clone,

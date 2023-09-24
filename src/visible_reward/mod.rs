@@ -7,12 +7,16 @@ pub mod transitions;
 
 use config::*;
 
-use self::{stats::{SortedActions, UpperEstimate}, transitions::{Transitions, FinalState}, log::{Log, FinalStateData}};
+use self::{
+    log::{FinalStateData, Log},
+    stats::{SortedActions, UpperEstimate},
+    transitions::{FinalState, Transitions},
+};
 
 pub struct VRewardTree<S, P, D0, D> {
     pub root: S,
     pub root_data: D0,
-    pub data: BTreeMap<P, D>
+    pub data: BTreeMap<P, D>,
 }
 
 impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
@@ -29,10 +33,10 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         Self {
             root,
             root_data,
-            data: BTreeMap::new()
+            data: BTreeMap::new(),
         }
     }
-    
+
     pub fn simulate_once<C>(&self) -> Transitions<C::R, P, S>
     where
         S: Clone + State,
@@ -59,8 +63,8 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
                     a1: first_action,
                     r1: first_reward,
                     transitions,
-                    end: FinalState::New(state_path, state)
-                }
+                    end: FinalState::New(state_path, state),
+                };
             }
         }
         // terminal state
@@ -68,7 +72,7 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
             a1: first_action,
             r1: first_reward,
             transitions,
-            end: FinalState::Leaf(state_path, state)
+            end: FinalState::Leaf(state_path, state),
         }
     }
 
@@ -85,8 +89,11 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         gain
     }
 
-    pub fn update_with_transitions<C>(&mut self, first_action: usize, transitions: Vec<(P, usize, C::R)>)
-    where
+    pub fn update_with_transitions<C>(
+        &mut self,
+        first_action: usize,
+        transitions: Vec<(P, usize, C::R)>,
+    ) where
         C: HasReward,
         C::R: Reward,
         C::R: for<'a> core::ops::AddAssign<&'a C::R>,
@@ -113,11 +120,16 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
             data.update_future_reward(*action, &reward_sum);
             reward_sum += reward;
         });
-        self.root_data.update_future_reward(first_action, &reward_sum);
+        self.root_data
+            .update_future_reward(first_action, &reward_sum);
     }
 
-    pub fn update_with_transitions_and_evaluation<C>(&mut self, first_action: usize, transitions: Vec<(P, usize, C::R)>, evaluation: C::G)
-    where
+    pub fn update_with_transitions_and_evaluation<C>(
+        &mut self,
+        first_action: usize,
+        transitions: Vec<(P, usize, C::R)>,
+        evaluation: C::G,
+    ) where
         C: HasReward,
         C::R: Reward,
         C::R: for<'a> core::ops::AddAssign<&'a C::R>,
@@ -145,7 +157,11 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
             data.update_futured_reward_and_expected_gain(*action, &reward_sum, &evaluation);
             reward_sum += reward;
         });
-        self.root_data.update_futured_reward_and_expected_gain(first_action, &reward_sum, &evaluation);
+        self.root_data.update_futured_reward_and_expected_gain(
+            first_action,
+            &reward_sum,
+            &evaluation,
+        );
     }
 
     pub fn simulate_once_and_update<C>(&mut self, model: &C::M, log: &mut C::L)
@@ -175,16 +191,26 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         C::L: Log<R = C::R, T = Vec<(P, usize, C::R)>, G = C::G>,
     {
         let transitions = self.simulate_once::<C>();
-        let Transitions { a1, r1, transitions, end } = transitions;
+        let Transitions {
+            a1,
+            r1,
+            transitions,
+            end,
+        } = transitions;
         match end {
             FinalState::Leaf(_, _) => {
                 // let trans = transitions.iter().map(|(_, a, r)| (a, r));
                 log.add_transition_data(a1, r1, &transitions, FinalStateData::Leaf);
                 self.update_with_transitions::<C>(a1, transitions);
-            },
+            }
             FinalState::New(p, s) => {
                 let prediction = model.predict(&s);
-                log.add_transition_data(a1, r1, &transitions, FinalStateData::New(prediction.value().clone()));
+                log.add_transition_data(
+                    a1,
+                    r1,
+                    &transitions,
+                    FinalStateData::New(prediction.value().clone()),
+                );
                 let t = s.action_rewards();
                 let eval = self.insert::<C>(p, t, prediction);
                 self.update_with_transitions_and_evaluation::<C>(a1, transitions, eval)

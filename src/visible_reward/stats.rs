@@ -2,20 +2,24 @@ pub trait SortedActions {
     type R;
     type G;
     type A;
-    fn best_action(&self) -> (usize, Self::R) where Self::R: Clone;
+    fn best_action(&self) -> (usize, Self::R)
+    where
+        Self::R: Clone;
     fn sort_actions(&mut self);
     fn update_future_reward(&mut self, action: usize, reward: &Self::R)
     where
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
-        Self::A: UpperEstimate,
-    ;
-    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G)
-    where
+        Self::A: UpperEstimate;
+    fn update_futured_reward_and_expected_gain(
+        &mut self,
+        action: usize,
+        reward: &Self::R,
+        gain: &Self::G,
+    ) where
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
-        Self::A: UpperEstimate,
-    ;
+        Self::A: UpperEstimate;
 }
 
 pub trait UpperEstimate {
@@ -39,18 +43,21 @@ impl<R, G> VRewardRootData<R, G> {
         let mut root_data = Self {
             cost,
             frequency: 0,
-            actions: actions.into_iter().map(|(action, reward, probability)| {
-                let action_data = VRewardActionData {
-                    action,
-                    frequency: 0,
-                    probability,
-                    reward,
-                    future_reward_sum: R::zero(),
-                    future_gain_estimate_sum: G::zero(),
-                };
-                let upper_estimate = action_data.upper_estimate(0);
-                (action_data, upper_estimate)
-            }).collect()
+            actions: actions
+                .into_iter()
+                .map(|(action, reward, probability)| {
+                    let action_data = VRewardActionData {
+                        action,
+                        frequency: 0,
+                        probability,
+                        reward,
+                        future_reward_sum: R::zero(),
+                        future_gain_estimate_sum: G::zero(),
+                    };
+                    let upper_estimate = action_data.upper_estimate(0);
+                    (action_data, upper_estimate)
+                })
+                .collect(),
         };
         root_data.sort_actions();
         root_data
@@ -72,18 +79,21 @@ impl<R, G> VRewardStateData<R, G> {
     {
         let mut state_data = Self {
             frequency: 0,
-            actions: actions.into_iter().map(|(action, reward, probability)| {
-                let action_data = VRewardActionData {
-                    action,
-                    frequency: 0,
-                    probability,
-                    reward,
-                    future_reward_sum: R::zero(),
-                    future_gain_estimate_sum: G::zero(),
-                };
-                let upper_estimate = action_data.upper_estimate(0);
-                (action_data, upper_estimate)
-            }).collect()
+            actions: actions
+                .into_iter()
+                .map(|(action, reward, probability)| {
+                    let action_data = VRewardActionData {
+                        action,
+                        frequency: 0,
+                        probability,
+                        reward,
+                        future_reward_sum: R::zero(),
+                        future_gain_estimate_sum: G::zero(),
+                    };
+                    let upper_estimate = action_data.upper_estimate(0);
+                    (action_data, upper_estimate)
+                })
+                .collect(),
         };
         state_data.sort_actions();
         state_data
@@ -109,13 +119,15 @@ impl<R, G> SortedActions for VRewardRootData<R, G> {
     where
         R: Clone,
     {
-        self.actions.first().map(|action| (action.0.action, action.0.reward.clone())).unwrap()
+        self.actions
+            .first()
+            .map(|action| (action.0.action, action.0.reward.clone()))
+            .unwrap()
     }
 
     fn sort_actions(&mut self) {
-        self.actions.sort_unstable_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap()
-        });
+        self.actions
+            .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     }
 
     fn update_future_reward(&mut self, action: usize, reward: &Self::R)
@@ -124,32 +136,46 @@ impl<R, G> SortedActions for VRewardRootData<R, G> {
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
         Self::A: UpperEstimate,
     {
-        let (action_data, upper_estimate) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        let (action_data, upper_estimate) = self
+            .actions
+            .iter_mut()
+            .find(|action_data| action_data.0.action == action)
+            .unwrap();
         action_data.frequency += 1;
         action_data.future_reward_sum += reward;
         *upper_estimate = action_data.upper_estimate(self.frequency);
         self.sort_actions();
     }
 
-    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G)
-    where
+    fn update_futured_reward_and_expected_gain(
+        &mut self,
+        action: usize,
+        reward: &Self::R,
+        gain: &Self::G,
+    ) where
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
         Self::A: UpperEstimate,
     {
-        let (VRewardActionData {
-            action: _,
-            frequency,
-            probability: _,
-            reward: _,
-            future_reward_sum,
-            future_gain_estimate_sum,
-        }, _) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        let (
+            VRewardActionData {
+                action: _,
+                frequency,
+                probability: _,
+                reward: _,
+                future_reward_sum,
+                future_gain_estimate_sum,
+            },
+            _,
+        ) = self
+            .actions
+            .iter_mut()
+            .find(|action_data| action_data.0.action == action)
+            .unwrap();
         *frequency += 1;
         *future_reward_sum += reward;
         *future_gain_estimate_sum += gain;
         self.sort_actions();
-        
     }
 }
 
@@ -162,13 +188,15 @@ impl<R, G> SortedActions for VRewardStateData<R, G> {
     where
         R: Clone,
     {
-        self.actions.first().map(|action| (action.0.action, action.0.reward.clone())).unwrap()
+        self.actions
+            .first()
+            .map(|action| (action.0.action, action.0.reward.clone()))
+            .unwrap()
     }
 
     fn sort_actions(&mut self) {
-        self.actions.sort_unstable_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap()
-        });
+        self.actions
+            .sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     }
 
     fn update_future_reward(&mut self, action: usize, reward: &Self::R)
@@ -177,32 +205,46 @@ impl<R, G> SortedActions for VRewardStateData<R, G> {
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
         Self::A: UpperEstimate,
     {
-        let (action_data, upper_estimate) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        let (action_data, upper_estimate) = self
+            .actions
+            .iter_mut()
+            .find(|action_data| action_data.0.action == action)
+            .unwrap();
         action_data.frequency += 1;
         action_data.future_reward_sum += reward;
         *upper_estimate = action_data.upper_estimate(self.frequency);
         self.sort_actions();
     }
 
-    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G)
-    where
+    fn update_futured_reward_and_expected_gain(
+        &mut self,
+        action: usize,
+        reward: &Self::R,
+        gain: &Self::G,
+    ) where
         Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
         Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
         Self::A: UpperEstimate,
     {
-        let (VRewardActionData {
-            action: _,
-            frequency,
-            probability: _,
-            reward: _,
-            future_reward_sum,
-            future_gain_estimate_sum,
-        }, _) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        let (
+            VRewardActionData {
+                action: _,
+                frequency,
+                probability: _,
+                reward: _,
+                future_reward_sum,
+                future_gain_estimate_sum,
+            },
+            _,
+        ) = self
+            .actions
+            .iter_mut()
+            .find(|action_data| action_data.0.action == action)
+            .unwrap();
         *frequency += 1;
         *future_reward_sum += reward;
         *future_gain_estimate_sum += gain;
         self.sort_actions();
-        
     }
 }
 

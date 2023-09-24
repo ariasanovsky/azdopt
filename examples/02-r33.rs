@@ -1,6 +1,13 @@
-use azopt::{VRewardTree, visible_reward::{*, config::*, log::{Log, FinalStateData}}, VRewardRootData, VRewardStateData};
-use rayon::prelude::{IntoParallelIterator, ParallelIterator, IntoParallelRefMutIterator};
-    
+use azopt::{
+    visible_reward::{
+        config::*,
+        log::{FinalStateData, Log},
+        *,
+    },
+    VRewardRootData, VRewardStateData, VRewardTree,
+};
+use rayon::prelude::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Edge(usize, usize);
 
@@ -25,11 +32,12 @@ struct GraphState {
 
 impl core::fmt::Display for GraphState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { edges, time_remaining } = self;
+        let Self {
+            edges,
+            time_remaining,
+        } = self;
         write!(f, "[t = {time_remaining}]")?;
-        edges.into_iter().try_for_each(|e| {
-            write!(f, " {e}")
-        })
+        edges.into_iter().try_for_each(|e| write!(f, " {e}"))
     }
 }
 
@@ -41,7 +49,11 @@ impl State for GraphState {
     }
 
     fn act(&mut self, action: usize) {
-        let color = self.edges.get_mut(action).map(|ColoredEdge(_, c)| c).unwrap();
+        let color = self
+            .edges
+            .get_mut(action)
+            .map(|ColoredEdge(_, c)| c)
+            .unwrap();
         *color = match color {
             Color::Red => Color::Blue,
             Color::Blue => Color::Red,
@@ -67,18 +79,25 @@ impl State for GraphState {
     }
 
     fn action_rewards(&self) -> Vec<(usize, Self::R)> {
-        self.edges.iter().enumerate().map(|(i, ColoredEdge(Edge(u, v), c))| {
-            let red_triangles: i32 = self.triangles(*u, *v, Color::Red);
-            let blue_triangles: i32 = self.triangles(*u, *v, Color::Blue);
-            // let cost = self.cost();
-            // if cost == 0 && self.time_remaining == 10 {
-            //     println!("{self}: i = {i}, e = {u}-{v}, (r, b) = ({red_triangles}, {blue_triangles})")
-            // }
-            (i, match c {
-                Color::Red => red_triangles - blue_triangles,
-                Color::Blue => blue_triangles - red_triangles,
+        self.edges
+            .iter()
+            .enumerate()
+            .map(|(i, ColoredEdge(Edge(u, v), c))| {
+                let red_triangles: i32 = self.triangles(*u, *v, Color::Red);
+                let blue_triangles: i32 = self.triangles(*u, *v, Color::Blue);
+                // let cost = self.cost();
+                // if cost == 0 && self.time_remaining == 10 {
+                //     println!("{self}: i = {i}, e = {u}-{v}, (r, b) = ({red_triangles}, {blue_triangles})")
+                // }
+                (
+                    i,
+                    match c {
+                        Color::Red => red_triangles - blue_triangles,
+                        Color::Blue => blue_triangles - red_triangles,
+                    },
+                )
             })
-        }).collect()
+            .collect()
     }
 }
 
@@ -106,12 +125,19 @@ impl GraphState {
                 edges.push(ColoredEdge(Edge(i, j), rng.gen()));
             }
         }
-        Self { edges, time_remaining: t }
+        Self {
+            edges,
+            time_remaining: t,
+        }
     }
 
     fn color(&self, u: usize, v: usize) -> Color {
         let (u, v) = if u < v { (u, v) } else { (v, u) };
-        self.edges.iter().find(|ColoredEdge(Edge(a, b), _)| u.eq(a) && v.eq(b)).expect(&format!("{u},{v}")).1
+        self.edges
+            .iter()
+            .find(|ColoredEdge(Edge(a, b), _)| u.eq(a) && v.eq(b))
+            .expect(&format!("{u},{v}"))
+            .1
     }
 
     fn triangles(&self, u: usize, v: usize, color: Color) -> i32 {
@@ -137,7 +163,9 @@ struct GraphPath {
 
 impl Path for GraphPath {
     fn new(action: usize) -> Self {
-        Self { actions: vec![action] }
+        Self {
+            actions: vec![action],
+        }
     }
 
     fn push(&mut self, action: usize) {
@@ -172,15 +200,17 @@ impl Prediction<GraphStateData, GraphRootData> for GraphPrediction {
     }
 
     fn new_data(&self, transitions: Vec<(usize, Self::R)>) -> (GraphStateData, Self::G) {
-        (GraphStateData::new(transitions.into_iter().map(|(i, r)| {
-            (i, r, 0.1)
-        }).collect()), 0.0)
+        (
+            GraphStateData::new(transitions.into_iter().map(|(i, r)| (i, r, 0.1)).collect()),
+            0.0,
+        )
     }
 
     fn new_root_data(&self, cost: Self::R, transitions: Vec<(usize, Self::R)>) -> GraphRootData {
-        GraphRootData::new(cost, transitions.into_iter().map(|(i, r)| {
-            (i, r, 0.1)
-        }).collect())
+        GraphRootData::new(
+            cost,
+            transitions.into_iter().map(|(i, r)| (i, r, 0.1)).collect(),
+        )
     }
 }
 struct GraphConfig;
@@ -229,16 +259,23 @@ impl BasicGraphLog {
     }
 
     fn new(root: &GraphState, _: &GraphPrediction) -> Self {
-        Self { graph: root.to_string(), root_cost: root.cost(), data: Default::default() }
+        Self {
+            graph: root.to_string(),
+            root_cost: root.cost(),
+            data: Default::default(),
+        }
     }
 }
 
 impl core::fmt::Display for BasicGraphLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { graph, data, root_cost } = self;
-        data.into_iter().try_for_each(|data| {
-            writeln!(f, "{graph} ({root_cost}){data}")
-        })
+        let Self {
+            graph,
+            data,
+            root_cost,
+        } = self;
+        data.into_iter()
+            .try_for_each(|data| writeln!(f, "{graph} ({root_cost}){data}"))
     }
 }
 
@@ -246,7 +283,9 @@ impl core::fmt::Display for BasicGraphLogData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self { transitions, end } = self;
         transitions.into_iter().try_for_each(|(a, r)| {
-            const E: &[&str] = &["0-1", "0-2", "1-2", "0-3", "1-3", "2-3", "0-4", "1-4", "2-4", "3-4"];
+            const E: &[&str] = &[
+                "0-1", "0-2", "1-2", "0-3", "1-3", "2-3", "0-4", "1-4", "2-4", "3-4",
+            ];
             write!(f, " -> {} ({r})", E[*a])
         })?;
         match end {
@@ -264,7 +303,13 @@ impl Log for BasicGraphLog {
     type R = i32;
     type T = Vec<(GraphPath, usize, i32)>;
     type G = f32;
-    fn add_transition_data(&mut self, a1: usize, r1: Self::R, transition: &Self::T, end: log::FinalStateData<Self::G>) {
+    fn add_transition_data(
+        &mut self,
+        a1: usize,
+        r1: Self::R,
+        transition: &Self::T,
+        end: log::FinalStateData<Self::G>,
+    ) {
         let transitions = transition.iter().map(|(_, a, r)| (a, r));
         let data = BasicGraphLogData::new(a1, r1, transitions, end);
         self.update(data);
@@ -273,8 +318,7 @@ impl Log for BasicGraphLog {
 
 fn main() {
     let model = GraphModel::new();
-    let mut trees: Vec<_> = 
-        (0..16)
+    let mut trees: Vec<_> = (0..16)
         .into_par_iter()
         .map(|_| GraphState::generate_random(10, &mut rand::thread_rng()))
         .map(|state| {
@@ -285,11 +329,9 @@ fn main() {
         })
         .collect();
     (0..25).for_each(|_| {
-        trees
-            .par_iter_mut()
-            .for_each(|(tree, ref mut log)| {
-                tree.simulate_once_and_update::<GraphConfig>(&model, log);
-            });
+        trees.par_iter_mut().for_each(|(tree, ref mut log)| {
+            tree.simulate_once_and_update::<GraphConfig>(&model, log);
+        });
     });
     for (_, log) in &trees {
         println!("{log}")

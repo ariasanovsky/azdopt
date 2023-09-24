@@ -132,6 +132,4 @@
 //     let best = tree.best();
 // }
 
-fn main() {
-    
-}
+fn main() {}
