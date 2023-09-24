@@ -158,8 +158,11 @@ impl<R, G> SortedActions for VRewardStateData<R, G> {
     type G = G;
     type A = VRewardActionData<R, G>;
 
-    fn best_action(&self) -> (usize, Self::R) {
-        todo!()
+    fn best_action(&self) -> (usize, Self::R)
+    where
+        R: Clone,
+    {
+        self.actions.first().map(|action| (action.0.action, action.0.reward.clone())).unwrap()
     }
 
     fn sort_actions(&mut self) {
@@ -168,12 +171,38 @@ impl<R, G> SortedActions for VRewardStateData<R, G> {
         });
     }
 
-    fn update_future_reward(&mut self, action: usize, reward: &Self::R) {
-        todo!()
+    fn update_future_reward(&mut self, action: usize, reward: &Self::R)
+    where
+        Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
+        Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
+        Self::A: UpperEstimate,
+    {
+        let (action_data, upper_estimate) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        action_data.frequency += 1;
+        action_data.future_reward_sum += reward;
+        *upper_estimate = action_data.upper_estimate(self.frequency);
+        self.sort_actions();
     }
 
-    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G) {
-        todo!()
+    fn update_futured_reward_and_expected_gain(&mut self, action: usize, reward: &Self::R, gain: &Self::G)
+    where
+        Self::R: for<'a> std::ops::AddAssign<&'a Self::R>,
+        Self::G: for<'a> std::ops::AddAssign<&'a Self::G>,
+        Self::A: UpperEstimate,
+    {
+        let (VRewardActionData {
+            action: _,
+            frequency,
+            probability: _,
+            reward: _,
+            future_reward_sum,
+            future_gain_estimate_sum,
+        }, _) = self.actions.iter_mut().find(|action_data| action_data.0.action == action).unwrap();
+        *frequency += 1;
+        *future_reward_sum += reward;
+        *future_gain_estimate_sum += gain;
+        self.sort_actions();
+        
     }
 }
 

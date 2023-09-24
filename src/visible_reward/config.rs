@@ -1,4 +1,4 @@
-use super::HasExpectedFutureGain;
+use super::{transitions::FinalState, log::FinalStateData};
 
 pub trait Config {
     type RootData;
@@ -9,6 +9,7 @@ pub trait Config {
     type Model;
     type Reward;
     type ExpectedFutureGain;
+    type Log;
     /* type VRewardTree = VisibleRewardTree<
         Self::State,
         Self::Path,
@@ -34,6 +35,14 @@ pub trait HasReward {
     type R;
 }
 
+pub trait HasModel {
+    type M;
+}
+
+pub trait HasExpectedFutureGain {
+    type G;
+}
+
 impl<C: Config> HasPrediction for C {
     type P = C::Prediction;
 }
@@ -44,6 +53,22 @@ impl<C: Config> HasReward for C {
 
 impl<C: Config> HasExpectedFutureGain for C {
     type G = C::ExpectedFutureGain;
+}
+
+impl<C: Config> HasModel for C {
+    type M = C::Model;
+}
+
+impl<C: Config> HasLog for C {
+    type L = C::Log;
+}
+
+pub trait HasEndNode {
+    type E;
+}
+
+impl<C: Config> HasEndNode for C {
+    type E = FinalStateData<C::ExpectedFutureGain>;
 }
 
 #[macro_export]

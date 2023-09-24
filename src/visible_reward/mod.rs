@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
 pub mod config;
+pub mod log;
 pub mod stats;
 pub mod transitions;
 
 use config::*;
 
-use self::{stats::{SortedActions, UpperEstimate}, transitions::{Transitions, FinalState}};
+use self::{stats::{SortedActions, UpperEstimate}, transitions::{Transitions, FinalState}, log::{Log, FinalStateData}};
 
 pub struct VRewardTree<S, P, D0, D> {
     pub root: S,
@@ -146,6 +147,50 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
         });
         self.root_data.update_futured_reward_and_expected_gain(first_action, &reward_sum, &evaluation);
     }
+
+    pub fn simulate_once_and_update<C>(&mut self, model: &C::M, log: &mut C::L)
+    where
+        C: HasReward,
+        C::R: Clone,
+        S: Clone + State<R = C::R>,
+        D0: SortedActions<R = C::R>,
+        P: Path + Clone + Ord,
+        D: SortedActions<R = C::R>,
+        C: HasReward,
+        C::R: Reward,
+        C::R: for<'a> core::ops::AddAssign<&'a C::R>,
+        C: HasExpectedFutureGain,
+        C::G: ExpectedFutureGain + Clone,
+        C::G: for<'a> core::ops::AddAssign<&'a C::G>,
+        P: Ord,
+        D: SortedActions<R = C::R, G = C::G>,
+        D0: SortedActions<R = C::R, G = C::G>,
+        D::A: UpperEstimate,
+        D0::A: UpperEstimate,
+        C: HasModel,
+        C: HasPrediction,
+        C::P: Prediction<D, D0, R = C::R, G = C::G>,
+        C::M: Model<S, P = C::P>,
+        C: HasLog + HasEndNode<E = FinalStateData<C::G>>,
+        C::L: Log<R = C::R, T = Vec<(P, usize, C::R)>, G = C::G>,
+    {
+        let transitions = self.simulate_once::<C>();
+        let Transitions { a1, r1, transitions, end } = transitions;
+        match end {
+            FinalState::Leaf(_, _) => {
+                // let trans = transitions.iter().map(|(_, a, r)| (a, r));
+                log.add_transition_data(a1, r1, &transitions, FinalStateData::Leaf);
+                self.update_with_transitions::<C>(a1, transitions);
+            },
+            FinalState::New(p, s) => {
+                let prediction = model.predict(&s);
+                log.add_transition_data(a1, r1, &transitions, FinalStateData::New(prediction.value().clone()));
+                let t = s.action_rewards();
+                let eval = self.insert::<C>(p, t, prediction);
+                self.update_with_transitions_and_evaluation::<C>(a1, transitions, eval)
+            }
+        }
+    }
 }
 
 pub trait Reward {
@@ -164,10 +209,6 @@ pub trait Prediction<D, D0> {
     fn value(&self) -> &Self::G;
     fn new_data(&self, transitions: Vec<(usize, Self::R)>) -> (D, Self::G);
     fn new_root_data(&self, cost: Self::R, transitions: Vec<(usize, Self::R)>) -> D0;
-}
-
-pub trait HasExpectedFutureGain {
-    type G;
 }
 
 pub trait ExpectedFutureGain {
