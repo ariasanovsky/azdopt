@@ -1,4 +1,4 @@
-use super::HasExpectedFutureGain;
+use super::log::FinalStateData;
 
 pub trait Config {
     type RootData;
@@ -9,15 +9,16 @@ pub trait Config {
     type Model;
     type Reward;
     type ExpectedFutureGain;
+    type Log;
     /* type VRewardTree = VisibleRewardTree<
         Self::State,
         Self::Path,
         Self::RootData,
         Self::StateData,
-    >; 
+    >;
     = note: see issue #29661 <https://github.com/rust-lang/rust/issues/29661> for more information
     = help: add `#![feature(associated_type_defaults)]` to the crate attributes to enable
-    
+
     For more information about this error, try `rustc --explain E0658`.
     */
 }
@@ -34,6 +35,14 @@ pub trait HasReward {
     type R;
 }
 
+pub trait HasModel {
+    type M;
+}
+
+pub trait HasExpectedFutureGain {
+    type G;
+}
+
 impl<C: Config> HasPrediction for C {
     type P = C::Prediction;
 }
@@ -44,6 +53,22 @@ impl<C: Config> HasReward for C {
 
 impl<C: Config> HasExpectedFutureGain for C {
     type G = C::ExpectedFutureGain;
+}
+
+impl<C: Config> HasModel for C {
+    type M = C::Model;
+}
+
+impl<C: Config> HasLog for C {
+    type L = C::Log;
+}
+
+pub trait HasEndNode {
+    type E;
+}
+
+impl<C: Config> HasEndNode for C {
+    type E = FinalStateData<C::ExpectedFutureGain>;
 }
 
 #[macro_export]
