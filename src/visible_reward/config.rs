@@ -1,4 +1,4 @@
-use super::{transitions::FinalState, log::FinalStateData};
+use super::log::FinalStateData;
 
 pub trait Config {
     type RootData;

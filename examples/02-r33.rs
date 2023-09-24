@@ -155,7 +155,7 @@ impl GraphModel {
 
 impl Model<GraphState> for GraphModel {
     type P = GraphPrediction;
-    fn predict(&self, state: &GraphState) -> Self::P {
+    fn predict(&self, _: &GraphState) -> Self::P {
         GraphPrediction
     }
 }
@@ -228,8 +228,8 @@ impl BasicGraphLog {
         self.data.push(data);
     }
 
-    fn new(state: &GraphState, pred: &GraphPrediction) -> Self {
-        Self { graph: state.to_string(), root_cost: state.cost(), data: Default::default() }
+    fn new(root: &GraphState, _: &GraphPrediction) -> Self {
+        Self { graph: root.to_string(), root_cost: root.cost(), data: Default::default() }
     }
 }
 
@@ -272,7 +272,7 @@ impl Log for BasicGraphLog {
 }
 
 fn main() {
-    let mut model = GraphModel::new();
+    let model = GraphModel::new();
     let mut trees: Vec<_> = 
         (0..16)
         .into_par_iter()
