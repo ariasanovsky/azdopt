@@ -232,7 +232,7 @@ type VSTree = VRewardTree!(GraphConfig);
 
 #[derive(Default)]
 struct BasicGraphLog {
-    graph: String,
+    root: String,
     root_cost: i32,
     data: Vec<BasicGraphLogData>,
 }
@@ -260,7 +260,7 @@ impl BasicGraphLog {
 
     fn new(root: &GraphState, _: &GraphPrediction) -> Self {
         Self {
-            graph: root.to_string(),
+            root: root.to_string(),
             root_cost: root.cost(),
             data: Default::default(),
         }
@@ -270,7 +270,7 @@ impl BasicGraphLog {
 impl core::fmt::Display for BasicGraphLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            graph,
+            root: graph,
             data,
             root_cost,
         } = self;
@@ -333,6 +333,10 @@ fn main() {
             tree.simulate_once_and_update::<GraphConfig>(&model, log);
         });
     });
+    // let observations = trees.into_iter().map(|(tree, log)| {
+    //     println!("{log}");
+    //     tree.observation()
+    // }).collect::<Vec<_>>();
     for (_, log) in &trees {
         println!("{log}")
     }
