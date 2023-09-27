@@ -2,7 +2,7 @@ use azopt::{
     visible_reward::{
         config::*,
         log::{FinalStateData, Log},
-        *,
+        *, model::Model,
     },
     VRewardRootData, VRewardStateData, VRewardTree,
 };
@@ -183,9 +183,14 @@ impl GraphModel {
 
 impl Model<GraphState> for GraphModel {
     type P = GraphPrediction;
+    type O = (GraphState, (Vec<(usize, f32)>, f32));
+    type L = ();
+
     fn predict(&self, _: &GraphState) -> Self::P {
         GraphPrediction
     }
+
+    fn update(&mut self, _: Vec<Self::O>) -> Self::L {}
 }
 
 type GraphRootData = VRewardRootData!(GraphConfig);
@@ -225,6 +230,7 @@ impl Config for GraphConfig {
     type Reward = i32;
     type ExpectedFutureGain = f32;
     type Log = BasicGraphLog;
+    // type Observation = GraphPrediction;
 }
 
 type VSTree = VRewardTree!(GraphConfig);
@@ -317,7 +323,7 @@ impl Log for BasicGraphLog {
 }
 
 fn main() {
-    let model = GraphModel::new();
+    let mut model = GraphModel::new();
     let mut trees: Vec<_> = (0..16)
         .into_par_iter()
         .map(|_| GraphState::generate_random(10, &mut rand::thread_rng()))
@@ -328,16 +334,14 @@ fn main() {
             (tree, log)
         })
         .collect();
-    (0..25).for_each(|_| {
+    (0..20).for_each(|_| {
         trees.par_iter_mut().for_each(|(tree, ref mut log)| {
             tree.simulate_once_and_update::<GraphConfig>(&model, log);
         });
     });
-    // let observations = trees.into_iter().map(|(tree, log)| {
-    //     println!("{log}");
-    //     tree.observation()
-    // }).collect::<Vec<_>>();
-    for (_, log) in &trees {
-        println!("{log}")
-    }
+    let observations: Vec<_> = trees.into_iter().map(|(tree, log)| {
+        println!("{log}");
+        tree.to_observation()
+    }).collect();
+    model.update(observations);
 }

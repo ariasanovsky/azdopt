@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 pub mod config;
 pub mod log;
+pub mod model;
 pub mod stats;
 pub mod transitions;
 
@@ -9,8 +10,8 @@ use config::*;
 
 use self::{
     log::{FinalStateData, Log},
-    stats::{SortedActions, UpperEstimate},
-    transitions::{FinalState, Transitions},
+    stats::{SortedActions, UpperEstimate, Observation},
+    transitions::{FinalState, Transitions}, model::Model,
 };
 
 pub struct VRewardTree<S, P, D0, D> {
@@ -217,15 +218,30 @@ impl<S, P, D0, D> VRewardTree<S, P, D0, D> {
             }
         }
     }
+
+    pub fn to_observation(self) -> (S, (Vec<(usize, f32)>, f32))
+    where
+        D0: Observation<O = (Vec<(usize, f32)>, f32)>,
+        D0::R: Reward + core::ops::AddAssign<D0::R>,
+        D0::G: ExpectedFutureGain + core::ops::AddAssign<D0::G>,
+    {
+        let Self { root, root_data, data: _ } = self;
+        let obs = root_data.to_observation();
+        (root, obs)
+    }
 }
 
 pub trait Reward {
     fn zero() -> Self;
+    fn to_f32(&self) -> f32;
 }
 
 impl Reward for i32 {
     fn zero() -> Self {
         0
+    }
+    fn to_f32(&self) -> f32 {
+        *self as f32
     }
 }
 
@@ -239,17 +255,16 @@ pub trait Prediction<D, D0> {
 
 pub trait ExpectedFutureGain {
     fn zero() -> Self;
+    fn to_f32(&self) -> f32;
 }
 
 impl ExpectedFutureGain for f32 {
     fn zero() -> Self {
         0.0
     }
-}
-
-pub trait Model<S> {
-    type P;
-    fn predict(&self, state: &S) -> Self::P;
+    fn to_f32(&self) -> f32 {
+        *self
+    }
 }
 
 pub trait State {

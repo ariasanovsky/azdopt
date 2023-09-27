@@ -10,6 +10,7 @@ pub trait Config {
     type Reward;
     type ExpectedFutureGain;
     type Log;
+    // type Observation;
     /* type VRewardTree = VisibleRewardTree<
         Self::State,
         Self::Path,
@@ -22,6 +23,14 @@ pub trait Config {
     For more information about this error, try `rustc --explain E0658`.
     */
 }
+
+// pub trait HasObservation {
+//     type O;
+// }
+
+// impl<C: Config> HasObservation for C {
+//     type O = C::Observation;
+// }
 
 pub trait HasPrediction {
     type P;
