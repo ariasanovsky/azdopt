@@ -1,7 +1,7 @@
-pub struct Transitions<R, P, S> {
+pub struct Transitions<P, S> {
     pub a1: usize,
-    pub r1: R,
-    pub transitions: Vec<(P, usize, R)>,
+    pub r1: f32,
+    pub transitions: Vec<(P, usize, f32)>,
     pub end: FinalState<P, S>,
 }
 
