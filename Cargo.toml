@@ -11,3 +11,7 @@ edition = "2021"
 dfdx = { version = "0.13.0", default-features = false, features = ["std", "fast-alloc", "cuda", "cudnn"]}
 rand = "0.8.5"
 rayon = "1.7.0"
+ramsey = { workspace = true }
+
+[workspace.dependencies]
+ramsey = { version = "0.1.0", path = "ramsey/" }

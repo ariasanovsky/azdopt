@@ -6,6 +6,8 @@ pub mod model;
 pub mod stats;
 pub mod transitions;
 
+pub mod ir_min_tree;
+
 use config::*;
 
 use self::{
@@ -14,6 +16,7 @@ use self::{
     transitions::{FinalState, Transitions}, model::Model,
 };
 
+#[derive(Debug)]
 pub struct IRTree<S, P, D0, D> {
     pub root: S,
     pub root_data: D0,

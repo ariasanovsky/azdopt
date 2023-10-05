@@ -75,11 +75,11 @@ impl VRewardStateData {
 
 #[derive(Debug)]
 pub struct VRewardActionData {
-    action: usize,
-    frequency: usize,
-    probability: f32,
-    reward: f32,
-    future_reward_sum: f32,
+    pub(crate) action: usize,
+    pub(crate) frequency: usize,
+    pub(crate) probability: f32,
+    pub(crate) reward: f32,
+    pub(crate) future_reward_sum: f32,
 }
 
 impl SortedActions for VRewardRootData {
