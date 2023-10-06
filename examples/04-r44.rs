@@ -6,8 +6,15 @@ use azopt::ir_tree::ir_min_tree::IRState;
 use azopt::ir_tree::transitions::Transitions;
 use bit_iter::BitIter;
 use dfdx::optim::Adam;
+use dfdx::prelude::Optimizer;
+use dfdx::prelude::ZeroGrads;
+use dfdx::prelude::cross_entropy_with_logits_loss;
+use dfdx::prelude::mse_loss;
 use dfdx::prelude::{Linear, ReLU, DeviceBuildExt, Module};
+use dfdx::shapes::HasShape;
+use dfdx::tensor::Trace;
 use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
+use dfdx::tensor_ops::Backward;
 use dfdx::tensor_ops::{AdamConfig, WeightDecay};
 use priority_queue::PriorityQueue;
 use ramsey::{ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, CliqueCounts, C, E, Color, N, EdgeRecoloring};
@@ -201,46 +208,118 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[PredictionVec; BATC
 }
 
 fn main() {
-    let states: [GraphState; BATCH] = GraphState::generate_batch(20);
-    let state_vecs: [StateVec; BATCH] = GraphState::generate_vecs(&states);
-    dbg!(state_vecs.get(0).unwrap());
+    const EPOCH: usize = 1;
+    const EPISODES: usize = 1;
     
     // set up model
     let dev = AutoDevice::default();
     let mut model = dev.build_module::<Architecture, f32>();
-    // let mut opt = Adam::new(
-    //     &model,
-    //     AdamConfig {
-    //         lr: 1e-2,
-    //         betas: [0.5, 0.25],
-    //         eps: 1e-6,
-    //         weight_decay: Some(WeightDecay::Decoupled(1e-2)),
-    //      }
-    // );
-
-    let state_tensor = dev.tensor(state_vecs);
-    let mut prediction_tensor = model.forward(state_tensor);
-    let mut predictions: [PredictionVec; BATCH] = prediction_tensor.array();
-    let mut trees: [Tree; BATCH] = plant_forest(&states, &predictions);
-
-    const EPOCH: usize = 1;
+    let mut opt = Adam::new(
+        &model,
+        AdamConfig {
+            lr: 1e-2,
+            betas: [0.5, 0.25],
+            eps: 1e-6,
+            weight_decay: Some(WeightDecay::Decoupled(1e-2)),
+         }
+    );
     
     (0..EPOCH).for_each(|epoch| {
-        const EPISODES: usize = 1;
+        let mut grads = model.alloc_grads();
+        let roots: [GraphState; BATCH] = GraphState::generate_batch(20);
+        let root_vecs: [StateVec; BATCH] = GraphState::generate_vecs(&roots);
+        dbg!(root_vecs.get(0).unwrap());
+        
+        let root_tensor = dev.tensor(root_vecs.clone());
+        let mut prediction_tensor = model.forward(root_tensor);
+        let mut predictions: [PredictionVec; BATCH] = prediction_tensor.array();
+        let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
+
+        
+        // play episodes
         (0..EPISODES).for_each(|episode| {
-            let transitions: [Trans; BATCH] = simulate_forest_once(&trees);
-            todo!()
+            let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) = simulate_forest_once(&trees);
+            let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
+            prediction_tensor = model.forward(dev.tensor(end_state_vecs));
+            predictions = prediction_tensor.array();
+            update_forest(&mut trees, &transitions, &end_states, &predictions);
         });
+        // backprop loss
+        let observations: [PredictionVec; BATCH] = forest_observations(&trees);
+        grads = {
+            let root_tensor = dev.tensor(root_vecs.clone());
+            let traced_predictions = model.forward(root_tensor.trace(grads));
+            let predicted_logits = traced_predictions.slice((0.., 0..ACTION));
+            assert_eq!(predicted_logits.shape(), &(BATCH, ACTION));
+            let observed_probabilities = dev.tensor(observations.clone());
+            let observed_probabilities_tensor = observed_probabilities.clone().slice((0.., 0..ACTION));
+            assert_eq!(predicted_logits.shape(), &(BATCH, ACTION));
+            let cross_entropy = cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor);
+            print!("{:10}\t", cross_entropy.array());
+            cross_entropy.backward()
+        };
+        grads = {
+            let root_tensor = dev.tensor(root_vecs.clone());
+            let traced_predictions = model.forward(root_tensor.trace(grads));
+            let predicted_values = traced_predictions.slice((0.., ACTION..));
+            assert_eq!(predicted_values.shape(), &(BATCH, 1));
+
+            let target_values = [[10.0f32; 1]; BATCH];
+            let target_values = dev.tensor(target_values.clone()).slice((0.., 0..));
+
+            let square_error = mse_loss(predicted_values, target_values);
+            println!("{}", square_error.array());
+            square_error.backward()
+        };
+        opt.update(&mut model, &grads).unwrap();
+        model.zero_grads(&mut grads);
     });
     todo!()
 }
 
-fn simulate_forest_once(trees: &[Tree; BATCH]) -> [Trans; BATCH] {
-    let transitions: [MaybeUninit<Trans>; BATCH] = unsafe {
+fn forest_observations(trees: &[Tree; BATCH]) -> [PredictionVec; BATCH] {
+    todo!()
+}
+
+fn update_forest(
+    trees: &mut [Tree; BATCH],
+    transitions: &[Trans; BATCH],
+    end_states: &[GraphState; BATCH],
+    predictions: &[PredictionVec; BATCH]
+) {
+    todo!()
+}
+
+fn state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
+    let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = unsafe {
+        let state_vecs: MaybeUninit<[StateVec; BATCH]> = MaybeUninit::uninit();
+        transmute(state_vecs)
+    };
+    state_vecs.par_iter_mut().zip_eq(states.par_iter()).for_each(|(v, s)| {
+        v.write(s.to_vec());
+    });
+    unsafe {
+        transmute(state_vecs)
+    }
+}
+
+fn simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
+    let mut transitions: [MaybeUninit<Trans>; BATCH] = unsafe {
         let transitions: MaybeUninit<[Trans; BATCH]> = MaybeUninit::uninit();
         transmute(transitions)
     };
-    todo!()
+    let mut state_vecs: [MaybeUninit<GraphState>; BATCH] = unsafe {
+        let state_vecs: MaybeUninit<[GraphState; BATCH]> = MaybeUninit::uninit();
+        transmute(state_vecs)
+    };
+    trees.par_iter().zip_eq(transitions.par_iter_mut()).zip_eq(state_vecs.par_iter_mut()).for_each(|((tree, t), s)| {
+        let (trans, state) = todo!();
+        t.write(trans);
+        s.write(state);
+    });
+    unsafe {
+        (transmute(transitions), transmute(state_vecs))
+    }
 }
 
 struct GraphPath;
