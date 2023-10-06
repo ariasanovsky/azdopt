@@ -1,15 +1,21 @@
 use core::mem::MaybeUninit;
-use core::{mem::transmute, array::from_fn};
+use core::mem::transmute;
 
+use azopt::ir_tree::ir_min_tree::IRMinTree;
+use azopt::ir_tree::ir_min_tree::IRState;
 use bit_iter::BitIter;
+use dfdx::optim::Adam;
+use dfdx::prelude::{Linear, ReLU, DeviceBuildExt, Module};
+use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
+use dfdx::tensor_ops::{AdamConfig, WeightDecay};
 use priority_queue::PriorityQueue;
 use ramsey::{ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, CliqueCounts, C, E, Color, N, EdgeRecoloring};
-use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
 
 const ACTION: usize = C * E;
 const BATCH: usize = 64;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct GraphState {
     colors: ColoredCompleteGraph,
     edges: MulticoloredGraphEdges,
@@ -81,21 +87,149 @@ impl GraphState {
     }
 
     fn generate_batch(t: usize) -> [Self; BATCH] {
-        let mut graphs: [MaybeUninit<Self>; BATCH] = unsafe {
+        let mut states: [MaybeUninit<Self>; BATCH] = unsafe {
             MaybeUninit::uninit().assume_init()
         };
-        graphs.par_iter_mut().for_each(|g| {
-            g.write(GraphState::generate_random(t, &mut rand::thread_rng()));
+        states.par_iter_mut().for_each(|s| {
+            s.write(GraphState::generate_random(t, &mut rand::thread_rng()));
         });
         unsafe {
-            transmute(graphs)
+            transmute(states)
         }
+    }
+
+    fn generate_vecs(states: &[Self; BATCH]) -> [StateVec; BATCH] {
+        let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = unsafe {
+            MaybeUninit::uninit().assume_init()
+        };
+        states.par_iter().zip(state_vecs.par_iter_mut()).for_each(|(s, v)| {
+            v.write(s.to_vec());
+        });
+        unsafe {
+            transmute(state_vecs)
+        }
+    }
+
+    fn to_vec(&self) -> StateVec {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: MulticoloredGraphEdges(edges),
+            neighborhoods: _,
+            available_actions,
+            ordered_actions: OrderedEdgeRecolorings(ordered_actions),
+            counts: CliqueCounts(counts),
+            time_remaining,
+        } = self;
+        let edge_iter = edges.iter().flatten().map(|b| {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        });
+        let count_iter = counts.iter().flatten().map(|c| *c as f32);
+        let action_iter = available_actions.iter().flatten().map(|a| {
+            if *a {
+                1.0
+            } else {
+                0.0
+            }
+        });
+        let time_iter = Some(*time_remaining as f32).into_iter();
+        let state_iter = edge_iter.chain(count_iter).chain(action_iter).chain(time_iter);
+        let mut state_vec: StateVec = [0.0; STATE];
+        state_vec.iter_mut().zip(state_iter).for_each(|(v, s)| {
+            *v = s;
+        });
+        state_vec
     }
 }
 
+impl IRState for GraphState {
+    fn cost(&self) -> f32 {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: _,
+            neighborhoods: _,
+            available_actions: _,
+            ordered_actions: _,
+            counts: CliqueCounts(counts),
+            time_remaining: _,
+        } = self;
+        let count = colors.iter().enumerate().map(|(i, c)| {
+            let Color(c) = c;
+            counts[*c][i]
+        }).sum::<i32>();
+        count as f32
+    }
 
+    fn action_rewards(&self) -> Vec<(usize, f32)> {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: _,
+            neighborhoods: _,
+            available_actions: _,
+            ordered_actions: OrderedEdgeRecolorings(ordered_actions),
+            counts: _,
+            time_remaining: _,
+        } = self;
+        ordered_actions.iter().map(|(recolor, reward)| {
+            let EdgeRecoloring { new_color, edge_position } = recolor;
+            let action_index = new_color * E + edge_position;
+            (action_index, *reward as f32)
+        }).collect()
+    }
+}
+
+const STATE: usize = 6 * E + 1;
+type StateVec = [f32; STATE];
+type PredictionVec = [f32; PREDICTION];
+type Tree = IRMinTree<GraphState>;
+
+fn plant_forest(states: &[GraphState; BATCH], predictions: &[PredictionVec; BATCH]) -> [Tree; BATCH] {
+    let mut trees: [MaybeUninit<Tree>; BATCH] = unsafe {
+        let trees: MaybeUninit<[Tree; BATCH]> = MaybeUninit::uninit();
+        transmute(trees)
+    };
+    trees.par_iter_mut().zip_eq(states.par_iter().zip_eq(predictions.par_iter())).for_each(|(t, (s, p))| {
+        t.write(IRMinTree::new(s, p));
+    });
+    unsafe {
+        transmute(trees)
+    }
+}
 
 fn main() {
-    let graphs: [GraphState; BATCH] = GraphState::generate_batch(20);
-    dbg!(&graphs[0]);
+    let states: [GraphState; BATCH] = GraphState::generate_batch(20);
+    let state_vecs: [StateVec; BATCH] = GraphState::generate_vecs(&states);
+    dbg!(state_vecs.get(0).unwrap());
+    
+    // set up model
+    let dev = AutoDevice::default();
+    let mut model = dev.build_module::<Architecture, f32>();
+    // let mut opt = Adam::new(
+    //     &model,
+    //     AdamConfig {
+    //         lr: 1e-2,
+    //         betas: [0.5, 0.25],
+    //         eps: 1e-6,
+    //         weight_decay: Some(WeightDecay::Decoupled(1e-2)),
+    //      }
+    // );
+
+    let state_tensor = dev.tensor(state_vecs);
+    let mut prediction_tensor = model.forward(state_tensor);
+    let mut predictions: [PredictionVec; BATCH] = prediction_tensor.array();
+    let mut trees: [Tree; BATCH] = plant_forest(&states, &predictions);
+    todo!()
 }
+
+const HIDDEN_1: usize = 256;
+const HIDDEN_2: usize = 128;
+const PREDICTION: usize = ACTION + 1;
+
+type Architecture = (
+    (Linear<STATE, HIDDEN_1>, ReLU),
+    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
+    Linear<HIDDEN_2, PREDICTION>,
+);

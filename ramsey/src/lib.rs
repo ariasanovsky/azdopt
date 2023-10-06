@@ -6,29 +6,29 @@ pub const N: usize = 17;
 pub const E: usize = N * (N - 1) / 2;
 pub const C: usize = 2;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Color(pub usize);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ColoredCompleteGraph(pub [Color; E]);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MulticoloredGraphEdges(pub [[bool; E]; C]);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MulticoloredGraphNeighborhoods(pub [[u32; N]; C]);
 
 #[derive(Hash, PartialEq, Eq)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EdgeRecoloring {
     pub new_color: usize,
     pub edge_position: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OrderedEdgeRecolorings(pub PriorityQueue<EdgeRecoloring, i32>);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CliqueCounts(pub [[i32; E]; 2]);
 
 #[derive(Debug, Clone)]

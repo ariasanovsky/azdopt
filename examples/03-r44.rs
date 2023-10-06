@@ -179,11 +179,11 @@ fn main() {
     });
     
     (0..1000).for_each(|_| {
-        let leaves_tensor = dev.tensor(leaves.clone());
+        let leaf_tensor = dev.tensor(leaves.clone());
         let mut grads = model.alloc_grads();
         grads = {
-            let core_tensor = model.forward(leaves_tensor.trace(grads));
-            let predicted_logits: Tensor<(usize, usize), f32, Cuda, OwnedTape<f32, Cuda>> = core_tensor.slice((0.., 0..ACTION));
+            let prediction_tensor = model.forward(leaf_tensor.trace(grads));
+            let predicted_logits: Tensor<(usize, usize), f32, Cuda, OwnedTape<f32, Cuda>> = prediction_tensor.slice((0.., 0..ACTION));
             assert_eq!(predicted_logits.shape(), &(64, 272));
 
             let p: f32 = (ACTION as f32).recip();
@@ -195,7 +195,7 @@ fn main() {
             cross_entropy.backward()
         };
         grads = {
-            let core_tensor = model.forward(leaves_tensor.trace(grads));
+            let core_tensor = model.forward(leaf_tensor.trace(grads));
             let predicted_values: Tensor<(usize, usize), f32, Cuda, OwnedTape<f32, Cuda>> = core_tensor.slice((0.., ACTION..));
             assert_eq!(predicted_values.shape(), &(64, 1));
 
