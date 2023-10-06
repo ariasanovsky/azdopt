@@ -3,6 +3,7 @@ use core::mem::transmute;
 
 use azopt::ir_tree::ir_min_tree::IRMinTree;
 use azopt::ir_tree::ir_min_tree::IRState;
+use azopt::ir_tree::transitions::Transitions;
 use bit_iter::BitIter;
 use dfdx::optim::Adam;
 use dfdx::prelude::{Linear, ReLU, DeviceBuildExt, Module};
@@ -221,8 +222,29 @@ fn main() {
     let mut prediction_tensor = model.forward(state_tensor);
     let mut predictions: [PredictionVec; BATCH] = prediction_tensor.array();
     let mut trees: [Tree; BATCH] = plant_forest(&states, &predictions);
+
+    const EPOCH: usize = 1;
+    
+    (0..EPOCH).for_each(|epoch| {
+        const EPISODES: usize = 1;
+        (0..EPISODES).for_each(|episode| {
+            let transitions: [Trans; BATCH] = simulate_forest_once(&trees);
+            todo!()
+        });
+    });
     todo!()
 }
+
+fn simulate_forest_once(trees: &[Tree; BATCH]) -> [Trans; BATCH] {
+    let transitions: [MaybeUninit<Trans>; BATCH] = unsafe {
+        let transitions: MaybeUninit<[Trans; BATCH]> = MaybeUninit::uninit();
+        transmute(transitions)
+    };
+    todo!()
+}
+
+struct GraphPath;
+type Trans = Transitions<GraphPath, GraphState>;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
