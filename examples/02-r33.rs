@@ -1,10 +1,10 @@
 use azopt::{
-    visible_reward::{
+    ir_tree::{
         config::*,
         log::{FinalStateData, Log},
-        *,
+        *, model::Model, stats::{VRewardRootData, VRewardStateData},
     },
-    VRewardRootData, VRewardStateData, VRewardTree,
+    VRewardTree,
 };
 use rayon::prelude::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
@@ -42,8 +42,6 @@ impl core::fmt::Display for GraphState {
 }
 
 impl State for GraphState {
-    type R = i32;
-
     fn is_terminal(&self) -> bool {
         self.time_remaining == 0
     }
@@ -61,7 +59,7 @@ impl State for GraphState {
         self.time_remaining -= 1;
     }
 
-    fn cost(&self) -> Self::R {
+    fn cost(&self) -> f32 {
         let mut cost = 0;
         for w in 0..5 {
             for v in 0..w {
@@ -75,10 +73,10 @@ impl State for GraphState {
                 }
             }
         }
-        cost
+        cost as f32
     }
 
-    fn action_rewards(&self) -> Vec<(usize, Self::R)> {
+    fn action_rewards(&self) -> Vec<(usize, f32)> {
         self.edges
             .iter()
             .enumerate()
@@ -94,7 +92,7 @@ impl State for GraphState {
                     match c {
                         Color::Red => red_triangles - blue_triangles,
                         Color::Blue => blue_triangles - red_triangles,
-                    },
+                    } as f32,
                 )
             })
             .collect()
@@ -183,30 +181,32 @@ impl GraphModel {
 
 impl Model<GraphState> for GraphModel {
     type P = GraphPrediction;
+    type O = (GraphState, (Vec<(usize, f32)>, f32));
+    type L = ();
+
     fn predict(&self, _: &GraphState) -> Self::P {
         GraphPrediction
     }
+
+    fn update(&mut self, _: Vec<Self::O>) -> Self::L {}
 }
 
-type GraphRootData = VRewardRootData!(GraphConfig);
-type GraphStateData = VRewardStateData!(GraphConfig);
+type GraphRootData = VRewardRootData;
+type GraphStateData = VRewardStateData;
 
 impl Prediction<GraphStateData, GraphRootData> for GraphPrediction {
-    type G = f32;
-    type R = i32;
-
-    fn value(&self) -> &Self::G {
+    fn value(&self) -> &f32 {
         &0.0
     }
 
-    fn new_data(&self, transitions: Vec<(usize, Self::R)>) -> (GraphStateData, Self::G) {
+    fn new_data(&self, transitions: Vec<(usize, f32)>) -> (GraphStateData, f32) {
         (
             GraphStateData::new(transitions.into_iter().map(|(i, r)| (i, r, 0.1)).collect()),
             0.0,
         )
     }
 
-    fn new_root_data(&self, cost: Self::R, transitions: Vec<(usize, Self::R)>) -> GraphRootData {
+    fn new_root_data(&self, cost: f32, transitions: Vec<(usize, f32)>) -> GraphRootData {
         GraphRootData::new(
             cost,
             transitions.into_iter().map(|(i, r)| (i, r, 0.1)).collect(),
@@ -222,34 +222,36 @@ impl Config for GraphConfig {
     type Path = GraphPath;
     type State = GraphState;
     type Model = GraphModel;
-    type Reward = i32;
-    type ExpectedFutureGain = f32;
     type Log = BasicGraphLog;
 }
 
 type VSTree = VRewardTree!(GraphConfig);
-// type VSTree = <GraphConfig as ToVisibleRewardTree>::VRewardTree;
 
 #[derive(Default)]
 struct BasicGraphLog {
-    graph: String,
-    root_cost: i32,
+    root: String,
+    root_cost: f32,
     data: Vec<BasicGraphLogData>,
 }
 
 struct BasicGraphLogData {
-    pub transitions: Vec<(usize, i32)>,
-    pub end: FinalStateData<f32>,
+    pub actions_and_costs: Vec<(usize, f32)>,
+    pub end: FinalStateData,
 }
 
 impl BasicGraphLogData {
-    fn new<'a, I>(a1: usize, r1: i32, next_transitions: I, end: FinalStateData<f32>) -> Self
+    fn new<'a, I>(root_cost: f32, a1: usize, r1: f32, next_transitions: I, end: FinalStateData) -> Self
     where
-        I: Iterator<Item = (&'a usize, &'a i32)>,
+        I: Iterator<Item = (&'a usize, &'a f32)>,
     {
-        let mut transitions = vec![(a1, r1)];
-        transitions.extend(next_transitions.map(|(a, r)| (*a, *r)));
-        Self { transitions, end }
+        let mut cost = root_cost;
+        cost += r1;
+        let mut actions_and_costs = vec![(a1, cost)];
+        actions_and_costs.extend(next_transitions.map(|(a, r)| {
+            cost += r;
+            (*a, cost)
+        }));
+        Self { actions_and_costs, end }
     }
 }
 
@@ -260,7 +262,7 @@ impl BasicGraphLog {
 
     fn new(root: &GraphState, _: &GraphPrediction) -> Self {
         Self {
-            graph: root.to_string(),
+            root: root.to_string(),
             root_cost: root.cost(),
             data: Default::default(),
         }
@@ -270,7 +272,7 @@ impl BasicGraphLog {
 impl core::fmt::Display for BasicGraphLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            graph,
+            root: graph,
             data,
             root_cost,
         } = self;
@@ -281,7 +283,7 @@ impl core::fmt::Display for BasicGraphLog {
 
 impl core::fmt::Display for BasicGraphLogData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { transitions, end } = self;
+        let Self { actions_and_costs: transitions, end } = self;
         transitions.into_iter().try_for_each(|(a, r)| {
             const E: &[&str] = &[
                 "0-1", "0-2", "1-2", "0-3", "1-3", "2-3", "0-4", "1-4", "2-4", "3-4",
@@ -290,7 +292,7 @@ impl core::fmt::Display for BasicGraphLogData {
         })?;
         match end {
             FinalStateData::Leaf => write!(f, " -> Leaf"),
-            FinalStateData::New(g) => write!(f, " -> New({g})"),
+            FinalStateData::New { final_reward } => write!(f, " -> New({final_reward})"),
             // FinalStateData:Leaf => write!(f, " -> Leaf"),
             // FinalState::New(_, _) => write!(f, " -> New"),
             // BasicGraphLogEnd::Leaf => write!(f, " -> Leaf"),
@@ -300,24 +302,22 @@ impl core::fmt::Display for BasicGraphLogData {
 }
 
 impl Log for BasicGraphLog {
-    type R = i32;
-    type T = Vec<(GraphPath, usize, i32)>;
-    type G = f32;
+    type T = Vec<(GraphPath, usize, f32)>;
     fn add_transition_data(
         &mut self,
         a1: usize,
-        r1: Self::R,
+        r1: f32,
         transition: &Self::T,
-        end: log::FinalStateData<Self::G>,
+        end: log::FinalStateData,
     ) {
         let transitions = transition.iter().map(|(_, a, r)| (a, r));
-        let data = BasicGraphLogData::new(a1, r1, transitions, end);
+        let data = BasicGraphLogData::new(self.root_cost, a1, r1, transitions, end);
         self.update(data);
     }
 }
 
 fn main() {
-    let model = GraphModel::new();
+    let mut model = GraphModel::new();
     let mut trees: Vec<_> = (0..16)
         .into_par_iter()
         .map(|_| GraphState::generate_random(10, &mut rand::thread_rng()))
@@ -328,12 +328,16 @@ fn main() {
             (tree, log)
         })
         .collect();
-    (0..25).for_each(|_| {
+    (0..20).for_each(|_| {
         trees.par_iter_mut().for_each(|(tree, ref mut log)| {
             tree.simulate_once_and_update::<GraphConfig>(&model, log);
         });
     });
-    for (_, log) in &trees {
-        println!("{log}")
-    }
+    let observations: Vec<_> = trees.into_iter().map(|(tree, log)| {
+        println!("{log}");
+        let o = tree.to_observation();
+        // dbg!(&o);
+        o
+    }).collect();
+    model.update(observations);
 }

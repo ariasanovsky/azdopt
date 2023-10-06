@@ -1,17 +1,15 @@
 pub trait Log {
-    type R;
     type T;
-    type G;
     fn add_transition_data(
         &mut self,
         a1: usize,
-        r1: Self::R,
+        r1: f32,
         transition: &Self::T,
-        end: FinalStateData<Self::G>,
+        end: FinalStateData,
     );
 }
 
-pub enum FinalStateData<G> {
+pub enum FinalStateData {
     Leaf,
-    New(G),
+    New{ final_reward: f32 },
 }

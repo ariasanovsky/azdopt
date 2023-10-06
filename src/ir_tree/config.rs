@@ -7,9 +7,10 @@ pub trait Config {
     type Path;
     type State;
     type Model;
-    type Reward;
-    type ExpectedFutureGain;
+    // type Reward;
+    // type ExpectedFutureGain;
     type Log;
+    // type Observation;
     /* type VRewardTree = VisibleRewardTree<
         Self::State,
         Self::Path,
@@ -23,6 +24,14 @@ pub trait Config {
     */
 }
 
+// pub trait HasObservation {
+//     type O;
+// }
+
+// impl<C: Config> HasObservation for C {
+//     type O = C::Observation;
+// }
+
 pub trait HasPrediction {
     type P;
 }
@@ -31,28 +40,12 @@ pub trait HasLog {
     type L;
 }
 
-pub trait HasReward {
-    type R;
-}
-
 pub trait HasModel {
     type M;
 }
 
-pub trait HasExpectedFutureGain {
-    type G;
-}
-
 impl<C: Config> HasPrediction for C {
     type P = C::Prediction;
-}
-
-impl<C: Config> HasReward for C {
-    type R = C::Reward;
-}
-
-impl<C: Config> HasExpectedFutureGain for C {
-    type G = C::ExpectedFutureGain;
 }
 
 impl<C: Config> HasModel for C {
@@ -68,17 +61,17 @@ pub trait HasEndNode {
 }
 
 impl<C: Config> HasEndNode for C {
-    type E = FinalStateData<C::ExpectedFutureGain>;
+    type E = FinalStateData;
 }
 
 #[macro_export]
 macro_rules! VRewardTree {
     ($config:ty) => {
-        $crate::visible_reward::VRewardTree<
-            <$config as $crate::visible_reward::config::Config>::State,
-            <$config as $crate::visible_reward::config::Config>::Path,
-            <$config as $crate::visible_reward::config::Config>::RootData,
-            <$config as $crate::visible_reward::config::Config>::StateData,
+        $crate::ir_tree::IRTree<
+            <$config as $crate::ir_tree::config::Config>::State,
+            <$config as $crate::ir_tree::config::Config>::Path,
+            <$config as $crate::ir_tree::config::Config>::RootData,
+            <$config as $crate::ir_tree::config::Config>::StateData,
         >
     };
 }
