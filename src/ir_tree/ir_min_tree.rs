@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ir_tree::stats::SortedActions;
 
@@ -116,7 +116,7 @@ impl<S> IRMinTree<S> {
             the target to optimize is g^*(s)
         */
         assert_eq!(gain_prediction.len(), 1);
-        let mut approximate_gain_to_terminal = if *reached_terminal {
+        let mut approximate_gain_to_terminal = if *reached_terminal || true { // todo!(fix the gain sum)
             0.0f32
         } else {
             0.0f32.max(*gain_prediction.first().unwrap())
@@ -137,17 +137,43 @@ impl<S> IRMinTree<S> {
         root_data.update_future_reward(*first_action, &approximate_gain_to_terminal);
     }
 
-    pub fn observations(&self) -> Vec<f32> {
+    pub fn observations(&self) -> Vec<f32>
+    where
+        S: IRState,
+    {
         let Self {
             root: _,
             root_data,
             data: _,
         } = self;
-        todo!()
+        let VRewardRootData {
+            cost,
+            frequency,
+            actions,
+        } = root_data;
+        dbg!(cost);
+        let mut gain_sum = 0.0;
+        let mut observations = vec![0.0; S::ACTION + 1];
+        actions.iter().for_each(|(a, _)| {
+            let VRewardActionData {
+                action,
+                frequency: action_frequency,
+                probability: _,
+                reward,
+                future_reward_sum,
+            } = a;
+            gain_sum += *reward;
+            gain_sum += *future_reward_sum;
+            *observations.get_mut(*action).unwrap() = *action_frequency as f32 / *frequency as f32;
+        });
+        dbg!(gain_sum);
+        *observations.last_mut().unwrap() = gain_sum / *frequency as f32;
+        observations
     }
 }
 
 pub trait IRState {
+    const ACTION: usize;
     fn cost(&self) -> f32;
     fn action_rewards(&self) -> Vec<(usize, f32)>;
     fn act(&mut self, action: usize);

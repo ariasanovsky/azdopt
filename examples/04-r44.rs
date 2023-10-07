@@ -22,7 +22,7 @@ use ramsey::{ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeig
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
 
 const ACTION: usize = C * E;
-const BATCH: usize = 64;
+const BATCH: usize = 1;
 
 #[derive(Clone, Debug)]
 struct GraphState {
@@ -155,6 +155,7 @@ impl GraphState {
 }
 
 impl IRState for GraphState {
+    const ACTION: usize = ACTION;
     fn cost(&self) -> f32 {
         let Self {
             colors: ColoredCompleteGraph(colors),
@@ -402,7 +403,7 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[PredictionVec; BATC
 
 fn main() {
     const EPOCH: usize = 1;
-    const EPISODES: usize = 1;
+    const EPISODES: usize = 10;
     
     // set up model
     let dev = AutoDevice::default();
