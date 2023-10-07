@@ -3,7 +3,7 @@ use core::mem::transmute;
 
 use azopt::ir_tree::ir_min_tree::IRMinTree;
 use azopt::ir_tree::ir_min_tree::IRState;
-use azopt::ir_tree::transitions::Transitions;
+use azopt::ir_tree::ir_min_tree::Transitions;
 use bit_iter::BitIter;
 use dfdx::optim::Adam;
 use dfdx::prelude::Optimizer;
@@ -16,6 +16,7 @@ use dfdx::tensor::Trace;
 use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
 use dfdx::tensor_ops::Backward;
 use dfdx::tensor_ops::{AdamConfig, WeightDecay};
+use itertools::Itertools;
 use priority_queue::PriorityQueue;
 use ramsey::{ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, CliqueCounts, C, E, Color, N, EdgeRecoloring};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
@@ -187,6 +188,184 @@ impl IRState for GraphState {
             (action_index, *reward as f32)
         }).collect()
     }
+
+    fn act(&mut self, action: usize) {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: MulticoloredGraphEdges(edges),
+            neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
+            available_actions,
+            ordered_actions: OrderedEdgeRecolorings(ordered_actions),
+            counts: CliqueCounts(counts),
+            time_remaining,
+        } = self;
+        let new_uv_color = action / E;
+        let edge_position = action % E;
+        let Color(old_uv_color) = &mut colors[edge_position];
+        let (u, v) = edge_from_position(edge_position);
+        /* when does k(xy, c) change?
+            necessarily, c is either old_color or new_color
+            k(uv, c) never changes
+            k(uw, c) and k(vw, c) may change
+            k(wx, c) may also change
+        */
+
+        /* when does k = k(uw, c_old) change? (w != u, v)
+            k counts the number of quadruples Q = {u, w, x, y} s.t.
+                G_{c_old}[Q] + {uw} is a clique
+            with this recoloring, Q is no longer a clique iff
+                Q = {u, w, v, x} for some x
+                w is in N_{c_old}(v) \ {u}
+                x is in N_{c_old}(u) & N_{c_old}(w) & (N_{c_old}(v) \ {u})
+                since x is not in N_c(u), we may omit the `\ {u}`'s if we wish
+        */
+        // after updating the counts, we update all affected values of r(xy, c)
+        // r(uv, c) is unaffected (in fact, these values are removed)
+        // we store which edges wx have an affected column and update them later
+        // todo!() this can be optimized by only updating the affected columns within the iterator
+        let mut affected_count_columns: Vec<usize> = vec![];
+
+        let old_neigh_v = neighborhoods[*old_uv_color][v];
+        let old_neigh_u = neighborhoods[*old_uv_color][u];
+        let old_neigh_uv = old_neigh_u & old_neigh_v;
+        
+        BitIter::from(old_neigh_v).for_each(|w| {
+            let old_neigh_w = neighborhoods[*old_uv_color][w];
+            let old_neigh_uvw = old_neigh_uv & old_neigh_w;
+            let k_uw_old_decrease = old_neigh_uvw.count_ones();
+            if k_uw_old_decrease != 0 {
+                // decrease k(uw, c_uv_old)
+                let uw_position = edge_to_position(u, w);
+                counts[*old_uv_color][uw_position] -= k_uw_old_decrease as i32;
+                /* when does r = r(e, c) change?
+                    consider r(e, c) = k(e, c_e) - k(e, c)
+                        here, c_e is the current color of e
+                        r(e, c) is only defined when c_e != c
+                    w.l.o.g., e = uw
+                    Case I: c_uw = c_uv_old
+                        r(uw, c) = k(uw, c_uv_old) - k(uw, c)
+                        assumes that c != c_uv_old
+                        so r(uw, c) deecreases by the same decrease to k(uw, c_uv_old)
+                    Case II: c_uw
+                        todo!("adjust all affected values of r(uw, c)")
+                */
+                affected_count_columns.push(uw_position);
+            }
+        });
+        BitIter::from(old_neigh_u).for_each(|w| {
+            let old_neigh_w = neighborhoods[*old_uv_color][w];
+            let old_neigh_uvw = old_neigh_uv & old_neigh_w;
+            let k_vw_old_decrease = old_neigh_uvw.count_ones();
+            if k_vw_old_decrease != 0 {
+                // decrease k(vw, c_old)
+                let vw_position = edge_to_position(v, w);
+                counts[*old_uv_color][vw_position] -= k_vw_old_decrease as i32;
+                // todo!("adjust all affected values of r(vw, c)")
+                affected_count_columns.push(vw_position);
+            }
+        });
+        /* when does k = k(wx, c_old) change? (w, x != u, v)
+            k counts the number of quadruples Q = {w, x, u', v'} s.t.
+                G_{c_old}[Q] + {wx} is a clique
+            with this recoloring, Q is no longer a clique iff
+                Q = {w, x, u, v}
+                w, x are in N_{c_old}(u) & N_{c_old}(v)
+        */
+        BitIter::from(old_neigh_uv).tuple_combinations().for_each(|(w, x)| {
+            let wx_position = edge_to_position(w, x);
+            counts[*old_uv_color][wx_position] -= 1;
+            // todo!("adjust all affected values of r(wx, c)")
+            affected_count_columns.push(wx_position);
+        });
+
+        let new_neigh_v = neighborhoods[new_uv_color][v];
+        let new_neigh_u = neighborhoods[new_uv_color][u];
+        let new_neigh_uv = new_neigh_u & new_neigh_v;
+        
+        BitIter::from(new_neigh_v).for_each(|w| {
+            let new_neigh_w = neighborhoods[new_uv_color][w];
+            let new_neigh_uvw = new_neigh_uv & new_neigh_w;
+            let k_uw_new_increase = new_neigh_uvw.count_ones();
+            if k_uw_new_increase != 0 {
+                // decrease k(uw, c_uv_old)
+                let uw_position = edge_to_position(u, w);
+                counts[new_uv_color][uw_position] -= k_uw_new_increase as i32;
+                /* when does r = r(e, c) change?
+                    consider r(e, c) = k(e, c_e) - k(e, c)
+                        here, c_e is the current color of e
+                        r(e, c) is only defined when c_e != c
+                    w.l.o.g., e = uw
+                    Case I: c_uw = c_uv_old
+                        r(uw, c) = k(uw, c_uv_old) - k(uw, c)
+                        assumes that c != c_uv_old
+                        so r(uw, c) deecreases by the same decrease to k(uw, c_uv_old)
+                    Case II: c_uw
+                        todo!("adjust all affected values of r(uw, c)")
+                */
+                affected_count_columns.push(uw_position);
+            }
+        });
+        BitIter::from(new_neigh_u).for_each(|w| {
+            let new_neigh_w = neighborhoods[new_uv_color][w];
+            let new_neigh_uvw = new_neigh_uv & new_neigh_w;
+            let k_vw_new_increase = new_neigh_uvw.count_ones();
+            if k_vw_new_increase != 0 {
+                // decrease k(vw, c_old)
+                let vw_position = edge_to_position(v, w);
+                counts[new_uv_color][vw_position] -= k_vw_new_increase as i32;
+                // todo!("adjust all affected values of r(vw, c)")
+                affected_count_columns.push(vw_position);
+            }
+        });
+        /* when does k = k(wx, c_old) change? (w, x != u, v)
+            k counts the number of quadruples Q = {w, x, u', v'} s.t.
+                G_{c_old}[Q] + {wx} is a clique
+            with this recoloring, Q is no longer a clique iff
+                Q = {w, x, u, v}
+                w, x are in N_{c_old}(u) & N_{c_old}(v)
+        */
+        BitIter::from(new_neigh_uv).tuple_combinations().for_each(|(w, x)| {
+            let wx_position = edge_to_position(w, x);
+            counts[new_uv_color][wx_position] -= 1;
+            // todo!("adjust all affected values of r(wx, c)")
+            affected_count_columns.push(wx_position);
+        });
+
+        affected_count_columns.into_iter().for_each(|wx_position| {
+            let Color(wx_color) = colors[wx_position];
+            let old_count = counts[wx_color][wx_position];
+            // update r(wx, c) for all c != wx_color
+            (0..C).for_each(|c| {
+                let reward = old_count - counts[c][wx_position];
+                let recoloring = EdgeRecoloring { new_color: c, edge_position: wx_position };
+                let reward = ordered_actions.change_priority(&recoloring, reward);
+                // todo!("update all affected count columns");
+            });
+        });
+
+        // todo!("update colors");
+        colors[edge_position] = Color(new_uv_color);
+        todo!("update edges");
+        todo!("update neighborhoods");
+        todo!("update available_actions");
+        // todo!("update ordered_actions");
+        todo!("remove uv actions from ordered_actions");
+        // todo!("update counts");
+        todo!("update time_remaining");
+    }
+
+    fn is_terminal(&self) -> bool {
+        let Self {
+            colors: _,
+            edges: _,
+            neighborhoods: _,
+            available_actions: _,
+            ordered_actions: _,
+            counts: _,
+            time_remaining,
+        } = self;
+        *time_remaining == 0
+    }
 }
 
 const STATE: usize = 6 * E + 1;
@@ -313,7 +492,7 @@ fn simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; 
         transmute(state_vecs)
     };
     trees.par_iter().zip_eq(transitions.par_iter_mut()).zip_eq(state_vecs.par_iter_mut()).for_each(|((tree, t), s)| {
-        let (trans, state) = todo!();
+        let (trans, state) = tree.simulate_once();
         t.write(trans);
         s.write(state);
     });
@@ -322,8 +501,7 @@ fn simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; 
     }
 }
 
-struct GraphPath;
-type Trans = Transitions<GraphPath, GraphState>;
+type Trans = Transitions;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
@@ -334,3 +512,58 @@ type Architecture = (
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     Linear<HIDDEN_2, PREDICTION>,
 );
+
+/* edges are enumerated in colex order:
+    [0] 01  [1] 02  [3] 03
+            [2] 12  [4] 13
+                    [5] 23
+*/
+fn edge_from_position(position: usize) -> (usize, usize) {
+    /* note the positions
+        {0, 1}: 0 = (2 choose 2) - 1
+        {1, 2}: 2 = (3 choose 2) - 1    increased by 2
+        {2, 3}: 5 = (4 choose 2) - 1    increased by 3
+        {3, 4}: 9 = (5 choose 2) - 1    increased by 4
+        ...
+        {v-1, v}: (v+1 choose 2) - 1
+    */
+    // the smart thing is a lookup table or direct computation
+    /* solve for v from position
+         (v+1 choose 2) - 1 = position
+         8 * (v+1 choose 2) = 8 * position + 8
+         (2*v + 1)^2 = 8 * position + 9
+            2*v + 1 = sqrt(8 * position + 9)
+            v = (sqrt(8 * position + 9) - 1) / 2
+        etc
+    */
+    // todo!() we do a lazy linear search
+    let mut v = 1;
+    let mut upper_position = 0;
+    while upper_position < position {
+        v += 1;
+        upper_position += v;
+    }
+    let difference = upper_position - position;
+    let u = v - difference;
+    (u, v)
+}
+
+fn edge_to_position(u: usize, v: usize) -> usize {
+    let (u, v) = if u < v {
+        (u, v)
+    } else {
+        (v, u)
+    };
+    /* note the positions
+        {0, 1}: 0 = (2 choose 2) - 1
+        {1, 2}: 2 = (3 choose 2) - 1
+        {2, 3}: 5 = (4 choose 2) - 1
+        {3, 4}: 9 = (5 choose 2) - 1
+        ...
+        {v-1, v}: (v+1 choose 2) - 1
+    */
+    let upper_position = v * (v + 1) / 2;
+    // subtract the difference between u & v
+    let difference = v - u;
+    upper_position - difference
+}
