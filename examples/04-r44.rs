@@ -435,7 +435,7 @@ fn main() {
             let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
             prediction_tensor = model.forward(dev.tensor(end_state_vecs));
             predictions = prediction_tensor.array();
-            update_forest(&mut trees, &transitions, &end_states, &predictions);
+            update_forest(&mut trees, &transitions, &predictions);
         });
         // backprop loss
         let observations: [PredictionVec; BATCH] = forest_observations(&trees);
@@ -477,10 +477,11 @@ fn forest_observations(trees: &[Tree; BATCH]) -> [PredictionVec; BATCH] {
 fn update_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
-    end_states: &[GraphState; BATCH],
     predictions: &[PredictionVec; BATCH]
 ) {
-    todo!()
+    trees.par_iter_mut().zip_eq(transitions.par_iter()).zip_eq(predictions.par_iter()).for_each(|((tree, trans), pred)| {
+        tree.update(trans, pred);
+    });
 }
 
 fn state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {

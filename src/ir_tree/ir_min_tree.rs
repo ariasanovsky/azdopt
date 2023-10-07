@@ -81,9 +81,22 @@ impl<S> IRMinTree<S> {
                     first_action,
                     first_reward,
                     transitions,
+                    reached_terminal: false,
                 }, state);
             }
         }
+        (
+            Transitions {
+                first_action,
+                first_reward,
+                transitions,
+                reached_terminal: true,
+            },
+            state,
+        )
+    }
+
+    pub fn update(&mut self, transitions: &Transitions, prediction: &[f32]) {
         todo!()
     }
 }
@@ -98,4 +111,5 @@ pub struct Transitions {
     first_action: usize,
     first_reward: f32,
     transitions: Vec<(ActionsTaken, usize, f32)>,
+    reached_terminal: bool,
 }
