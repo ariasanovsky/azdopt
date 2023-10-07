@@ -201,7 +201,7 @@ impl IRState for GraphState {
         } = self;
         let new_uv_color = action / E;
         let edge_position = action % E;
-        let Color(old_uv_color) = &mut colors[edge_position];
+        let Color(old_uv_color) = colors[edge_position];
         let (u, v) = edge_from_position(edge_position);
         /* when does k(xy, c) change?
             necessarily, c is either old_color or new_color
@@ -225,18 +225,18 @@ impl IRState for GraphState {
         // todo!() this can be optimized by only updating the affected columns within the iterator
         let mut affected_count_columns: Vec<usize> = vec![];
 
-        let old_neigh_v = neighborhoods[*old_uv_color][v];
-        let old_neigh_u = neighborhoods[*old_uv_color][u];
+        let old_neigh_v = neighborhoods[old_uv_color][v];
+        let old_neigh_u = neighborhoods[old_uv_color][u];
         let old_neigh_uv = old_neigh_u & old_neigh_v;
         
         BitIter::from(old_neigh_v).for_each(|w| {
-            let old_neigh_w = neighborhoods[*old_uv_color][w];
+            let old_neigh_w = neighborhoods[old_uv_color][w];
             let old_neigh_uvw = old_neigh_uv & old_neigh_w;
             let k_uw_old_decrease = old_neigh_uvw.count_ones();
             if k_uw_old_decrease != 0 {
                 // decrease k(uw, c_uv_old)
                 let uw_position = edge_to_position(u, w);
-                counts[*old_uv_color][uw_position] -= k_uw_old_decrease as i32;
+                counts[old_uv_color][uw_position] -= k_uw_old_decrease as i32;
                 /* when does r = r(e, c) change?
                     consider r(e, c) = k(e, c_e) - k(e, c)
                         here, c_e is the current color of e
@@ -253,13 +253,13 @@ impl IRState for GraphState {
             }
         });
         BitIter::from(old_neigh_u).for_each(|w| {
-            let old_neigh_w = neighborhoods[*old_uv_color][w];
+            let old_neigh_w = neighborhoods[old_uv_color][w];
             let old_neigh_uvw = old_neigh_uv & old_neigh_w;
             let k_vw_old_decrease = old_neigh_uvw.count_ones();
             if k_vw_old_decrease != 0 {
                 // decrease k(vw, c_old)
                 let vw_position = edge_to_position(v, w);
-                counts[*old_uv_color][vw_position] -= k_vw_old_decrease as i32;
+                counts[old_uv_color][vw_position] -= k_vw_old_decrease as i32;
                 // todo!("adjust all affected values of r(vw, c)")
                 affected_count_columns.push(vw_position);
             }
@@ -273,7 +273,7 @@ impl IRState for GraphState {
         */
         BitIter::from(old_neigh_uv).tuple_combinations().for_each(|(w, x)| {
             let wx_position = edge_to_position(w, x);
-            counts[*old_uv_color][wx_position] -= 1;
+            counts[old_uv_color][wx_position] -= 1;
             // todo!("adjust all affected values of r(wx, c)")
             affected_count_columns.push(wx_position);
         });
@@ -345,13 +345,27 @@ impl IRState for GraphState {
 
         // todo!("update colors");
         colors[edge_position] = Color(new_uv_color);
-        todo!("update edges");
-        todo!("update neighborhoods");
-        todo!("update available_actions");
+        // todo!("update edges");
+        edges[old_uv_color][edge_position] = false;
+        edges[new_uv_color][edge_position] = true;
+        // todo!("update neighborhoods");
+        neighborhoods[old_uv_color][u] &= !(1 << v);
+        neighborhoods[old_uv_color][v] &= !(1 << u);
+        neighborhoods[new_uv_color][u] |= 1 << v;
+        neighborhoods[new_uv_color][v] |= 1 << u;
+        // todo!("update available_actions");
+        (0..C).for_each(|c| {
+            available_actions[c][edge_position] = false;
+        });
         // todo!("update ordered_actions");
-        todo!("remove uv actions from ordered_actions");
+        // todo!("remove uv actions from ordered_actions");
+        (0..C).for_each(|c| {
+            let recoloring = EdgeRecoloring { new_color: c, edge_position };
+            ordered_actions.remove(&recoloring);
+        });
         // todo!("update counts");
-        todo!("update time_remaining");
+        // todo!("update time_remaining");
+        *time_remaining -= 1;
     }
 
     fn is_terminal(&self) -> bool {
