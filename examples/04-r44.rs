@@ -471,7 +471,17 @@ fn main() {
 }
 
 fn forest_observations(trees: &[Tree; BATCH]) -> [PredictionVec; BATCH] {
-    todo!()
+    let mut observations: [MaybeUninit<PredictionVec>; BATCH] = unsafe {
+        let observations: MaybeUninit<[PredictionVec; BATCH]> = MaybeUninit::uninit();
+        transmute(observations)
+    };
+    trees.par_iter().zip_eq(observations.par_iter_mut()).for_each(|(tree, o)| {
+        let observations = tree.observations().try_into().unwrap();
+        o.write(observations);
+    });
+    unsafe {
+        transmute(observations)
+    }
 }
 
 fn update_forest(
@@ -480,7 +490,7 @@ fn update_forest(
     predictions: &[PredictionVec; BATCH]
 ) {
     trees.par_iter_mut().zip_eq(transitions.par_iter()).zip_eq(predictions.par_iter()).for_each(|((tree, trans), pred)| {
-        tree.update(trans, pred);
+        tree.update(trans, &pred[ACTION..]);
     });
 }
 

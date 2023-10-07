@@ -96,7 +96,53 @@ impl<S> IRMinTree<S> {
         )
     }
 
-    pub fn update(&mut self, transitions: &Transitions, prediction: &[f32]) {
+    pub fn update(&mut self, transitions: &Transitions, gain_prediction: &[f32]) {
+        let Self {
+            root: _,
+            root_data,
+            data,
+        } = self;
+        let Transitions {
+            first_action,
+            first_reward,
+            transitions,
+            reached_terminal
+        } = transitions;
+        /* todo!()
+            https://github.com/ariasanovsky/ariasanovsky.github.io/blob/main/content/posts/2023-09-mcts.md
+            https://riasanovsky.me/posts/2023-09-mcts/
+            currently `approximate_gain_to_terminal` equals g(s) as in this writeup
+            we will eventually accommodate g^*(s) and \tilde{g}^*(s)
+            the target to optimize is g^*(s)
+        */
+        assert_eq!(gain_prediction.len(), 1);
+        let mut approximate_gain_to_terminal = if *reached_terminal {
+            0.0f32
+        } else {
+            0.0f32.max(*gain_prediction.first().unwrap())
+        };
+        /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
+            we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
+            ...
+            then p_i (s_i) with the future reward r_{i+2} + ... + r_t as well as the n increments
+            ...
+            then p_1 (s_1) with the future reward r_3 + ... + r_t as well as the n increments
+            then p_0 (s_0) with the future reward r_2 + ... + r_t as well as the n increments
+        */
+        transitions.iter().rev().for_each(|(path, action, reward)| {
+            let state_data = data.get_mut(path).unwrap();
+            state_data.update_future_reward(*action, &approximate_gain_to_terminal);
+            approximate_gain_to_terminal += reward;
+        });
+        root_data.update_future_reward(*first_action, &approximate_gain_to_terminal);
+    }
+
+    pub fn observations(&self) -> Vec<f32> {
+        let Self {
+            root: _,
+            root_data,
+            data: _,
+        } = self;
         todo!()
     }
 }
