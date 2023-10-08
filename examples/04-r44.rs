@@ -11,6 +11,8 @@ use dfdx::prelude::ZeroGrads;
 use dfdx::prelude::cross_entropy_with_logits_loss;
 use dfdx::prelude::mse_loss;
 use dfdx::prelude::{Linear, ReLU, DeviceBuildExt, Module};
+use dfdx::shapes::Axes;
+use dfdx::shapes::Axis;
 use dfdx::shapes::HasShape;
 use dfdx::tensor::Trace;
 use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
@@ -22,7 +24,7 @@ use ramsey::{ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeig
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
 
 const ACTION: usize = C * E;
-const BATCH: usize = 1;
+const BATCH: usize = 64;
 
 #[derive(Clone, Debug)]
 struct GraphState {
@@ -483,9 +485,12 @@ impl IRState for GraphState {
 const STATE: usize = 6 * E + 1;
 type StateVec = [f32; STATE];
 type PredictionVec = [f32; PREDICTION];
+type ActionVec = [f32; ACTION];
+const VALUE: usize = 1;
+type ValueVec = [f32; VALUE];
 type Tree = IRMinTree<GraphState>;
 
-fn plant_forest(states: &[GraphState; BATCH], predictions: &[PredictionVec; BATCH]) -> [Tree; BATCH] {
+fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) -> [Tree; BATCH] {
     let mut trees: [MaybeUninit<Tree>; BATCH] = unsafe {
         let trees: MaybeUninit<[Tree; BATCH]> = MaybeUninit::uninit();
         transmute(trees)
@@ -504,9 +509,11 @@ fn main() {
 
     // set up model
     let dev = AutoDevice::default();
-    let mut model = dev.build_module::<Architecture, f32>();
+    let mut core_model = dev.build_module::<Core, f32>();
+    let mut logits_model = dev.build_module::<Logits, f32>();
+    let mut value_model = dev.build_module::<Valuation, f32>();
     let mut opt = Adam::new(
-        &model,
+        &core_model,
         AdamConfig {
             lr: 1e-2,
             betas: [0.5, 0.25],
@@ -517,14 +524,17 @@ fn main() {
     
     (0..EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
-        let mut grads = model.alloc_grads();
+        let mut grads = core_model.alloc_grads();
         let roots: [GraphState; BATCH] = GraphState::generate_batch(20);
         let root_vecs: [StateVec; BATCH] = GraphState::generate_vecs(&roots);
         // dbg!(root_vecs.get(0).unwrap());
         
         let root_tensor = dev.tensor(root_vecs.clone());
-        let mut prediction_tensor = model.forward(root_tensor);
-        let mut predictions: [PredictionVec; BATCH] = prediction_tensor.array();
+        let mut prediction_tensor = core_model.forward(root_tensor);
+        let mut logits_tensor = logits_model.forward(prediction_tensor.clone());
+        let mut probs_tensor = logits_tensor.softmax::<Axis<1>>();
+        let mut value_tensor = value_model.forward(prediction_tensor.clone());
+        let mut predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
 
         
@@ -533,65 +543,70 @@ fn main() {
             // print!("episode {episode}");
             let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) = simulate_forest_once(&trees);
             let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
-            prediction_tensor = model.forward(dev.tensor(end_state_vecs));
-            predictions = prediction_tensor.array();
-            update_forest(&mut trees, &transitions, &predictions);
+            prediction_tensor = core_model.forward(dev.tensor(end_state_vecs));
+            probs_tensor = logits_model.forward(prediction_tensor.clone());
+            value_tensor = value_model.forward(prediction_tensor.clone());
+            let probs = probs_tensor.array();
+            let values = value_tensor.array();
+            update_forest(&mut trees, &transitions, &probs, &values);
         });
         // println!();
         // backprop loss
-        let observations: [PredictionVec; BATCH] = forest_observations(&trees);
+        let observations: ([ActionVec; BATCH], [ValueVec; BATCH]) = forest_observations(&trees);
         grads = {
             let root_tensor = dev.tensor(root_vecs.clone());
-            let traced_predictions = model.forward(root_tensor.trace(grads));
-            let predicted_logits = traced_predictions.slice((0.., 0..ACTION));
-            assert_eq!(predicted_logits.shape(), &(BATCH, ACTION));
-            let observed_probabilities = dev.tensor(observations.clone());
-            let observed_probabilities_tensor = observed_probabilities.clone().slice((0.., 0..ACTION));
-            assert_eq!(predicted_logits.shape(), &(BATCH, ACTION));
-            let cross_entropy = cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor);
+            let traced_predictions = core_model.forward(root_tensor.trace(grads));
+            let predicted_logits = logits_model.forward(traced_predictions);
+            let observed_probabilities = dev.tensor(observations.0.clone());
+            let cross_entropy = cross_entropy_with_logits_loss(predicted_logits, observed_probabilities);
             print!("{:10}\t", cross_entropy.array());
             cross_entropy.backward()
         };
         grads = {
             let root_tensor = dev.tensor(root_vecs.clone());
-            let traced_predictions = model.forward(root_tensor.trace(grads));
-            let predicted_values = traced_predictions.slice((0.., ACTION..));
-            assert_eq!(predicted_values.shape(), &(BATCH, 1));
-
+            let traced_predictions = core_model.forward(root_tensor.trace(grads));
+            let predicted_values = value_model.forward(traced_predictions);
+            
             let target_values = [[10.0f32; 1]; BATCH];
-            let target_values = dev.tensor(target_values.clone()).slice((0.., 0..));
+            let target_values = dev.tensor(target_values.clone());
 
             let square_error = mse_loss(predicted_values, target_values);
             println!("{}", square_error.array());
             square_error.backward()
         };
-        opt.update(&mut model, &grads).unwrap();
-        model.zero_grads(&mut grads);
+        opt.update(&mut core_model, &grads).unwrap();
+        core_model.zero_grads(&mut grads);
     });
     todo!()
 }
 
-fn forest_observations(trees: &[Tree; BATCH]) -> [PredictionVec; BATCH] {
-    let mut observations: [MaybeUninit<PredictionVec>; BATCH] = unsafe {
-        let observations: MaybeUninit<[PredictionVec; BATCH]> = MaybeUninit::uninit();
-        transmute(observations)
-    };
-    trees.par_iter().zip_eq(observations.par_iter_mut()).for_each(|(tree, o)| {
-        let observations = tree.observations().try_into().unwrap();
-        o.write(observations);
-    });
-    unsafe {
-        transmute(observations)
-    }
+fn forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
+    // let mut observations: [MaybeUninit<PredictionVec>; BATCH] = unsafe {
+    //     let observations: MaybeUninit<[PredictionVec; BATCH]> = MaybeUninit::uninit();
+    //     transmute(observations)
+    // };
+    // trees.par_iter().zip_eq(observations.par_iter_mut()).for_each(|(tree, o)| {
+    //     let observations = tree.observations().try_into().unwrap();
+    //     o.write(observations);
+    // });
+    // unsafe {
+    //     transmute(observations)
+    // }
+    todo!()
 }
 
 fn update_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
-    predictions: &[PredictionVec; BATCH]
+    probs: &[ActionVec; BATCH],
+    values: &[ValueVec; BATCH],
 ) {
-    trees.par_iter_mut().zip_eq(transitions.par_iter()).zip_eq(predictions.par_iter()).for_each(|((tree, trans), pred)| {
-        tree.update(trans, &pred[ACTION..]);
+    trees.par_iter_mut()
+        .zip_eq(transitions.par_iter())
+        .zip_eq(probs.par_iter())
+        .zip_eq(values.par_iter())
+        .for_each(|(((tree, trans), probs), values)| {
+        tree.update(trans, probs, values);
     });
 }
 
@@ -633,10 +648,20 @@ const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
 const PREDICTION: usize = ACTION + 1;
 
-type Architecture = (
+type Core = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    Linear<HIDDEN_2, PREDICTION>,
+    // Linear<HIDDEN_2, PREDICTION>,
+);
+
+type Logits = (
+    Linear<HIDDEN_2, ACTION>,
+    // Softmax,
+);
+
+type Valuation = (
+    Linear<HIDDEN_2, 1>,
+    // Linear<HIDDEN_2, 3>,
 );
 
 /* edges are enumerated in colex order:

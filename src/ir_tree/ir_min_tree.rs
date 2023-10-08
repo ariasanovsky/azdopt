@@ -81,7 +81,7 @@ impl<S> IRMinTree<S> {
                     first_action,
                     first_reward,
                     transitions,
-                    reached_terminal: false,
+                    new_path: Some(state_path),
                 }, state);
             }
         }
@@ -90,13 +90,18 @@ impl<S> IRMinTree<S> {
                 first_action,
                 first_reward,
                 transitions,
-                reached_terminal: true,
+                new_path: None,
             },
             state,
         )
     }
 
-    pub fn update(&mut self, transitions: &Transitions, gain_prediction: &[f32]) {
+    pub fn update(
+        &mut self,
+        transitions: &Transitions,
+        probs: &[f32],
+        gains: &[f32],
+    ) {
         let Self {
             root: _,
             root_data,
@@ -106,7 +111,7 @@ impl<S> IRMinTree<S> {
             first_action,
             first_reward,
             transitions,
-            reached_terminal
+            new_path
         } = transitions;
         /* todo!()
             https://github.com/ariasanovsky/ariasanovsky.github.io/blob/main/content/posts/2023-09-mcts.md
@@ -115,12 +120,13 @@ impl<S> IRMinTree<S> {
             we will eventually accommodate g^*(s) and \tilde{g}^*(s)
             the target to optimize is g^*(s)
         */
-        assert_eq!(gain_prediction.len(), 1);
-        let mut approximate_gain_to_terminal = if *reached_terminal || true { // todo!(fix the gain sum)
-            0.0f32
-        } else {
-            0.0f32.max(*gain_prediction.first().unwrap())
-        };
+        assert_eq!(gains.len(), 1);
+        let mut approximate_gain_to_terminal = new_path.as_ref().map(|p| {
+            let gain = 0.0f32.max(*gains.first().unwrap());
+            let new_data = todo!();
+            data.insert(p.clone(), new_data);
+            gain
+        }).unwrap_or(0.0f32);
         /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
             we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
             ...
@@ -183,5 +189,5 @@ pub struct Transitions {
     first_action: usize,
     first_reward: f32,
     transitions: Vec<(ActionsTaken, usize, f32)>,
-    reached_terminal: bool,
+    new_path: Option<ActionsTaken>,
 }
