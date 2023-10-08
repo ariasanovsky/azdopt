@@ -36,6 +36,51 @@ struct GraphState {
 }
 
 impl GraphState {
+    fn check_for_inconsistencies(&self) {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: MulticoloredGraphEdges(edges),
+            neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
+            available_actions,
+            ordered_actions: OrderedEdgeRecolorings(ordered_actions),
+            counts: CliqueCounts(counts),
+            time_remaining,
+        } = self;
+        // check that the colors are consistent with the edges
+        colors.iter().enumerate().for_each(|(i, Color(c))| {
+            assert!(edges[*c][i], "i = {i}, c = {c}");
+            (0..C).filter(|d| c.ne(d)).for_each(|d| {
+               assert!(!edges[d][i], "i = {i}, c = {c}, d = {d}"); 
+            });
+        });
+        // check that edge positions are correct
+        (0..N).map(|v| (0..v).map(move |u| (u, v))).flatten().enumerate().for_each(|(i, (u, v))| {
+            let edge_position = edge_to_position(u, v);
+            assert_eq!(i, edge_position, "i = {i}, u = {u}, v = {v}, edge_position = {edge_position}");
+            let (w, x) = edge_from_position(edge_position);
+            assert_eq!(u, w, "u = {u}, w = {w}, v = {v}, x = {x}, edge_position = {edge_position}");
+            assert_eq!(v, x, "u = {u}, w = {w}, v = {v}, x = {x}, edge_position = {edge_position}");
+        });
+        // check that the neighborhoods are consistent with the edges
+        (0..C).for_each(|c| {
+            (0..N).for_each(|u| {
+                let neigh = neighborhoods[c][u];
+                assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+                BitIter::from(neigh).for_each(|v| {
+                    let edge_position = edge_to_position(u, v);
+                    assert!(edges[c][edge_position], "u = {u}, v = {v}, edge_position = {edge_position}");
+                });
+            });
+        });
+        // check that no vertex is adjacent to itself
+        (0..C).for_each(|c| {
+            (0..N).for_each(|u| {
+                let neigh = neighborhoods[c][u];
+                assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+            });
+        });
+    }
+
     fn generate_random<R: rand::Rng>(t: usize, rng: &mut R) -> Self {
         let mut edges: [[bool; E]; C] = [[false; E]; C];
         let mut neighborhoods: [[u32; N]; C] = [[0; N]; C];
@@ -84,7 +129,16 @@ impl GraphState {
                 recolorings.push(recoloring, reward);
             })
         });
-        Self {
+
+        (0..C).for_each(|c| {
+            (0..N).for_each(|u| {
+                let neigh = neighborhoods[c][u];
+                assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+            });
+        });
+
+
+        let s = Self {
             colors: ColoredCompleteGraph(colors),
             edges: MulticoloredGraphEdges(edges),
             neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
@@ -92,7 +146,9 @@ impl GraphState {
             ordered_actions: OrderedEdgeRecolorings(recolorings),
             counts: CliqueCounts(counts),
             time_remaining: t,
-        }
+        };
+        s.check_for_inconsistencies();
+        s
     }
 
     fn generate_batch(t: usize) -> [Self; BATCH] {
@@ -102,12 +158,19 @@ impl GraphState {
         states.par_iter_mut().for_each(|s| {
             s.write(GraphState::generate_random(t, &mut rand::thread_rng()));
         });
-        unsafe {
+        let b: [Self; BATCH] = unsafe {
             transmute(states)
-        }
+        };
+        b.iter().for_each(|s| {
+            s.check_for_inconsistencies();
+        });
+        b
     }
 
     fn generate_vecs(states: &[Self; BATCH]) -> [StateVec; BATCH] {
+        states.iter().for_each(|s| {
+            s.check_for_inconsistencies();
+        });
         let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = unsafe {
             MaybeUninit::uninit().assume_init()
         };
@@ -169,7 +232,7 @@ impl IRState for GraphState {
         let count = colors.iter().enumerate().map(|(i, c)| {
             let Color(c) = c;
             counts[*c][i]
-        }).sum::<i32>();
+        }).sum::<i32>() / 6;
         count as f32
     }
 
@@ -191,6 +254,7 @@ impl IRState for GraphState {
     }
 
     fn act(&mut self, action: usize) {
+        self.check_for_inconsistencies();
         let Self {
             colors: ColoredCompleteGraph(colors),
             edges: MulticoloredGraphEdges(edges),
@@ -204,6 +268,16 @@ impl IRState for GraphState {
         let edge_position = action % E;
         let Color(old_uv_color) = colors[edge_position];
         let (u, v) = edge_from_position(edge_position);
+        // assert_ne!(u, v, "{edge_position}");
+
+        // (0..C).for_each(|c| {
+        //     (0..N).for_each(|u| {
+        //         let neigh = neighborhoods[c][u];
+        //         assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+        //     });
+        // });
+
+
         /* when does k(xy, c) change?
             necessarily, c is either old_color or new_color
             k(uv, c) never changes
@@ -218,17 +292,24 @@ impl IRState for GraphState {
                 Q = {u, w, v, x} for some x
                 w is in N_{c_old}(v) \ {u}
                 x is in N_{c_old}(u) & N_{c_old}(w) & (N_{c_old}(v) \ {u})
-                since x is not in N_c(u), we may omit the `\ {u}`'s if we wish
+                since x is not in N_c(u), we may *not* omit the `\ {u}`
         */
         // after updating the counts, we update all affected values of r(xy, c)
         // r(uv, c) is unaffected (in fact, these values are removed)
         // we store which edges wx have an affected column and update them later
         // todo!() this can be optimized by only updating the affected columns within the iterator
         let mut affected_count_columns: Vec<usize> = vec![];
-
-        let old_neigh_v = neighborhoods[old_uv_color][v];
+        
         let old_neigh_u = neighborhoods[old_uv_color][u];
+        let old_neigh_v = neighborhoods[old_uv_color][v];
+        
+        // we remove v and u so that they are not treated as w or x in the following
+        let old_neigh_u = old_neigh_u ^ (1 << v);
+        let old_neigh_v = old_neigh_v ^ (1 << u);
         let old_neigh_uv = old_neigh_u & old_neigh_v;
+
+        // assert_eq!(old_neigh_u & (1 << u), 0, "u = {u}, v = {v}, old_neigh_u = {old_neigh_u:b}");
+        // assert_eq!(old_neigh_v & (1 << v), 0, "u = {u}, v = {v}, old_neigh_v = {old_neigh_v:b}");
         
         BitIter::from(old_neigh_v).for_each(|w| {
             let old_neigh_w = neighborhoods[old_uv_color][w];
@@ -260,6 +341,7 @@ impl IRState for GraphState {
             if k_vw_old_decrease != 0 {
                 // decrease k(vw, c_old)
                 let vw_position = edge_to_position(v, w);
+                // assert!(vw_position <= 135, "(v, w) = ({v}, {w})");
                 counts[old_uv_color][vw_position] -= k_vw_old_decrease as i32;
                 // todo!("adjust all affected values of r(vw, c)")
                 affected_count_columns.push(vw_position);
@@ -279,9 +361,13 @@ impl IRState for GraphState {
             affected_count_columns.push(wx_position);
         });
 
-        let new_neigh_v = neighborhoods[new_uv_color][v];
+        // we do not need to remove v and u -- uv has color old_uv_color
         let new_neigh_u = neighborhoods[new_uv_color][u];
+        let new_neigh_v = neighborhoods[new_uv_color][v];
         let new_neigh_uv = new_neigh_u & new_neigh_v;
+
+        // assert_ne!(new_neigh_u & (1 << u), 0, "u = {u}, v = {v}, new_neigh_u = {new_neigh_u:b}");
+        // assert_ne!(new_neigh_v & (1 << v), 0, "u = {u}, v = {v}, new_neigh_v = {new_neigh_v:b}");
         
         BitIter::from(new_neigh_v).for_each(|w| {
             let new_neigh_w = neighborhoods[new_uv_color][w];
@@ -290,6 +376,7 @@ impl IRState for GraphState {
             if k_uw_new_increase != 0 {
                 // decrease k(uw, c_uv_old)
                 let uw_position = edge_to_position(u, w);
+                // assert!(uw_position <= 135, "(u, w) = ({u}, {w})");
                 counts[new_uv_color][uw_position] -= k_uw_new_increase as i32;
                 /* when does r = r(e, c) change?
                     consider r(e, c) = k(e, c_e) - k(e, c)
@@ -313,6 +400,7 @@ impl IRState for GraphState {
             if k_vw_new_increase != 0 {
                 // decrease k(vw, c_old)
                 let vw_position = edge_to_position(v, w);
+                // assert!(uw_position <= 135, "(u, w) = ({u}, {w})");
                 counts[new_uv_color][vw_position] -= k_vw_new_increase as i32;
                 // todo!("adjust all affected values of r(vw, c)")
                 affected_count_columns.push(vw_position);
@@ -350,10 +438,19 @@ impl IRState for GraphState {
         edges[old_uv_color][edge_position] = false;
         edges[new_uv_color][edge_position] = true;
         // todo!("update neighborhoods");
-        neighborhoods[old_uv_color][u] &= !(1 << v);
-        neighborhoods[old_uv_color][v] &= !(1 << u);
-        neighborhoods[new_uv_color][u] |= 1 << v;
-        neighborhoods[new_uv_color][v] |= 1 << u;
+        neighborhoods[old_uv_color][u] ^= 1 << v;
+        neighborhoods[old_uv_color][v] ^= 1 << u;
+        neighborhoods[new_uv_color][u] ^= 1 << v;
+        neighborhoods[new_uv_color][v] ^= 1 << u;
+
+        // (0..C).for_each(|c| {
+        //     (0..N).for_each(|u| {
+        //         let neigh = neighborhoods[c][u];
+        //         assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+        //     });
+        // });
+
+
         // todo!("update available_actions");
         (0..C).for_each(|c| {
             available_actions[c][edge_position] = false;
@@ -402,9 +499,9 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[PredictionVec; BATC
 }
 
 fn main() {
-    const EPOCH: usize = 1;
+    const EPOCH: usize = 10;
     const EPISODES: usize = 10;
-    
+
     // set up model
     let dev = AutoDevice::default();
     let mut model = dev.build_module::<Architecture, f32>();
@@ -419,10 +516,11 @@ fn main() {
     );
     
     (0..EPOCH).for_each(|epoch| {
+        println!("==== EPOCH {epoch} ====");
         let mut grads = model.alloc_grads();
         let roots: [GraphState; BATCH] = GraphState::generate_batch(20);
         let root_vecs: [StateVec; BATCH] = GraphState::generate_vecs(&roots);
-        dbg!(root_vecs.get(0).unwrap());
+        // dbg!(root_vecs.get(0).unwrap());
         
         let root_tensor = dev.tensor(root_vecs.clone());
         let mut prediction_tensor = model.forward(root_tensor);
@@ -432,12 +530,14 @@ fn main() {
         
         // play episodes
         (0..EPISODES).for_each(|episode| {
+            // print!("episode {episode}");
             let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) = simulate_forest_once(&trees);
             let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
             prediction_tensor = model.forward(dev.tensor(end_state_vecs));
             predictions = prediction_tensor.array();
             update_forest(&mut trees, &transitions, &predictions);
         });
+        // println!();
         // backprop loss
         let observations: [PredictionVec; BATCH] = forest_observations(&trees);
         grads = {
@@ -570,7 +670,8 @@ fn edge_from_position(position: usize) -> (usize, usize) {
         upper_position += v;
     }
     let difference = upper_position - position;
-    let u = v - difference;
+    let u = v - difference - 1;
+    assert_ne!(u, v, "{position} -> {upper_position} -> {difference}");
     (u, v)
 }
 
