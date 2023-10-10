@@ -38,7 +38,7 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) 
 
 fn main() {
     const EPOCH: usize = 30;
-    const EPISODES: usize = 100;
+    const EPISODES: usize = 8000;
 
     // todo!() visuals with https://wandb.ai/site
 
@@ -60,7 +60,7 @@ fn main() {
     (0..EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
         let mut grads = core_model.alloc_grads();
-        let roots: [GraphState; BATCH] = GraphState::par_generate_batch(20);
+        let roots: [GraphState; BATCH] = GraphState::par_generate_batch(60);
         let root_vecs: [StateVec; BATCH] = GraphState::par_generate_vecs(&roots);
         // dbg!(root_vecs.get(0).unwrap());
 

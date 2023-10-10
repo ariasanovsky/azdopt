@@ -8,16 +8,16 @@ pub const N: usize = 17;
 pub const E: usize = N * (N - 1) / 2;
 pub const C: usize = 2;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Color(pub usize);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ColoredCompleteGraph(pub [Color; E]);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MulticoloredGraphEdges(pub [[bool; E]; C]);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MulticoloredGraphNeighborhoods(pub [[u32; N]; C]);
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
@@ -26,10 +26,11 @@ pub struct EdgeRecoloring {
     pub edge_position: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+
 pub struct OrderedEdgeRecolorings(pub PriorityQueue<EdgeRecoloring, i32>);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CliqueCounts(pub [[i32; E]; 2]);
 
 // #[derive(Debug, Clone)]

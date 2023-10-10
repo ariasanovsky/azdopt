@@ -39,10 +39,13 @@ pub struct IRActionData {
     upper_estimate: f32,
 }
 
+const C_PUCT: f32 = 5.0;
+const C_PUCT_0: f32 = 5.0;
+
 impl IRActionData {
     fn new(action: usize, reward: f32, probability: f32) -> Self {
         let q = reward;
-        const C_PUCT_0: f32 = 1.0;
+        // const C_PUCT_0: f32 = 30.0;
         let noise = 1.0;
         let u = q + C_PUCT_0 * probability * noise;
         Self {
@@ -78,7 +81,7 @@ impl IRActionData {
             upper_estimate,
         } = self;
         let q = *reward + *future_reward_sum / frequency as f32;
-        const C_PUCT: f32 = 1.0;
+        // const C_PUCT: f32 = 30.0;
         let noise = (frequency as f32).sqrt() / (1.0 + *action_frequency as f32);
         let u = q + C_PUCT * *probability * noise;
         *upper_estimate = u;
@@ -130,7 +133,7 @@ impl<S> IRMinTree<S> {
             .into_iter()
             .map(|(i, r)| {
                 let p = *probability_predictions.get(i).unwrap();
-                const C_PUCT: f32 = 1.0;
+                // const C_PUCT: f32 = 30.0;
                 let u = r + C_PUCT * p;
                 IRActionData {
                     action: i,

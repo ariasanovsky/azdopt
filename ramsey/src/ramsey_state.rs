@@ -22,7 +22,7 @@ pub type ActionVec = [f32; ACTION];
 pub const VALUE: usize = 1;
 pub type ValueVec = [f32; VALUE];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphState {
     colors: ColoredCompleteGraph,
     edges: MulticoloredGraphEdges,
@@ -34,72 +34,29 @@ pub struct GraphState {
 }
 
 impl GraphState {
-    // fn check_for_inconsistencies(&self) {
-    //     let Self {
-    //         colors: ColoredCompleteGraph(colors),
-    //         edges: MulticoloredGraphEdges(edges),
-    //         neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
-    //         available_actions,
-    //         ordered_actions: OrderedEdgeRecolorings(ordered_actions),
-    //         counts: CliqueCounts(counts),
-    //         time_remaining,
-    //     } = self;
-    //     // check that the colors are consistent with the edges
-    //     colors.iter().enumerate().for_each(|(i, Color(c))| {
-    //         assert!(edges[*c][i], "i = {i}, c = {c}");
-    //         (0..C).filter(|d| c.ne(d)).for_each(|d| {
-    //            assert!(!edges[d][i], "i = {i}, c = {c}, d = {d}");
-    //         });
-    //     });
-    //     // check that edge positions are correct
-    //     (0..N).map(|v| (0..v).map(move |u| (u, v))).flatten().enumerate().for_each(|(i, (u, v))| {
-    //         let edge_position = edge_to_position(u, v);
-    //         assert_eq!(i, edge_position, "i = {i}, u = {u}, v = {v}, edge_position = {edge_position}");
-    //         let (w, x) = edge_from_position(edge_position);
-    //         assert_eq!(u, w, "u = {u}, w = {w}, v = {v}, x = {x}, edge_position = {edge_position}");
-    //         assert_eq!(v, x, "u = {u}, w = {w}, v = {v}, x = {x}, edge_position = {edge_position}");
-    //     });
-    //     // check that the neighborhoods are consistent with the edges
-    //     (0..C).for_each(|c| {
-    //         (0..N).for_each(|u| {
-    //             let neigh = neighborhoods[c][u];
-    //             assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
-    //             BitIter::from(neigh).for_each(|v| {
-    //                 let edge_position = edge_to_position(u, v);
-    //                 assert!(edges[c][edge_position], "u = {u}, v = {v}, edge_position = {edge_position}");
-    //             });
-    //         });
-    //     });
-    //     // check that no vertex is adjacent to itself
-    //     (0..C).for_each(|c| {
-    //         (0..N).for_each(|u| {
-    //             let neigh = neighborhoods[c][u];
-    //             assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
-    //         });
-    //     });
-    // }
-
-    fn generate_random<R: rand::Rng>(t: usize, rng: &mut R) -> Self {
+    fn all_red() -> Self {
+        let colors: [Color; E] = core::array::from_fn(|_| Color(0));
         let mut edges: [[bool; E]; C] = [[false; E]; C];
+        edges[0].iter_mut().for_each(|b| *b = true);
         let mut neighborhoods: [[u32; N]; C] = [[0; N]; C];
-        let mut colors: [MaybeUninit<Color>; E] = unsafe {
-            let colors: MaybeUninit<[Color; E]> = MaybeUninit::uninit();
-            transmute(colors)
-        };
+        neighborhoods[0].iter_mut().enumerate().for_each(|(i, neigh)| {
+            *neigh = (1 << N) - 1;
+            *neigh ^= 1 << i;
+        });
         let mut available_actions: [[bool; E]; C] = [[true; E]; C];
-        let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
-        edge_iterator
-            .zip(colors.iter_mut())
-            .enumerate()
-            .for_each(|(i, ((u, v), color))| {
-                let c = rng.gen_range(0..C);
-                edges[c][i] = true;
-                available_actions[c][i] = false;
-                neighborhoods[c][u] |= 1 << v;
-                neighborhoods[c][v] |= 1 << u;
-                color.write(Color(c));
-            });
-        let colors: [Color; E] = unsafe { transmute(colors) };
+        available_actions[0].iter_mut().for_each(|b| *b = false);
+        let time_remaining = 1;
+        Self::new(colors, edges, neighborhoods, available_actions, time_remaining)
+    }
+
+    fn new(
+        colors: [Color; E],
+        edges: [[bool; E]; C],
+        neighborhoods: [[u32; N]; C],
+        available_actions: [[bool; E]; C],
+        time_remaining: usize,
+    ) -> Self
+    {
         let mut counts: [[MaybeUninit<i32>; E]; C] = unsafe {
             let counts: MaybeUninit<[[i32; E]; C]> = MaybeUninit::uninit();
             transmute(counts)
@@ -136,24 +93,49 @@ impl GraphState {
             })
         });
 
-        (0..C).for_each(|c| {
-            (0..N).for_each(|u| {
-                let neigh = neighborhoods[c][u];
-                assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
-            });
-        });
+        // (0..C).for_each(|c| {
+        //     (0..N).for_each(|u| {
+        //         let neigh = neighborhoods[c][u];
+        //         assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+        //     });
+        // });
 
-        let s = Self {
+        
+        // s.check_for_inconsistencies();
+        // s
+        Self {
             colors: ColoredCompleteGraph(colors),
             edges: MulticoloredGraphEdges(edges),
             neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
             available_actions,
             ordered_actions: OrderedEdgeRecolorings(recolorings),
             counts: CliqueCounts(counts),
-            time_remaining: t,
+            time_remaining: time_remaining
+        }
+    }
+
+    fn generate_random<R: rand::Rng>(t: usize, rng: &mut R) -> Self {
+        let mut edges: [[bool; E]; C] = [[false; E]; C];
+        let mut neighborhoods: [[u32; N]; C] = [[0; N]; C];
+        let mut colors: [MaybeUninit<Color>; E] = unsafe {
+            let colors: MaybeUninit<[Color; E]> = MaybeUninit::uninit();
+            transmute(colors)
         };
-        // s.check_for_inconsistencies();
-        s
+        let mut available_actions: [[bool; E]; C] = [[true; E]; C];
+        let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
+        edge_iterator
+            .zip(colors.iter_mut())
+            .enumerate()
+            .for_each(|(i, ((u, v), color))| {
+                let c = rng.gen_range(0..C);
+                edges[c][i] = true;
+                available_actions[c][i] = false;
+                neighborhoods[c][u] |= 1 << v;
+                neighborhoods[c][v] |= 1 << u;
+                color.write(Color(c));
+            });
+        let colors: [Color; E] = unsafe { transmute(colors) };
+        Self::new(colors, edges, neighborhoods, available_actions, t)
     }
 
     pub fn par_generate_batch(t: usize) -> [Self; BATCH] {
@@ -323,9 +305,11 @@ impl IRState for GraphState {
         } = self;
         let new_uv_color = action / E;
         let edge_position = action % E;
+        // dbg!(new_uv_color, edge_position);
         let Color(old_uv_color) = colors[edge_position];
+        // dbg!(old_uv_color);
         let (u, v) = edge_from_position(edge_position);
-
+        // dbg!(u, v);
         // assert_ne!(u, v, "{edge_position}");
 
         // (0..C).for_each(|c| {
@@ -358,12 +342,17 @@ impl IRState for GraphState {
         let mut affected_count_columns: Vec<usize> = vec![];
 
         let old_neigh_u = neighborhoods[old_uv_color][u];
+        // dbg!(format!("{old_neigh_u:b}"));
         let old_neigh_v = neighborhoods[old_uv_color][v];
-
+        // dbg!(format!("{old_neigh_v:b}"));
+        
         // we remove v and u so that they are not treated as w or x in the following
         let old_neigh_u = old_neigh_u ^ (1 << v);
+        // dbg!(format!("{old_neigh_u:b}"));
         let old_neigh_v = old_neigh_v ^ (1 << u);
+        // dbg!(format!("{old_neigh_v:b}"));
         let old_neigh_uv = old_neigh_u & old_neigh_v;
+        // dbg!(format!("{old_neigh_uv:b}"));
 
         // assert_eq!(old_neigh_u & (1 << u), 0, "u = {u}, v = {v}, old_neigh_u = {old_neigh_u:b}");
         // assert_eq!(old_neigh_v & (1 << v), 0, "u = {u}, v = {v}, old_neigh_v = {old_neigh_v:b}");
@@ -422,8 +411,11 @@ impl IRState for GraphState {
 
         // we do not need to remove v and u -- uv has color old_uv_color
         let new_neigh_u = neighborhoods[new_uv_color][u];
+        // dbg!(format!("{new_neigh_u:b}"));
         let new_neigh_v = neighborhoods[new_uv_color][v];
+        // dbg!(format!("{new_neigh_v:b}"));
         let new_neigh_uv = new_neigh_u & new_neigh_v;
+        // dbg!(format!("{new_neigh_uv:b}"));
 
         // assert_ne!(new_neigh_u & (1 << u), 0, "u = {u}, v = {v}, new_neigh_u = {new_neigh_u:b}");
         // assert_ne!(new_neigh_v & (1 << v), 0, "u = {u}, v = {v}, new_neigh_v = {new_neigh_v:b}");
@@ -436,7 +428,7 @@ impl IRState for GraphState {
                 // decrease k(uw, c_uv_old)
                 let uw_position = edge_to_position(u, w);
                 // assert!(uw_position <= 135, "(u, w) = ({u}, {w})");
-                counts[new_uv_color][uw_position] -= k_uw_new_increase as i32;
+                counts[new_uv_color][uw_position] += k_uw_new_increase as i32;
                 /* when does r = r(e, c) change?
                     consider r(e, c) = k(e, c_e) - k(e, c)
                         here, c_e is the current color of e
@@ -460,7 +452,7 @@ impl IRState for GraphState {
                 // decrease k(vw, c_old)
                 let vw_position = edge_to_position(v, w);
                 // assert!(uw_position <= 135, "(u, w) = ({u}, {w})");
-                counts[new_uv_color][vw_position] -= k_vw_new_increase as i32;
+                counts[new_uv_color][vw_position] += k_vw_new_increase as i32;
                 // todo!("adjust all affected values of r(vw, c)")
                 affected_count_columns.push(vw_position);
             }
@@ -475,8 +467,9 @@ impl IRState for GraphState {
         BitIter::from(new_neigh_uv)
             .tuple_combinations()
             .for_each(|(w, x)| {
+                // dbg!(w, x);
                 let wx_position = edge_to_position(w, x);
-                counts[new_uv_color][wx_position] -= 1;
+                counts[new_uv_color][wx_position] += 1;
                 // todo!("adjust all affected values of r(wx, c)")
                 affected_count_columns.push(wx_position);
             });
@@ -546,16 +539,73 @@ impl IRState for GraphState {
     }
 }
 
-#[test]
-fn after_taking_an_action_the_new_cost_matches_the_reward() {
-    let mut state = GraphState::generate_random(100, &mut rand::thread_rng());
-    let old_cost = state.cost();
-    let action_rewards = state.action_rewards();
-    let (action, reward) = action_rewards[0];
-    state.act(action);
-    assert_eq!(
-        state.cost(),
-        old_cost - reward,
-        "old_cost = {old_cost}, reward = {reward}"
-    );
+#[cfg(test)]
+mod test {
+    use super::*;
+    
+    fn incident_cliques(s: &GraphState, pos: usize) -> [Vec<(usize, usize)>; C] {
+        let GraphState {
+            colors: ColoredCompleteGraph(colors),
+            edges: MulticoloredGraphEdges(edges),
+            neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
+            available_actions: _,
+            ordered_actions: _,
+            counts: _,
+            time_remaining: _,
+        } = s;
+        let mut incident_cliques: [Vec<(usize, usize)>; C] = core::array::from_fn(|_| vec![]);
+        let (u, v) = edge_from_position(pos);
+        let other_vertices = (0..N).filter(|w| u.ne(w) && v.ne(w));
+        other_vertices.tuple_combinations().for_each(|(w, x)| {
+            (0..C).for_each(|c| {
+                // check for the edges uw, ux, vw, vx, and wx
+                let neigh_uv = neighborhoods[c][u] & neighborhoods[c][v];
+                if neigh_uv & (1 << w) != 0 && neigh_uv & (1 << w) != 0 {
+                    if neighborhoods[c][w] & (1 << x) != 0 {
+                        incident_cliques[c].push((w, x));
+                    }
+                }
+            })
+        });
+        incident_cliques
+    }
+
+    #[test]
+    fn the_all_red_graph_has_the_correct_graph_state() {
+        let mut state = GraphState::all_red();
+        // let GraphState {
+        //     colors: ColoredCompleteGraph(colors),
+        //     edges: MulticoloredGraphEdges(edges),
+        //     neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
+        //     available_actions: _,
+        //     ordered_actions: _,
+        //     counts: _,
+        //     time_remaining,
+        // } = s;
+        let cliques = incident_cliques(&state, 0);
+        assert_eq!(cliques[0].len(), 105);
+        (1..C).for_each(|i| assert_eq!(cliques[i].len(), 0));
+        assert_eq!(state.cost(), 2380.0);
+        let rewards = state.action_rewards();
+        assert_eq!(rewards.len(), 136);
+        let (_, reward) = rewards.into_iter().find(|(a, r)| *a == E).unwrap();
+        assert_eq!(reward, 105.0);
+        state.act(E);
+        assert_eq!(state.cost(), 2275.0);
+    }
+
+    #[test]
+    fn after_taking_an_action_the_new_cost_matches_the_reward() {
+        let mut state = GraphState::generate_random(100, &mut rand::thread_rng());
+        let old_cost = state.cost();
+        let action_rewards = state.action_rewards();
+        todo!();
+        let (action, reward) = action_rewards[0];
+        state.act(action);
+        assert_eq!(
+            state.cost(),
+            old_cost - reward,
+            "old_cost = {old_cost}, reward = {reward}"
+        );
+    }
 }
