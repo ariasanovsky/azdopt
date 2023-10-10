@@ -20,8 +20,7 @@ pub struct MulticoloredGraphEdges(pub [[bool; E]; C]);
 #[derive(Clone, Debug)]
 pub struct MulticoloredGraphNeighborhoods(pub [[u32; N]; C]);
 
-#[derive(Hash, PartialEq, Eq)]
-#[derive(Clone, Debug)]
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct EdgeRecoloring {
     pub new_color: usize,
     pub edge_position: usize,

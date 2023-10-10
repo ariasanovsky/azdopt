@@ -11,5 +11,5 @@ pub trait Log {
 
 pub enum FinalStateData {
     Leaf,
-    New{ final_reward: f32 },
+    New { final_reward: f32 },
 }

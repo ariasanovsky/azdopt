@@ -88,7 +88,7 @@ impl SortedActions for VRewardRootData {
     fn best_action(&self) -> (usize, f32) {
         self.actions
             .first()
-            .map(|action| (action.0.action, action.0.reward.clone()))
+            .map(|action| (action.0.action, action.0.reward))
             .unwrap()
     }
 
@@ -99,9 +99,9 @@ impl SortedActions for VRewardRootData {
 
     fn update_future_reward(&mut self, action: usize, reward: &f32) {
         let Self {
-            cost,
+            cost: _,
             frequency: state_frequency,
-            actions
+            actions,
         } = self;
         *state_frequency += 1;
         let (action_data, upper_estimate) = actions
@@ -113,12 +113,12 @@ impl SortedActions for VRewardRootData {
             frequency: action_frequency,
             probability: _,
             reward: _,
-            future_reward_sum
+            future_reward_sum,
         } = action_data;
         *action_frequency += 1;
         *future_reward_sum += reward;
         *upper_estimate = action_data.upper_estimate(*state_frequency);
-        
+
         self.sort_actions();
     }
 }
@@ -129,7 +129,7 @@ impl SortedActions for VRewardStateData {
     fn best_action(&self) -> (usize, f32) {
         self.actions
             .first()
-            .map(|action| (action.0.action, action.0.reward.clone()))
+            .map(|action| (action.0.action, action.0.reward))
             .unwrap()
     }
 
@@ -139,7 +139,10 @@ impl SortedActions for VRewardStateData {
     }
 
     fn update_future_reward(&mut self, action: usize, reward: &f32) {
-        let Self { frequency: state_frequency, actions } = self;
+        let Self {
+            frequency: state_frequency,
+            actions: _,
+        } = self;
         *state_frequency += 1;
         let (action_data, upper_estimate) = self
             .actions
@@ -198,7 +201,7 @@ impl UpperEstimate for VRewardActionData {
         let numerator = state_frequency + 1;
         let denominator = *action_frequency + 1;
         let noise = C_PUCT * *probability * (numerator as f32).sqrt() / denominator as f32;
-        *reward as f32 + q_prime + noise
+        *reward + q_prime + noise
     }
 }
 
@@ -208,7 +211,11 @@ pub trait Observation {
 
 impl Observation for VRewardRootData {
     fn to_observation(self) -> (Vec<(usize, f32)>, f32) {
-        let Self { cost: _, frequency: state_frequency, actions } = self;
+        let Self {
+            cost: _,
+            frequency: state_frequency,
+            actions,
+        } = self;
         let mut total_rewards = 0.0;
         let probs: Vec<(_, _)> = actions
             .into_iter()
@@ -223,7 +230,8 @@ impl Observation for VRewardRootData {
                 total_rewards += future_reward_sum;
                 let prob = action_frequency as f32 / state_frequency as f32;
                 (action, prob)
-            }).collect();
+            })
+            .collect();
         let expected_future_gain = total_rewards / state_frequency as f32;
         (probs, expected_future_gain)
     }

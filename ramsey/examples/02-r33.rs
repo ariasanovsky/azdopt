@@ -2,7 +2,9 @@ use az_discrete_opt::{
     ir_tree::{
         config::*,
         log::{FinalStateData, Log},
-        *, model::Model, stats::{VRewardRootData, VRewardStateData},
+        model::Model,
+        stats::{VRewardRootData, VRewardStateData},
+        *,
     },
     VRewardTree,
 };
@@ -240,7 +242,13 @@ struct BasicGraphLogData {
 }
 
 impl BasicGraphLogData {
-    fn new<'a, I>(root_cost: f32, a1: usize, r1: f32, next_transitions: I, end: FinalStateData) -> Self
+    fn new<'a, I>(
+        root_cost: f32,
+        a1: usize,
+        r1: f32,
+        next_transitions: I,
+        end: FinalStateData,
+    ) -> Self
     where
         I: Iterator<Item = (&'a usize, &'a f32)>,
     {
@@ -251,7 +259,10 @@ impl BasicGraphLogData {
             cost += r;
             (*a, cost)
         }));
-        Self { actions_and_costs, end }
+        Self {
+            actions_and_costs,
+            end,
+        }
     }
 }
 
@@ -283,7 +294,10 @@ impl core::fmt::Display for BasicGraphLog {
 
 impl core::fmt::Display for BasicGraphLogData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { actions_and_costs: transitions, end } = self;
+        let Self {
+            actions_and_costs: transitions,
+            end,
+        } = self;
         transitions.into_iter().try_for_each(|(a, r)| {
             const E: &[&str] = &[
                 "0-1", "0-2", "1-2", "0-3", "1-3", "2-3", "0-4", "1-4", "2-4", "3-4",
@@ -333,11 +347,14 @@ fn main() {
             tree.simulate_once_and_update::<GraphConfig>(&model, log);
         });
     });
-    let observations: Vec<_> = trees.into_iter().map(|(tree, log)| {
-        println!("{log}");
-        let o = tree.to_observation();
-        // dbg!(&o);
-        o
-    }).collect();
+    let observations: Vec<_> = trees
+        .into_iter()
+        .map(|(tree, log)| {
+            println!("{log}");
+            let o = tree.to_observation();
+            // dbg!(&o);
+            o
+        })
+        .collect();
     model.update(observations);
 }

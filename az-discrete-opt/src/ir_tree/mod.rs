@@ -12,8 +12,9 @@ use config::*;
 
 use self::{
     log::{FinalStateData, Log},
-    stats::{SortedActions, UpperEstimate, Observation},
-    transitions::{FinalState, Transitions}, model::Model,
+    model::Model,
+    stats::{Observation, SortedActions, UpperEstimate},
+    transitions::{FinalState, Transitions},
 };
 
 #[derive(Debug)]
@@ -144,10 +145,8 @@ impl<S, P, D0, D> IRTree<S, P, D0, D> {
             data.update_future_reward(*action, &(reward_sum + evaluation));
             reward_sum += reward;
         });
-        self.root_data.update_future_reward(
-            first_action,
-            &(reward_sum + evaluation),
-        );
+        self.root_data
+            .update_future_reward(first_action, &(reward_sum + evaluation));
     }
 
     pub fn simulate_once_and_update<C>(&mut self, model: &C::M, log: &mut C::L)
@@ -186,7 +185,9 @@ impl<S, P, D0, D> IRTree<S, P, D0, D> {
                     a1,
                     r1,
                     &transitions,
-                    FinalStateData::New { final_reward: prediction.value().clone() },
+                    FinalStateData::New {
+                        final_reward: *prediction.value(),
+                    },
                 );
                 let t = s.action_rewards();
                 let eval = self.insert::<C>(p, t, prediction);
@@ -199,7 +200,11 @@ impl<S, P, D0, D> IRTree<S, P, D0, D> {
     where
         D0: Observation,
     {
-        let Self { root, root_data, data: _ } = self;
+        let Self {
+            root,
+            root_data,
+            data: _,
+        } = self;
         let obs = root_data.to_observation();
         (root, obs)
     }

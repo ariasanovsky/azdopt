@@ -1,17 +1,22 @@
-use core::mem::MaybeUninit;
 use core::mem::transmute;
+use core::mem::MaybeUninit;
 
 use az_discrete_opt::ir_tree::ir_min_tree::{IRMinTree, Transitions};
 use dfdx::optim::Adam;
-use dfdx::prelude::{Optimizer, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Linear, ReLU, DeviceBuildExt, Module};
+use dfdx::prelude::{
+    cross_entropy_with_logits_loss, mse_loss, DeviceBuildExt, Linear, Module, Optimizer, ReLU,
+    ZeroGrads,
+};
 use dfdx::shapes::Axis;
 use dfdx::tensor::Trace;
-use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
+use dfdx::tensor::{AsArray, AutoDevice, TensorFrom};
 use dfdx::tensor_ops::Backward;
 use dfdx::tensor_ops::{AdamConfig, WeightDecay};
-use ramsey::ramsey_state::{BATCH, GraphState, STATE, StateVec, VALUE, ValueVec, ActionVec};
+use ramsey::ramsey_state::{ActionVec, GraphState, StateVec, ValueVec, BATCH, STATE, VALUE};
 use ramsey::{C, E};
-use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
 const ACTION: usize = C * E;
 
@@ -22,12 +27,13 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) 
         let trees: MaybeUninit<[Tree; BATCH]> = MaybeUninit::uninit();
         transmute(trees)
     };
-    trees.par_iter_mut().zip_eq(states.par_iter().zip_eq(predictions.par_iter())).for_each(|(t, (s, p))| {
-        t.write(IRMinTree::new(s, p));
-    });
-    unsafe {
-        transmute(trees)
-    }
+    trees
+        .par_iter_mut()
+        .zip_eq(states.par_iter().zip_eq(predictions.par_iter()))
+        .for_each(|(t, (s, p))| {
+            t.write(IRMinTree::new(s, p));
+        });
+    unsafe { transmute(trees) }
 }
 
 fn main() {
@@ -48,16 +54,16 @@ fn main() {
             betas: [0.5, 0.25],
             eps: 1e-6,
             weight_decay: Some(WeightDecay::Decoupled(1e-2)),
-         }
+        },
     );
-    
+
     (0..EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
         let mut grads = core_model.alloc_grads();
         let roots: [GraphState; BATCH] = GraphState::par_generate_batch(20);
         let root_vecs: [StateVec; BATCH] = GraphState::par_generate_vecs(&roots);
         // dbg!(root_vecs.get(0).unwrap());
-        
+
         let root_tensor = dev.tensor(root_vecs.clone());
         let mut prediction_tensor = core_model.forward(root_tensor);
         let mut logits_tensor = logits_model.forward(prediction_tensor.clone());
@@ -65,18 +71,22 @@ fn main() {
         let mut value_tensor = value_model.forward(prediction_tensor.clone());
         let mut predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
-        
+
         // let mut longest_paths: Vec<usize> = vec![];
 
         // play episodes
         (0..EPISODES).for_each(|episode| {
-            let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) = simulate_forest_once(&trees);
+            let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) =
+                simulate_forest_once(&trees);
             // let longest_path = transitions.iter().map(|t| t.len()).max().unwrap();
             // longest_paths.push(longest_path);
             if EPISODES % 20 == 0 {
-                trees.iter().zip(transitions.iter()).for_each(|(tree, trans)| {
-                    println!("{:?}", trans.costs(tree.root_cost()));
-                });
+                trees
+                    .iter()
+                    .zip(transitions.iter())
+                    .for_each(|(tree, trans)| {
+                        println!("{:?}", trans.costs(tree.root_cost()));
+                    });
             }
             let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
             prediction_tensor = core_model.forward(dev.tensor(end_state_vecs));
@@ -98,7 +108,8 @@ fn main() {
             let traced_predictions = core_model.forward(root_tensor.trace(grads));
             let predicted_logits = logits_model.forward(traced_predictions);
             let observed_probabilities = dev.tensor(observations.0.clone());
-            let cross_entropy = cross_entropy_with_logits_loss(predicted_logits, observed_probabilities);
+            let cross_entropy =
+                cross_entropy_with_logits_loss(predicted_logits, observed_probabilities);
             print!("{:10}\t", cross_entropy.array());
             cross_entropy.backward()
         };
@@ -120,30 +131,36 @@ fn insert_into_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
     end_states: &[GraphState; BATCH],
-    probs: &[ActionVec; BATCH]
+    probs: &[ActionVec; BATCH],
 ) {
     let trees = trees.par_iter_mut();
     let trans = transitions.par_iter();
     let end_states = end_states.par_iter();
     let probs = probs.par_iter();
-    trees.zip_eq(trans).zip_eq(end_states).zip_eq(probs).for_each(|(((tree, trans), state), probs)| {
-        tree.insert(trans, state, probs)
-    });
+    trees
+        .zip_eq(trans)
+        .zip_eq(end_states)
+        .zip_eq(probs)
+        .for_each(|(((tree, trans), state), probs)| tree.insert(trans, state, probs));
 }
 
 fn forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
     let mut probabilities: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
     let mut values: [ValueVec; BATCH] = [[0.0f32; VALUE]; BATCH];
-    trees.par_iter().zip_eq(probabilities.par_iter_mut()).zip_eq(values.par_iter_mut()).for_each(|((tree, p), v)| {
-        let observations = tree.observations();
-        let (prob, value) = observations.split_at(ACTION);
-        p.iter_mut().zip(prob.iter()).for_each(|(p, prob)| {
-            *p = *prob;
+    trees
+        .par_iter()
+        .zip_eq(probabilities.par_iter_mut())
+        .zip_eq(values.par_iter_mut())
+        .for_each(|((tree, p), v)| {
+            let observations = tree.observations();
+            let (prob, value) = observations.split_at(ACTION);
+            p.iter_mut().zip(prob.iter()).for_each(|(p, prob)| {
+                *p = *prob;
+            });
+            v.iter_mut().zip(value.iter()).for_each(|(v, value)| {
+                *v = *value;
+            });
         });
-        v.iter_mut().zip(value.iter()).for_each(|(v, value)| {
-            *v = *value;
-        });
-    });
     (probabilities, values)
 }
 
@@ -153,12 +170,13 @@ fn update_forest(
     transitions: &[Trans; BATCH],
     values: &[ValueVec; BATCH],
 ) {
-    trees.par_iter_mut()
+    trees
+        .par_iter_mut()
         .zip_eq(transitions.par_iter())
         .zip_eq(values.par_iter())
         .for_each(|((tree, trans), values)| {
-        tree.update(trans,values);
-    });
+            tree.update(trans, values);
+        });
 }
 
 fn state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
@@ -166,12 +184,13 @@ fn state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
         let state_vecs: MaybeUninit<[StateVec; BATCH]> = MaybeUninit::uninit();
         transmute(state_vecs)
     };
-    state_vecs.par_iter_mut().zip_eq(states.par_iter()).for_each(|(v, s)| {
-        v.write(s.to_vec());
-    });
-    unsafe {
-        transmute(state_vecs)
-    }
+    state_vecs
+        .par_iter_mut()
+        .zip_eq(states.par_iter())
+        .for_each(|(v, s)| {
+            v.write(s.to_vec());
+        });
+    unsafe { transmute(state_vecs) }
 }
 
 fn simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
@@ -183,14 +202,16 @@ fn simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; 
         let state_vecs: MaybeUninit<[GraphState; BATCH]> = MaybeUninit::uninit();
         transmute(state_vecs)
     };
-    trees.par_iter().zip_eq(transitions.par_iter_mut()).zip_eq(state_vecs.par_iter_mut()).for_each(|((tree, t), s)| {
-        let (trans, state) = tree.simulate_once();
-        t.write(trans);
-        s.write(state);
-    });
-    unsafe {
-        (transmute(transitions), transmute(state_vecs))
-    }
+    trees
+        .par_iter()
+        .zip_eq(transitions.par_iter_mut())
+        .zip_eq(state_vecs.par_iter_mut())
+        .for_each(|((tree, t), s)| {
+            let (trans, state) = tree.simulate_once();
+            t.write(trans);
+            s.write(state);
+        });
+    unsafe { (transmute(transitions), transmute(state_vecs)) }
 }
 
 type Trans = Transitions;

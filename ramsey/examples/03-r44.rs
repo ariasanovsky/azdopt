@@ -50,7 +50,6 @@
 //         * regularization: ||theta||^2.
 //         * Loss is processed in batches of observations based on different states.
 // */
-
 // // model constants
 // const HIDDEN_1: usize = 256;
 // const HIDDEN_2: usize = 128;
@@ -161,7 +160,7 @@
 //     let mut state_tensor = dev.tensor(states);
 //     let mut prediction_tensor = model.forward(state_tensor);
 //     let predictions: [PredictionVec; BATCH] = prediction_tensor.array();
-    
+
 //     let mut trees: [MaybeUninit<Tree>; BATCH] = unsafe {
 //         core::mem::MaybeUninit::uninit().assume_init()
 //     };
@@ -172,12 +171,12 @@
 //     let mut trees: [Tree; BATCH] = unsafe {
 //         core::mem::transmute(trees)
 //     };
-    
+
 //     let mut leaves = [[0.0f32; STATE]; BATCH];
 //     trees.par_iter_mut().zip(leaves.par_iter_mut()).for_each(|(tree, s)| {
 //         todo!()
 //     });
-    
+
 //     (0..1000).for_each(|_| {
 //         let leaf_tensor = dev.tensor(leaves.clone());
 //         let mut grads = model.alloc_grads();
@@ -209,8 +208,6 @@
 //         opt.update(&mut model, &grads).unwrap();
 //         model.zero_grads(&mut grads);
 //     });
-    
-
 
 //     // cross_entropy.backward();
 //     // sgd.update(&mut model_core, &grads).expect("Unused params");
@@ -237,12 +234,9 @@
 //     // dbg!(cross_entropy.array());
 //     // cross_entropy.backward();
 
-    
 //     // type T = <S as ReduceShape<Axis<1>>>::Output;
 //     // let probs = logits.softmax::<Axis<1>>().array();
 //     // dbg!(probs.map(|probs| probs.into_iter().sum::<f32>()));
 // }
 
-fn main() {
-    
-}
+fn main() {}

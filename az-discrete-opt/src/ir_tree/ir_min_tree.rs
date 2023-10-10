@@ -22,7 +22,7 @@ pub struct IRMinTree<S> {
     root: S,
     root_cost: f32,
     root_data: IRStateData,
-    data: BTreeMap<ActionsTaken, IRStateData>
+    data: BTreeMap<ActionsTaken, IRStateData>,
 }
 
 pub struct IRStateData {
@@ -87,26 +87,31 @@ impl IRActionData {
 
 impl IRStateData {
     fn new(predicted_probs: &[f32], action_rewards: &[(usize, f32)]) -> Self {
-        let actions = action_rewards.into_iter().map(|(a, r)| {
-            let p = predicted_probs.get(*a).unwrap();
-            IRActionData::new(*a, *r, *p)
-        }).collect();
-        Self { frequency: 0, actions }
+        let actions = action_rewards
+            .iter()
+            .map(|(a, r)| {
+                let p = predicted_probs.get(*a).unwrap();
+                IRActionData::new(*a, *r, *p)
+            })
+            .collect();
+        Self {
+            frequency: 0,
+            actions,
+        }
     }
-    
+
     fn best_action(&self) -> (usize, f32) {
         self.actions.first().map(|a| (a.action, a.reward)).unwrap()
     }
 
     fn update_future_reward(&mut self, action: usize, approximate_gain_to_terminal: f32) {
-        let Self {
-            frequency,
-            actions,
-        } = self;
+        let Self { frequency, actions } = self;
         *frequency += 1;
         let action_data = actions.iter_mut().find(|a| a.action == action).unwrap();
         action_data.update_future_reward(approximate_gain_to_terminal);
-        actions.iter_mut().for_each(|a| a.update_upper_estimate(*frequency));
+        actions
+            .iter_mut()
+            .for_each(|a| a.update_upper_estimate(*frequency));
         actions.sort_unstable_by(|a, b| b.upper_estimate.total_cmp(&a.upper_estimate));
     }
 }
@@ -121,19 +126,22 @@ impl<S> IRMinTree<S> {
         S: Clone + IRState,
     {
         let rewards = root.action_rewards();
-        let mut actions: Vec<_> = rewards.into_iter().map(|(i, r)| {
-            let p = *probability_predictions.get(i).unwrap();
-            const C_PUCT: f32 = 1.0;
-            let u = r + C_PUCT * p;
-            IRActionData {
-                action: i,
-                frequency: 0,
-                probability: p,
-                reward: r,
-                future_reward_sum: 0.0,
-                upper_estimate: u,
-            }
-        }).collect();
+        let mut actions: Vec<_> = rewards
+            .into_iter()
+            .map(|(i, r)| {
+                let p = *probability_predictions.get(i).unwrap();
+                const C_PUCT: f32 = 1.0;
+                let u = r + C_PUCT * p;
+                IRActionData {
+                    action: i,
+                    frequency: 0,
+                    probability: p,
+                    reward: r,
+                    future_reward_sum: 0.0,
+                    upper_estimate: u,
+                }
+            })
+            .collect();
         actions.sort_unstable_by(|a, b| b.upper_estimate.total_cmp(&a.upper_estimate));
         let root_data = IRStateData {
             frequency: 0,
@@ -155,7 +163,7 @@ impl<S> IRMinTree<S> {
             root_cost: _,
             root,
             root_data,
-            data
+            data,
         } = self;
         let mut state = root.clone();
         let (first_action, first_reward) = root_data.best_action();
@@ -170,12 +178,15 @@ impl<S> IRMinTree<S> {
                 state_path.push(action);
             } else {
                 // new state
-                return (Transitions {
-                    first_action,
-                    first_reward,
-                    transitions,
-                    new_path: Some(state_path),
-                }, state);
+                return (
+                    Transitions {
+                        first_action,
+                        first_reward,
+                        transitions,
+                        new_path: Some(state_path),
+                    },
+                    state,
+                );
             }
         }
         (
@@ -189,11 +200,7 @@ impl<S> IRMinTree<S> {
         )
     }
 
-    pub fn update(
-        &mut self,
-        transitions: &Transitions,
-        gains: &[f32],
-    ) {
+    pub fn update(&mut self, transitions: &Transitions, gains: &[f32]) {
         let Self {
             root_cost: _,
             root: _,
@@ -204,7 +211,7 @@ impl<S> IRMinTree<S> {
             first_action,
             first_reward,
             transitions,
-            new_path
+            new_path,
         } = transitions;
         /* todo!()
             https://github.com/ariasanovsky/ariasanovsky.github.io/blob/main/content/posts/2023-09-mcts.md
@@ -214,9 +221,10 @@ impl<S> IRMinTree<S> {
             the target to optimize is g^*(s)
         */
         assert_eq!(gains.len(), 1);
-        let mut approximate_gain_to_terminal = new_path.as_ref().map(|_| {
-            gains.first().unwrap().max(0.0f32)
-        }).unwrap_or(0.0f32);
+        let mut approximate_gain_to_terminal = new_path
+            .as_ref()
+            .map(|_| gains.first().unwrap().max(0.0f32))
+            .unwrap_or(0.0f32);
         /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
             we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
             ...
@@ -239,8 +247,7 @@ impl<S> IRMinTree<S> {
         transitions: &Transitions,
         end_state: &S,
         probability_predictions: &[f32],
-    )
-    where
+    ) where
         S: IRState,
     {
         let Self {
@@ -253,7 +260,7 @@ impl<S> IRMinTree<S> {
             first_action: _,
             first_reward: _,
             transitions: _,
-            new_path
+            new_path,
         } = transitions;
         if let Some(new_path) = new_path {
             let state_data = IRStateData::new(probability_predictions, &end_state.action_rewards());
@@ -271,10 +278,7 @@ impl<S> IRMinTree<S> {
             root_data,
             data: _,
         } = self;
-        let IRStateData {
-            frequency,
-            actions,
-        } = root_data;
+        let IRStateData { frequency, actions } = root_data;
         let mut gain_sum = 0.0;
         let mut observations = vec![0.0; S::ACTION + 1];
         actions.iter().for_each(|a| {
@@ -300,7 +304,8 @@ pub trait IRState {
     fn cost(&self) -> f32;
     fn action_rewards(&self) -> Vec<(usize, f32)>;
     fn act(&mut self, action: usize);
-    fn is_terminal(&self) -> bool;}
+    fn is_terminal(&self) -> bool;
+}
 
 pub struct Transitions {
     first_action: usize,
@@ -310,10 +315,6 @@ pub struct Transitions {
 }
 
 impl Transitions {
-    pub fn len(&self) -> usize {
-        self.transitions.len() + 1
-    }
-
     pub fn costs(&self, root_cost: f32) -> Vec<f32> {
         let mut costs = vec![root_cost];
         let mut cost = root_cost - self.first_reward;

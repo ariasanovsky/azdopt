@@ -4,9 +4,14 @@ use az_discrete_opt::ir_tree::ir_min_tree::IRState;
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
-use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
-use crate::{C, E, ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, CliqueCounts, Color, N, EdgeRecoloring};
+use crate::{
+    CliqueCounts, Color, ColoredCompleteGraph, EdgeRecoloring, MulticoloredGraphEdges,
+    MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, C, E, N,
+};
 
 pub const BATCH: usize = 64;
 const ACTION: usize = C * E;
@@ -16,8 +21,6 @@ pub type StateVec = [f32; STATE];
 pub type ActionVec = [f32; ACTION];
 pub const VALUE: usize = 1;
 pub type ValueVec = [f32; VALUE];
-
-
 
 #[derive(Clone, Debug)]
 pub struct GraphState {
@@ -45,7 +48,7 @@ impl GraphState {
     //     colors.iter().enumerate().for_each(|(i, Color(c))| {
     //         assert!(edges[*c][i], "i = {i}, c = {c}");
     //         (0..C).filter(|d| c.ne(d)).for_each(|d| {
-    //            assert!(!edges[d][i], "i = {i}, c = {c}, d = {d}"); 
+    //            assert!(!edges[d][i], "i = {i}, c = {c}, d = {d}");
     //         });
     //     });
     //     // check that edge positions are correct
@@ -84,35 +87,40 @@ impl GraphState {
             transmute(colors)
         };
         let mut available_actions: [[bool; E]; C] = [[true; E]; C];
-        let edge_iterator = (0..N).map(|v| (0..v).map(move |u| (u, v))).flatten();
-        edge_iterator.zip(colors.iter_mut()).enumerate().for_each(|(i, ((u, v), color))| {
-            let c = rng.gen_range(0..C);
-            edges[c][i] = true;
-            available_actions[c][i] = false;
-            neighborhoods[c][u] |= 1 << v;
-            neighborhoods[c][v] |= 1 << u;
-            color.write(Color(c));
-        });
-        let colors: [Color; E] = unsafe {
-            transmute(colors)
-        };
+        let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
+        edge_iterator
+            .zip(colors.iter_mut())
+            .enumerate()
+            .for_each(|(i, ((u, v), color))| {
+                let c = rng.gen_range(0..C);
+                edges[c][i] = true;
+                available_actions[c][i] = false;
+                neighborhoods[c][u] |= 1 << v;
+                neighborhoods[c][v] |= 1 << u;
+                color.write(Color(c));
+            });
+        let colors: [Color; E] = unsafe { transmute(colors) };
         let mut counts: [[MaybeUninit<i32>; E]; C] = unsafe {
             let counts: MaybeUninit<[[i32; E]; C]> = MaybeUninit::uninit();
             transmute(counts)
         };
-        neighborhoods.iter().zip(counts.iter_mut()).for_each(|(neighborhoods, counts)| {
-            let edge_iterator = (0..N).map(|v| (0..v).map(move |u| (u, v))).flatten();
-            edge_iterator.zip(counts.iter_mut()).for_each(|((u, v), k)| {
-                let neighborhood = neighborhoods[u] & neighborhoods[v];
-                let count = BitIter::from(neighborhood).map(|w| {
-                    (neighborhood & neighborhoods[w]).count_ones()
-                }).sum::<u32>() / 2;
-                k.write(count as i32);
+        neighborhoods
+            .iter()
+            .zip(counts.iter_mut())
+            .for_each(|(neighborhoods, counts)| {
+                let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
+                edge_iterator
+                    .zip(counts.iter_mut())
+                    .for_each(|((u, v), k)| {
+                        let neighborhood = neighborhoods[u] & neighborhoods[v];
+                        let count = BitIter::from(neighborhood)
+                            .map(|w| (neighborhood & neighborhoods[w]).count_ones())
+                            .sum::<u32>()
+                            / 2;
+                        k.write(count as i32);
+                    });
             });
-        });
-        let counts: [[i32; E]; C] = unsafe {
-            transmute(counts)
-        };
+        let counts: [[i32; E]; C] = unsafe { transmute(counts) };
         let mut recolorings: PriorityQueue<EdgeRecoloring, i32> = PriorityQueue::new();
         colors.iter().enumerate().for_each(|(i, c)| {
             let old_color = c.0;
@@ -120,7 +128,10 @@ impl GraphState {
             (0..C).filter(|c| old_color.ne(c)).for_each(|new_color| {
                 let new_count = counts[new_color][i];
                 let reward = old_count - new_count;
-                let recoloring = EdgeRecoloring { new_color, edge_position: i };
+                let recoloring = EdgeRecoloring {
+                    new_color,
+                    edge_position: i,
+                };
                 recolorings.push(recoloring, reward);
             })
         });
@@ -131,7 +142,6 @@ impl GraphState {
                 assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
             });
         });
-
 
         let s = Self {
             colors: ColoredCompleteGraph(colors),
@@ -147,15 +157,11 @@ impl GraphState {
     }
 
     pub fn par_generate_batch(t: usize) -> [Self; BATCH] {
-        let mut states: [MaybeUninit<Self>; BATCH] = unsafe {
-            MaybeUninit::uninit().assume_init()
-        };
+        let mut states: [MaybeUninit<Self>; BATCH] = unsafe { MaybeUninit::uninit().assume_init() };
         states.par_iter_mut().for_each(|s| {
             s.write(GraphState::generate_random(t, &mut rand::thread_rng()));
         });
-        let b: [Self; BATCH] = unsafe {
-            transmute(states)
-        };
+        let b: [Self; BATCH] = unsafe { transmute(states) };
         // b.iter().for_each(|s| {
         //     s.check_for_inconsistencies();
         // });
@@ -166,15 +172,15 @@ impl GraphState {
         // states.iter().for_each(|s| {
         //     s.check_for_inconsistencies();
         // });
-        let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = unsafe {
-            MaybeUninit::uninit().assume_init()
-        };
-        states.par_iter().zip_eq(state_vecs.par_iter_mut()).for_each(|(s, v)| {
-            v.write(s.to_vec());
-        });
-        unsafe {
-            transmute(state_vecs)
-        }
+        let mut state_vecs: [MaybeUninit<StateVec>; BATCH] =
+            unsafe { MaybeUninit::uninit().assume_init() };
+        states
+            .par_iter()
+            .zip_eq(state_vecs.par_iter_mut())
+            .for_each(|(s, v)| {
+                v.write(s.to_vec());
+            });
+        unsafe { transmute(state_vecs) }
     }
 
     pub fn to_vec(&self) -> StateVec {
@@ -187,23 +193,17 @@ impl GraphState {
             counts: CliqueCounts(counts),
             time_remaining,
         } = self;
-        let edge_iter = edges.iter().flatten().map(|b| {
-            if *b {
-                1.0
-            } else {
-                0.0
-            }
-        });
+        let edge_iter = edges.iter().flatten().map(|b| if *b { 1.0 } else { 0.0 });
         let count_iter = counts.iter().flatten().map(|c| *c as f32);
-        let action_iter = available_actions.iter().flatten().map(|a| {
-            if *a {
-                1.0
-            } else {
-                0.0
-            }
-        });
+        let action_iter = available_actions
+            .iter()
+            .flatten()
+            .map(|a| if *a { 1.0 } else { 0.0 });
         let time_iter = Some(*time_remaining as f32).into_iter();
-        let state_iter = edge_iter.chain(count_iter).chain(action_iter).chain(time_iter);
+        let state_iter = edge_iter
+            .chain(count_iter)
+            .chain(action_iter)
+            .chain(time_iter);
         let mut state_vec: StateVec = [0.0; STATE];
         state_vec.iter_mut().zip(state_iter).for_each(|(v, s)| {
             *v = s;
@@ -211,7 +211,6 @@ impl GraphState {
         state_vec
     }
 }
-
 
 /* edges are enumerated in colex order:
     [0] 01  [1] 02  [3] 03
@@ -250,11 +249,7 @@ pub fn edge_from_position(position: usize) -> (usize, usize) {
 }
 
 pub fn edge_to_position(u: usize, v: usize) -> usize {
-    let (u, v) = if u < v {
-        (u, v)
-    } else {
-        (v, u)
-    };
+    let (u, v) = if u < v { (u, v) } else { (v, u) };
     /* note the positions
         {0, 1}: 0 = (2 choose 2) - 1
         {1, 2}: 2 = (3 choose 2) - 1
@@ -269,7 +264,6 @@ pub fn edge_to_position(u: usize, v: usize) -> usize {
     upper_position - difference
 }
 
-
 impl IRState for GraphState {
     const ACTION: usize = ACTION;
     fn cost(&self) -> f32 {
@@ -282,10 +276,15 @@ impl IRState for GraphState {
             counts: CliqueCounts(counts),
             time_remaining: _,
         } = self;
-        let count = colors.iter().enumerate().map(|(i, c)| {
-            let Color(c) = c;
-            counts[*c][i]
-        }).sum::<i32>() / 6;
+        let count = colors
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let Color(c) = c;
+                counts[*c][i]
+            })
+            .sum::<i32>()
+            / 6;
         count as f32
     }
 
@@ -299,11 +298,17 @@ impl IRState for GraphState {
             counts: _,
             time_remaining: _,
         } = self;
-        ordered_actions.iter().map(|(recolor, reward)| {
-            let EdgeRecoloring { new_color, edge_position } = recolor;
-            let action_index = new_color * E + edge_position;
-            (action_index, *reward as f32)
-        }).collect()
+        ordered_actions
+            .iter()
+            .map(|(recolor, reward)| {
+                let EdgeRecoloring {
+                    new_color,
+                    edge_position,
+                } = recolor;
+                let action_index = new_color * E + edge_position;
+                (action_index, *reward as f32)
+            })
+            .collect()
     }
 
     fn act(&mut self, action: usize) {
@@ -330,7 +335,6 @@ impl IRState for GraphState {
         //     });
         // });
 
-
         /* when does k(xy, c) change?
             necessarily, c is either old_color or new_color
             k(uv, c) never changes
@@ -352,10 +356,10 @@ impl IRState for GraphState {
         // we store which edges wx have an affected column and update them later
         // todo!() this can be optimized by only updating the affected columns within the iterator
         let mut affected_count_columns: Vec<usize> = vec![];
-        
+
         let old_neigh_u = neighborhoods[old_uv_color][u];
         let old_neigh_v = neighborhoods[old_uv_color][v];
-        
+
         // we remove v and u so that they are not treated as w or x in the following
         let old_neigh_u = old_neigh_u ^ (1 << v);
         let old_neigh_v = old_neigh_v ^ (1 << u);
@@ -363,7 +367,7 @@ impl IRState for GraphState {
 
         // assert_eq!(old_neigh_u & (1 << u), 0, "u = {u}, v = {v}, old_neigh_u = {old_neigh_u:b}");
         // assert_eq!(old_neigh_v & (1 << v), 0, "u = {u}, v = {v}, old_neigh_v = {old_neigh_v:b}");
-        
+
         BitIter::from(old_neigh_v).for_each(|w| {
             let old_neigh_w = neighborhoods[old_uv_color][w];
             let old_neigh_uvw = old_neigh_uv & old_neigh_w;
@@ -407,12 +411,14 @@ impl IRState for GraphState {
                 Q = {w, x, u, v}
                 w, x are in N_{c_old}(u) & N_{c_old}(v)
         */
-        BitIter::from(old_neigh_uv).tuple_combinations().for_each(|(w, x)| {
-            let wx_position = edge_to_position(w, x);
-            counts[old_uv_color][wx_position] -= 1;
-            // todo!("adjust all affected values of r(wx, c)")
-            affected_count_columns.push(wx_position);
-        });
+        BitIter::from(old_neigh_uv)
+            .tuple_combinations()
+            .for_each(|(w, x)| {
+                let wx_position = edge_to_position(w, x);
+                counts[old_uv_color][wx_position] -= 1;
+                // todo!("adjust all affected values of r(wx, c)")
+                affected_count_columns.push(wx_position);
+            });
 
         // we do not need to remove v and u -- uv has color old_uv_color
         let new_neigh_u = neighborhoods[new_uv_color][u];
@@ -421,7 +427,7 @@ impl IRState for GraphState {
 
         // assert_ne!(new_neigh_u & (1 << u), 0, "u = {u}, v = {v}, new_neigh_u = {new_neigh_u:b}");
         // assert_ne!(new_neigh_v & (1 << v), 0, "u = {u}, v = {v}, new_neigh_v = {new_neigh_v:b}");
-        
+
         BitIter::from(new_neigh_v).for_each(|w| {
             let new_neigh_w = neighborhoods[new_uv_color][w];
             let new_neigh_uvw = new_neigh_uv & new_neigh_w;
@@ -466,12 +472,14 @@ impl IRState for GraphState {
                 Q = {w, x, u, v}
                 w, x are in N_{c_old}(u) & N_{c_old}(v)
         */
-        BitIter::from(new_neigh_uv).tuple_combinations().for_each(|(w, x)| {
-            let wx_position = edge_to_position(w, x);
-            counts[new_uv_color][wx_position] -= 1;
-            // todo!("adjust all affected values of r(wx, c)")
-            affected_count_columns.push(wx_position);
-        });
+        BitIter::from(new_neigh_uv)
+            .tuple_combinations()
+            .for_each(|(w, x)| {
+                let wx_position = edge_to_position(w, x);
+                counts[new_uv_color][wx_position] -= 1;
+                // todo!("adjust all affected values of r(wx, c)")
+                affected_count_columns.push(wx_position);
+            });
 
         affected_count_columns.into_iter().for_each(|wx_position| {
             let Color(wx_color) = colors[wx_position];
@@ -479,8 +487,11 @@ impl IRState for GraphState {
             // update r(wx, c) for all c != wx_color
             (0..C).for_each(|c| {
                 let reward = old_count - counts[c][wx_position];
-                let recoloring = EdgeRecoloring { new_color: c, edge_position: wx_position };
-                let reward = ordered_actions.change_priority(&recoloring, reward);
+                let recoloring = EdgeRecoloring {
+                    new_color: c,
+                    edge_position: wx_position,
+                };
+                let _reward = ordered_actions.change_priority(&recoloring, reward);
                 // todo!("update all affected count columns");
             });
         });
@@ -503,7 +514,6 @@ impl IRState for GraphState {
         //     });
         // });
 
-
         // todo!("update available_actions");
         (0..C).for_each(|c| {
             available_actions[c][edge_position] = false;
@@ -511,7 +521,10 @@ impl IRState for GraphState {
         // todo!("update ordered_actions");
         // todo!("remove uv actions from ordered_actions");
         (0..C).for_each(|c| {
-            let recoloring = EdgeRecoloring { new_color: c, edge_position };
+            let recoloring = EdgeRecoloring {
+                new_color: c,
+                edge_position,
+            };
             ordered_actions.remove(&recoloring);
         });
         // todo!("update counts");
@@ -540,5 +553,9 @@ fn after_taking_an_action_the_new_cost_matches_the_reward() {
     let action_rewards = state.action_rewards();
     let (action, reward) = action_rewards[0];
     state.act(action);
-    assert_eq!(state.cost(), old_cost - reward, "old_cost = {old_cost}, reward = {reward}");
+    assert_eq!(
+        state.cost(),
+        old_cost - reward,
+        "old_cost = {old_cost}, reward = {reward}"
+    );
 }
