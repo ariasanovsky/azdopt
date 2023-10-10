@@ -11,9 +11,7 @@ use dfdx::prelude::ZeroGrads;
 use dfdx::prelude::cross_entropy_with_logits_loss;
 use dfdx::prelude::mse_loss;
 use dfdx::prelude::{Linear, ReLU, DeviceBuildExt, Module};
-use dfdx::shapes::Axes;
 use dfdx::shapes::Axis;
-use dfdx::shapes::HasShape;
 use dfdx::tensor::Trace;
 use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
 use dfdx::tensor_ops::Backward;
@@ -186,11 +184,11 @@ impl GraphState {
 
     fn to_vec(&self) -> StateVec {
         let Self {
-            colors: ColoredCompleteGraph(colors),
+            colors: _,
             edges: MulticoloredGraphEdges(edges),
             neighborhoods: _,
             available_actions,
-            ordered_actions: OrderedEdgeRecolorings(ordered_actions),
+            ordered_actions: _,
             counts: CliqueCounts(counts),
             time_remaining,
         } = self;
@@ -484,7 +482,6 @@ impl IRState for GraphState {
 
 const STATE: usize = 6 * E + 1;
 type StateVec = [f32; STATE];
-type PredictionVec = [f32; PREDICTION];
 type ActionVec = [f32; ACTION];
 const VALUE: usize = 1;
 type ValueVec = [f32; VALUE];
@@ -504,8 +501,10 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) 
 }
 
 fn main() {
-    const EPOCH: usize = 10;
-    const EPISODES: usize = 10;
+    const EPOCH: usize = 30;
+    const EPISODES: usize = 100;
+
+    // todo!() visuals with https://wandb.ai/site
 
     // set up model
     let dev = AutoDevice::default();
@@ -536,19 +535,30 @@ fn main() {
         let mut value_tensor = value_model.forward(prediction_tensor.clone());
         let mut predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
-
         
+        // let mut longest_paths: Vec<usize> = vec![];
+
         // play episodes
         (0..EPISODES).for_each(|episode| {
-            // print!("episode {episode}");
             let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) = simulate_forest_once(&trees);
+            // let longest_path = transitions.iter().map(|t| t.len()).max().unwrap();
+            // longest_paths.push(longest_path);
+            if EPISODES % 20 == 0 {
+                trees.iter().zip(transitions.iter()).for_each(|(tree, trans)| {
+                    println!("{:?}", trans.costs(tree.root_cost()));
+                });
+            }
             let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
             prediction_tensor = core_model.forward(dev.tensor(end_state_vecs));
-            probs_tensor = logits_model.forward(prediction_tensor.clone());
+            let logits_tensor = logits_model.forward(prediction_tensor.clone());
+            probs_tensor = logits_tensor.clone().softmax::<Axis<1>>();
             value_tensor = value_model.forward(prediction_tensor.clone());
             let probs = probs_tensor.array();
+            // let max_deviation_from_one = probs.iter().map(|probs| probs.into_iter().sum::<f32>()).map(|psum| (1.0f32 - psum).abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+            // println!("max_deviation_from_one = {}", max_deviation_from_one);
             let values = value_tensor.array();
-            update_forest(&mut trees, &transitions, &probs, &values);
+            update_forest(&mut trees, &transitions, &values);
+            insert_into_forest(&mut trees, &transitions, &end_states, &probs);
         });
         // println!();
         // backprop loss
@@ -566,47 +576,58 @@ fn main() {
             let root_tensor = dev.tensor(root_vecs.clone());
             let traced_predictions = core_model.forward(root_tensor.trace(grads));
             let predicted_values = value_model.forward(traced_predictions);
-            
-            let target_values = [[10.0f32; 1]; BATCH];
-            let target_values = dev.tensor(target_values.clone());
-
-            let square_error = mse_loss(predicted_values, target_values);
+            let observed_values = dev.tensor(observations.1.clone());
+            let square_error = mse_loss(predicted_values, observed_values);
             println!("{}", square_error.array());
             square_error.backward()
         };
         opt.update(&mut core_model, &grads).unwrap();
         core_model.zero_grads(&mut grads);
     });
-    todo!()
+}
+
+fn insert_into_forest(
+    trees: &mut [Tree; BATCH],
+    transitions: &[Trans; BATCH],
+    end_states: &[GraphState; BATCH],
+    probs: &[ActionVec; BATCH]
+) {
+    let trees = trees.par_iter_mut();
+    let trans = transitions.par_iter();
+    let end_states = end_states.par_iter();
+    let probs = probs.par_iter();
+    trees.zip_eq(trans).zip_eq(end_states).zip_eq(probs).for_each(|(((tree, trans), state), probs)| {
+        tree.insert(trans, state, probs)
+    });
 }
 
 fn forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
-    // let mut observations: [MaybeUninit<PredictionVec>; BATCH] = unsafe {
-    //     let observations: MaybeUninit<[PredictionVec; BATCH]> = MaybeUninit::uninit();
-    //     transmute(observations)
-    // };
-    // trees.par_iter().zip_eq(observations.par_iter_mut()).for_each(|(tree, o)| {
-    //     let observations = tree.observations().try_into().unwrap();
-    //     o.write(observations);
-    // });
-    // unsafe {
-    //     transmute(observations)
-    // }
-    todo!()
+    let mut probabilities: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
+    let mut values: [ValueVec; BATCH] = [[0.0f32; VALUE]; BATCH];
+    trees.par_iter().zip_eq(probabilities.par_iter_mut()).zip_eq(values.par_iter_mut()).for_each(|((tree, p), v)| {
+        let observations = tree.observations();
+        let (prob, value) = observations.split_at(ACTION);
+        p.iter_mut().zip(prob.iter()).for_each(|(p, prob)| {
+            *p = *prob;
+        });
+        v.iter_mut().zip(value.iter()).for_each(|(v, value)| {
+            *v = *value;
+        });
+    });
+    (probabilities, values)
 }
 
+// todo!() update values separately from inserting new path
 fn update_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
-    probs: &[ActionVec; BATCH],
     values: &[ValueVec; BATCH],
 ) {
     trees.par_iter_mut()
         .zip_eq(transitions.par_iter())
-        .zip_eq(probs.par_iter())
         .zip_eq(values.par_iter())
-        .for_each(|(((tree, trans), probs), values)| {
-        tree.update(trans, probs, values);
+        .for_each(|((tree, trans), values)| {
+        tree.update(trans,values);
     });
 }
 
@@ -646,7 +667,6 @@ type Trans = Transitions;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
-const PREDICTION: usize = ACTION + 1;
 
 type Core = (
     (Linear<STATE, HIDDEN_1>, ReLU),

@@ -45,8 +45,8 @@ impl VRewardRootData {
 
 #[derive(Debug)]
 pub struct VRewardStateData {
-    frequency: usize,
-    actions: Vec<(VRewardActionData, f32)>,
+    pub(crate) frequency: usize,
+    pub(crate) actions: Vec<(VRewardActionData, f32)>,
 }
 
 impl VRewardStateData {
