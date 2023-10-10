@@ -21,13 +21,13 @@ pub type ValueVec = [f32; VALUE];
 
 #[derive(Clone, Debug)]
 pub struct GraphState {
-    pub colors: ColoredCompleteGraph,
-    pub edges: MulticoloredGraphEdges,
-    pub neighborhoods: MulticoloredGraphNeighborhoods,
-    pub available_actions: [[bool; E]; C],
-    pub ordered_actions: OrderedEdgeRecolorings,
-    pub counts: CliqueCounts,
-    pub time_remaining: usize,
+    colors: ColoredCompleteGraph,
+    edges: MulticoloredGraphEdges,
+    neighborhoods: MulticoloredGraphNeighborhoods,
+    available_actions: [[bool; E]; C],
+    ordered_actions: OrderedEdgeRecolorings,
+    counts: CliqueCounts,
+    time_remaining: usize,
 }
 
 impl GraphState {
@@ -291,7 +291,7 @@ impl IRState for GraphState {
 
     fn action_rewards(&self) -> Vec<(usize, f32)> {
         let Self {
-            colors: ColoredCompleteGraph(colors),
+            colors: _,
             edges: _,
             neighborhoods: _,
             available_actions: _,
@@ -320,6 +320,7 @@ impl IRState for GraphState {
         let edge_position = action % E;
         let Color(old_uv_color) = colors[edge_position];
         let (u, v) = edge_from_position(edge_position);
+
         // assert_ne!(u, v, "{edge_position}");
 
         // (0..C).for_each(|c| {
@@ -530,4 +531,14 @@ impl IRState for GraphState {
         } = self;
         *time_remaining == 0
     }
+}
+
+#[test]
+fn after_taking_an_action_the_new_cost_matches_the_reward() {
+    let mut state = GraphState::generate_random(100, &mut rand::thread_rng());
+    let old_cost = state.cost();
+    let action_rewards = state.action_rewards();
+    let (action, reward) = action_rewards[0];
+    state.act(action);
+    assert_eq!(state.cost(), old_cost - reward, "old_cost = {old_cost}, reward = {reward}");
 }

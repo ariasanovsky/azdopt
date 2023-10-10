@@ -1,32 +1,16 @@
 use core::mem::MaybeUninit;
 use core::mem::transmute;
 
-use az_discrete_opt::ir_tree::ir_min_tree::IRMinTree;
-use az_discrete_opt::ir_tree::ir_min_tree::IRState;
-use az_discrete_opt::ir_tree::ir_min_tree::Transitions;
-use bit_iter::BitIter;
+use az_discrete_opt::ir_tree::ir_min_tree::{IRMinTree, Transitions};
 use dfdx::optim::Adam;
-use dfdx::prelude::Optimizer;
-use dfdx::prelude::ZeroGrads;
-use dfdx::prelude::cross_entropy_with_logits_loss;
-use dfdx::prelude::mse_loss;
-use dfdx::prelude::{Linear, ReLU, DeviceBuildExt, Module};
+use dfdx::prelude::{Optimizer, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Linear, ReLU, DeviceBuildExt, Module};
 use dfdx::shapes::Axis;
 use dfdx::tensor::Trace;
 use dfdx::tensor::{AutoDevice, TensorFrom, AsArray};
 use dfdx::tensor_ops::Backward;
 use dfdx::tensor_ops::{AdamConfig, WeightDecay};
-use itertools::Itertools;
-use ramsey::ramsey_state::ActionVec;
-use ramsey::ramsey_state::BATCH;
-use ramsey::ramsey_state::GraphState;
-use ramsey::ramsey_state::STATE;
-use ramsey::ramsey_state::StateVec;
-use ramsey::ramsey_state::VALUE;
-use ramsey::ramsey_state::ValueVec;
-use ramsey::ramsey_state::edge_from_position;
-use ramsey::ramsey_state::edge_to_position;
-use ramsey::{ColoredCompleteGraph, MulticoloredGraphEdges, MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, CliqueCounts, C, E, Color, N, EdgeRecoloring};
+use ramsey::ramsey_state::{BATCH, GraphState, STATE, StateVec, VALUE, ValueVec, ActionVec};
+use ramsey::{C, E};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator};
 
 const ACTION: usize = C * E;
