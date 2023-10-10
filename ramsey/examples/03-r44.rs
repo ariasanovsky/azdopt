@@ -1,12 +1,12 @@
 use std::mem::MaybeUninit;
 
-use azopt::ir_tree::ir_min_tree::{IRMinTree, IRState};
+use az_discrete_opt::ir_tree::ir_min_tree::{IRMinTree, IRState};
 use dfdx::{
     optim::Adam,
     prelude::*,
     tensor::AutoDevice,
 };
-use ramsey::ColoredGraphWithCounts;
+// use ramsey::ColoredGraphWithCounts;
 use rayon::prelude::{ParallelIterator, IntoParallelRefMutIterator, IndexedParallelIterator, IntoParallelRefIterator};
 
 /* (S, A) is as follows:

@@ -1,4 +1,4 @@
-use azopt::{
+use az_discrete_opt::{
     ir_tree::{
         config::*,
         log::{FinalStateData, Log},
