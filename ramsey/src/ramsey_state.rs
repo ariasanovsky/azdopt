@@ -484,7 +484,7 @@ impl IRState for GraphState {
                     new_color: c,
                     edge_position: wx_position,
                 };
-                let _reward = ordered_actions.change_priority(&recoloring, reward);
+                let _old_reward = ordered_actions.change_priority(&recoloring, reward);
                 // todo!("update all affected count columns");
             });
         });
@@ -536,6 +536,42 @@ impl IRState for GraphState {
             time_remaining,
         } = self;
         *time_remaining == 0
+    }
+
+    fn reset(&mut self, time: usize) {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: _,
+            neighborhoods: _,
+            available_actions,
+            ordered_actions: OrderedEdgeRecolorings(ordered_actions),
+            counts: CliqueCounts(counts),
+            time_remaining,
+        } = self;
+        /* when resetting:
+            action (uv, c) is available <==> uv is not colored c
+            ordered_actions orders by r = k(uv, c_uv) - k(uv, c)
+                where c_uv is the current color of uv
+            time_remaining is the given time
+        */
+        // update available actions and ordered actions
+        *available_actions = [[true; E]; C];
+        colors.iter().enumerate().for_each(|(i, c)| {
+            let Color(old_color) = c;
+            available_actions[*old_color][i] = false;
+            let old_count = counts[*old_color][i];
+            (0..C).filter(|c| old_color.ne(c)).for_each(|new_color| {
+                let new_count = counts[new_color][i];
+                let reward = old_count - new_count;
+                let recoloring = EdgeRecoloring {
+                    new_color,
+                    edge_position: i,
+                };
+                let _old_reward = ordered_actions.push(recoloring, reward);
+            });
+        });
+        // update time_remaining
+        *time_remaining = time;
     }
 }
 

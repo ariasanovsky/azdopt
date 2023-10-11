@@ -1,6 +1,8 @@
 use core::mem::transmute;
 use core::mem::MaybeUninit;
 
+use az_discrete_opt::ir_tree::ir_min_tree::ActionsTaken;
+use az_discrete_opt::ir_tree::ir_min_tree::IRState;
 use az_discrete_opt::ir_tree::ir_min_tree::{IRMinTree, Transitions};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
@@ -36,9 +38,54 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) 
     unsafe { transmute(trees) }
 }
 
+struct GraphLogs {
+    path: ActionsTaken,
+    gain: f32,
+}
+
+impl GraphLogs {
+    fn empty() -> Self {
+        Self {
+            path: ActionsTaken::empty(),
+            gain: 0.0,
+        }
+    }
+
+    fn par_new_logs() -> [Self; BATCH] {
+        let mut logs: [MaybeUninit<Self>; BATCH] = unsafe {
+            let logs: MaybeUninit<[Self; BATCH]> = MaybeUninit::uninit();
+            transmute(logs)
+        };
+        logs.par_iter_mut().for_each(|l| {
+            l.write(Self::empty());
+        });
+        unsafe { transmute(logs) }
+    }
+
+    fn update(&mut self, transitions: &Trans) {
+        let end = transitions.end();
+        let gain = end.gain();
+        match gain.total_cmp(&self.gain) {
+            std::cmp::Ordering::Greater => {
+                self.gain = gain;
+                self.path = end.path().clone();
+            }
+            _ => {}
+        }
+    }
+}
+
+fn par_update_logs(logs: &mut [GraphLogs; BATCH], transitions: &[Trans; BATCH]) {
+    let logs = logs.par_iter_mut();
+    let transitions = transitions.par_iter();
+    logs.zip_eq(transitions).for_each(|(l, t)| {
+        l.update(t)
+    });
+}
+
 fn main() {
     const EPOCH: usize = 30;
-    const EPISODES: usize = 8000;
+    const EPISODES: usize = 500;
 
     // todo!() visuals with https://wandb.ai/site
 
@@ -57,10 +104,12 @@ fn main() {
         },
     );
 
-    (0..EPOCH).for_each(|epoch| {
+    let mut roots: [GraphState; BATCH] = GraphState::par_generate_batch(5);
+    let mut losses: Vec<(f32, f32)> = vec![];
+
+    (1..=EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
         let mut grads = core_model.alloc_grads();
-        let roots: [GraphState; BATCH] = GraphState::par_generate_batch(60);
         let root_vecs: [StateVec; BATCH] = GraphState::par_generate_vecs(&roots);
         // dbg!(root_vecs.get(0).unwrap());
 
@@ -72,23 +121,37 @@ fn main() {
         let mut predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
 
-        // let mut longest_paths: Vec<usize> = vec![];
+        let mut logs: [GraphLogs; 64] = GraphLogs::par_new_logs();
 
         // play episodes
-        (0..EPISODES).for_each(|episode| {
+        (1..=EPISODES).for_each(|episode| {
             let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) =
-                simulate_forest_once(&trees);
-            // let longest_path = transitions.iter().map(|t| t.len()).max().unwrap();
-            // longest_paths.push(longest_path);
-            if EPISODES % 20 == 0 {
+                par_simulate_forest_once(&trees);
+            par_update_logs(&mut logs, &transitions);
+            if episode % 500 == 0 {
+                println!("episode {}", episode);
                 trees
-                    .iter()
-                    .zip(transitions.iter())
-                    .for_each(|(tree, trans)| {
-                        println!("{:?}", trans.costs(tree.root_cost()));
+                    .chunks_exact(4)
+                    .into_iter()
+                    .zip(transitions.chunks_exact(4).into_iter())
+                    .for_each(|(trees, trans)| {
+                        trees.iter().zip(trans.iter()).for_each(|(tree, trans)| {
+                            let costs = trans.costs(tree.root_cost());
+                            let arr = match &costs[..] {
+                                [a, ..] if *a == 0.0 => format!("[{a}] (done)"),
+                                c if c.len() <= 10 => format!("{c:?}"),
+                                [a, b, c, d, .., w, x, y, z] => {
+                                    format!("(l = {}) [{a}, {b}, {c}, {d}, .., {w}, {x}, {y}, {z}]", costs.len())
+                                }
+                                c => unreachable!("costs = {c:?}")
+                            };
+                            print!("{arr:64}");
+                        });
+                        println!();
                     });
+                // panic!("done")
             }
-            let end_state_vecs: [StateVec; BATCH] = state_batch_to_vecs(&end_states);
+            let end_state_vecs: [StateVec; BATCH] = par_state_batch_to_vecs(&end_states);
             prediction_tensor = core_model.forward(dev.tensor(end_state_vecs));
             let logits_tensor = logits_model.forward(prediction_tensor.clone());
             probs_tensor = logits_tensor.clone().softmax::<Axis<1>>();
@@ -97,12 +160,13 @@ fn main() {
             // let max_deviation_from_one = probs.iter().map(|probs| probs.into_iter().sum::<f32>()).map(|psum| (1.0f32 - psum).abs()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
             // println!("max_deviation_from_one = {}", max_deviation_from_one);
             let values = value_tensor.array();
-            update_forest(&mut trees, &transitions, &values);
-            insert_into_forest(&mut trees, &transitions, &end_states, &probs);
+            par_update_forest(&mut trees, &transitions, &values);
+            par_insert_into_forest(&mut trees, &transitions, &end_states, &probs);
         });
         // println!();
         // backprop loss
-        let observations: ([ActionVec; BATCH], [ValueVec; BATCH]) = forest_observations(&trees);
+        let observations: ([ActionVec; BATCH], [ValueVec; BATCH]) = par_forest_observations(&trees);
+        let mut entropy = 0.0f32;
         grads = {
             let root_tensor = dev.tensor(root_vecs.clone());
             let traced_predictions = core_model.forward(root_tensor.trace(grads));
@@ -110,7 +174,7 @@ fn main() {
             let observed_probabilities = dev.tensor(observations.0.clone());
             let cross_entropy =
                 cross_entropy_with_logits_loss(predicted_logits, observed_probabilities);
-            print!("{:10}\t", cross_entropy.array());
+            entropy = cross_entropy.array();
             cross_entropy.backward()
         };
         grads = {
@@ -119,15 +183,27 @@ fn main() {
             let predicted_values = value_model.forward(traced_predictions);
             let observed_values = dev.tensor(observations.1.clone());
             let square_error = mse_loss(predicted_values, observed_values);
-            println!("{}", square_error.array());
+            losses.push((entropy, square_error.array()));
+            println!("{losses:?}");
             square_error.backward()
         };
         opt.update(&mut core_model, &grads).unwrap();
         core_model.zero_grads(&mut grads);
+
+        par_update_roots(&mut roots, &logs, 5 * epoch);
     });
 }
 
-fn insert_into_forest(
+fn par_update_roots(roots: &mut [GraphState; BATCH], logs: &[GraphLogs; BATCH], time: usize) {
+    let roots = roots.par_iter_mut();
+    let logs = logs.par_iter();
+    roots.zip_eq(logs).for_each(|(root, log)| {
+        root.apply(&log.path);
+        root.reset(time);
+    });
+}
+
+fn par_insert_into_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
     end_states: &[GraphState; BATCH],
@@ -144,7 +220,7 @@ fn insert_into_forest(
         .for_each(|(((tree, trans), state), probs)| tree.insert(trans, state, probs));
 }
 
-fn forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
+fn par_forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
     let mut probabilities: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
     let mut values: [ValueVec; BATCH] = [[0.0f32; VALUE]; BATCH];
     trees
@@ -165,7 +241,7 @@ fn forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec;
 }
 
 // todo!() update values separately from inserting new path
-fn update_forest(
+fn par_update_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
     values: &[ValueVec; BATCH],
@@ -179,7 +255,7 @@ fn update_forest(
         });
 }
 
-fn state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
+fn par_state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
     let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = unsafe {
         let state_vecs: MaybeUninit<[StateVec; BATCH]> = MaybeUninit::uninit();
         transmute(state_vecs)
@@ -193,7 +269,7 @@ fn state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
     unsafe { transmute(state_vecs) }
 }
 
-fn simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
+fn par_simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
     let mut transitions: [MaybeUninit<Trans>; BATCH] = unsafe {
         let transitions: MaybeUninit<[Trans; BATCH]> = MaybeUninit::uninit();
         transmute(transitions)

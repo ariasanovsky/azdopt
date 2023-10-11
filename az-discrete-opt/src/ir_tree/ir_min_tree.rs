@@ -1,3 +1,4 @@
+use core::time;
 use std::collections::BTreeMap;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -6,6 +7,12 @@ pub struct ActionsTaken {
 }
 
 impl ActionsTaken {
+    pub fn empty() -> Self {
+        Self {
+            actions_taken: vec![],
+        }
+    }
+
     pub fn new(first_action: usize) -> Self {
         Self {
             actions_taken: vec![first_action],
@@ -173,9 +180,11 @@ impl<S> IRMinTree<S> {
         state.act(first_action);
         let mut state_path = ActionsTaken::new(first_action);
         let mut transitions: Vec<(ActionsTaken, usize, f32)> = vec![];
+        let mut gain = first_reward;
         while !state.is_terminal() {
             if let Some(data) = data.get(&state_path) {
                 let (action, reward) = data.best_action();
+                gain += reward;
                 state.act(action);
                 transitions.push((state_path.clone(), action, reward));
                 state_path.push(action);
@@ -186,7 +195,7 @@ impl<S> IRMinTree<S> {
                         first_action,
                         first_reward,
                         transitions,
-                        new_path: Some(state_path),
+                        end: SearchEnd::New { end: state_path, gain }
                     },
                     state,
                 );
@@ -197,7 +206,7 @@ impl<S> IRMinTree<S> {
                 first_action,
                 first_reward,
                 transitions,
-                new_path: None,
+                end: SearchEnd::Terminal { end: state_path, gain },
             },
             state,
         )
@@ -214,7 +223,7 @@ impl<S> IRMinTree<S> {
             first_action,
             first_reward,
             transitions,
-            new_path,
+            end: new_path,
         } = transitions;
         /* todo!()
             https://github.com/ariasanovsky/ariasanovsky.github.io/blob/main/content/posts/2023-09-mcts.md
@@ -224,10 +233,10 @@ impl<S> IRMinTree<S> {
             the target to optimize is g^*(s)
         */
         assert_eq!(gains.len(), 1);
-        let mut approximate_gain_to_terminal = new_path
-            .as_ref()
-            .map(|_| gains.first().unwrap().max(0.0f32))
-            .unwrap_or(0.0f32);
+        let mut approximate_gain_to_terminal = match new_path {
+            SearchEnd::Terminal{ .. } => 0.0f32,
+            SearchEnd::New { .. } => gains.first().unwrap().max(0.0f32),
+        };
         /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
             we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
             ...
@@ -263,9 +272,9 @@ impl<S> IRMinTree<S> {
             first_action: _,
             first_reward: _,
             transitions: _,
-            new_path,
+            end: new_path,
         } = transitions;
-        if let Some(new_path) = new_path {
+        if let SearchEnd::New{ end: new_path, .. } = new_path {
             let state_data = IRStateData::new(probability_predictions, &end_state.action_rewards());
             data.insert(new_path.clone(), state_data);
         }
@@ -308,13 +317,38 @@ pub trait IRState {
     fn action_rewards(&self) -> Vec<(usize, f32)>;
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
+    fn apply(&mut self, actions: &ActionsTaken) {
+        actions.actions_taken.iter().for_each(|a| self.act(*a));
+    }
+    fn reset(&mut self, time: usize);
+}
+
+pub enum SearchEnd {
+    Terminal{ end: ActionsTaken, gain: f32 },
+    New{ end: ActionsTaken, gain: f32 },
+}
+
+impl SearchEnd {
+    pub fn gain(&self) -> f32 {
+        match self {
+            Self::Terminal { gain, .. } => *gain,
+            Self::New { gain, .. } => *gain,
+        }
+    }
+
+    pub fn path(&self) -> &ActionsTaken {
+        match self {
+            Self::Terminal { end, .. } => end,
+            Self::New { end, .. } => end,
+        }
+    }
 }
 
 pub struct Transitions {
     first_action: usize,
     first_reward: f32,
     transitions: Vec<(ActionsTaken, usize, f32)>,
-    new_path: Option<ActionsTaken>,
+    end: SearchEnd,
 }
 
 impl Transitions {
@@ -328,5 +362,9 @@ impl Transitions {
         });
         costs.extend(rewards);
         costs
+    }
+
+    pub fn end(&self) -> &SearchEnd {
+        &self.end
     }
 }
