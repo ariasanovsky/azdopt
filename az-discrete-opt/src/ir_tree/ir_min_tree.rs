@@ -267,33 +267,21 @@ impl<S> IRMinTree<S> {
             transitions,
             end: new_path,
         } = transitions;
-        /* todo!()
-            https://github.com/ariasanovsky/ariasanovsky.github.io/blob/main/content/posts/2023-09-mcts.md
-            https://riasanovsky.me/posts/2023-09-mcts/
-            currently `approximate_gain_to_terminal` equals g(s) as in this writeup
-            we will eventually accommodate g^*(s) and \tilde{g}^*(s)
-            the target to optimize is g^*(s)
-        */
         assert_eq!(gains.len(), 1);
         let mut approximate_gain_to_terminal = match new_path {
             SearchEnd::Terminal{ .. } => 0.0f32,
-            SearchEnd::New { .. } => gains.first().unwrap().max(0.0f32),
+            SearchEnd::New { .. } => gains.first().unwrap().max(0.0),
         };
-        /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
-            we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
-            ...
-            then p_i (s_i) with the future reward r_{i+2} + ... + r_t as well as the n increments
-            ...
-            then p_1 (s_1) with the future reward r_3 + ... + r_t as well as the n increments
-            then p_0 (s_0) with the future reward r_2 + ... + r_t as well as the n increments
-        */
+        // values compliant with https://github.com/ariasanovsky/azdopt/issues/11
         transitions.iter().rev().for_each(|(path, action, reward)| {
             let state_data = data.get_mut(path).unwrap();
+            approximate_gain_to_terminal = approximate_gain_to_terminal.max(0.0);
             state_data.update_future_reward(*action, approximate_gain_to_terminal);
             approximate_gain_to_terminal += reward;
         });
-        approximate_gain_to_terminal += first_reward;
+        approximate_gain_to_terminal = approximate_gain_to_terminal.max(0.0);
         root_data.update_future_reward(*first_action, approximate_gain_to_terminal);
+        approximate_gain_to_terminal += first_reward;
     }
 
     // todo! this only uses the end path
