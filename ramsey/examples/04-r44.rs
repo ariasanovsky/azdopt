@@ -17,7 +17,7 @@ use rayon::prelude::{
 
 const ACTION: usize = C * E;
 
-type Tree = IRMinTree<GraphState>;
+type Tree = IRMinTree;
 
 // todo! move to ir_min_tree
 fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) -> [Tree; BATCH] {
@@ -29,7 +29,7 @@ fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) 
         .par_iter_mut()
         .zip_eq(states.par_iter().zip_eq(predictions.par_iter()))
         .for_each(|(t, (s, p))| {
-            t.write(IRMinTree::new(s, p));
+            t.write(IRMinTree::new(&s.action_rewards(), p));
         });
     unsafe { transmute(trees) }
 }
@@ -80,6 +80,14 @@ fn par_update_logs(logs: &mut [GraphLogs; BATCH], transitions: &[Trans; BATCH]) 
     });
 }
 
+fn par_update_costs(costs: &mut [f32; BATCH], states: &[GraphState; BATCH]) {
+    let costs = costs.par_iter_mut();
+    let states = states.par_iter();
+    costs.zip_eq(states).for_each(|(c, s)| {
+        *c = s.cost();
+    });
+}
+
 fn main() {
     const EPOCH: usize = 30;
     const EPISODES: usize = 500;
@@ -102,6 +110,8 @@ fn main() {
     );
 
     let mut roots: [GraphState; BATCH] = GraphState::par_generate_batch(5);
+    let mut root_costs: [f32; BATCH] =[0.0f32; BATCH];
+    par_update_costs(&mut root_costs, &roots);
     let mut losses: Vec<(f32, f32)> = vec![];
 
     (1..=EPOCH).for_each(|epoch| {
@@ -123,7 +133,7 @@ fn main() {
         // play episodes
         (1..=EPISODES).for_each(|episode| {
             let (transitions, end_states): ([Trans; BATCH], [GraphState; BATCH]) =
-                par_simulate_forest_once(&trees);
+                par_simulate_forest_once(&trees, &roots);
             par_update_logs(&mut logs, &transitions);
             if episode % 500 == 0 {
                 println!("episode {}", episode);
@@ -131,9 +141,10 @@ fn main() {
                     .chunks_exact(4)
                     .into_iter()
                     .zip(transitions.chunks_exact(4).into_iter())
-                    .for_each(|(trees, trans)| {
-                        trees.iter().zip(trans.iter()).for_each(|(tree, trans)| {
-                            let costs = trans.costs(tree.root_cost());
+                    .zip(root_costs.chunks_exact(4).into_iter())
+                    .for_each(|((trees, trans), costs)| {
+                        trees.iter().zip(trans.iter()).zip(costs).for_each(|((tree, trans), cost)| {
+                            let costs = trans.costs(*cost);
                             let arr = match &costs[..] {
                                 [a, ..] if *a == 0.0 => format!("[{a}] (done)"),
                                 c if c.len() <= 10 => format!("{c:?}"),
@@ -188,6 +199,7 @@ fn main() {
         core_model.zero_grads(&mut grads);
 
         par_update_roots(&mut roots, &logs, 5 * epoch);
+        par_update_costs(&mut root_costs, &roots)
     });
 }
 
@@ -216,7 +228,7 @@ fn par_insert_into_forest(
         .zip_eq(trans)
         .zip_eq(end_states)
         .zip_eq(probs)
-        .for_each(|(((tree, trans), state), probs)| tree.insert(trans, state, probs));
+        .for_each(|(((tree, trans), state), probs)| tree.insert(trans, &state.action_rewards(), probs));
 }
 
 // todo! move to ir_min_tree
@@ -228,7 +240,7 @@ fn par_forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [Value
         .zip_eq(probabilities.par_iter_mut())
         .zip_eq(values.par_iter_mut())
         .for_each(|((tree, p), v)| {
-            let observations = tree.observations();
+            let observations = tree.observations::<GraphState>();
             let (prob, value) = observations.split_at(ACTION);
             p.iter_mut().zip(prob.iter()).for_each(|(p, prob)| {
                 *p = *prob;
@@ -271,7 +283,7 @@ fn par_state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
 }
 
 // todo! move to ir_min_tree
-fn par_simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
+fn par_simulate_forest_once(trees: &[Tree; BATCH], roots: &[GraphState; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
     let mut transitions: [MaybeUninit<Trans>; BATCH] = unsafe {
         let transitions: MaybeUninit<[Trans; BATCH]> = MaybeUninit::uninit();
         transmute(transitions)
@@ -280,12 +292,13 @@ fn par_simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphSta
         let state_vecs: MaybeUninit<[GraphState; BATCH]> = MaybeUninit::uninit();
         transmute(state_vecs)
     };
-    trees
-        .par_iter()
+    let trees = trees.par_iter();
+    let roots = roots.par_iter();
+    trees.zip_eq(roots)
         .zip_eq(transitions.par_iter_mut())
         .zip_eq(state_vecs.par_iter_mut())
-        .for_each(|((tree, t), s)| {
-            let (trans, state) = tree.simulate_once();
+        .for_each(|(((tree, root), t), s)| {
+            let (trans, state) = tree.simulate_once(root);
             t.write(trans);
             s.write(state);
         });

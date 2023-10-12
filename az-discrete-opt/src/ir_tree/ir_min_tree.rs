@@ -25,13 +25,17 @@ impl ActionsTaken {
 }
 
 // todo! move the root & root_cost outside the tree to batch-sized arrays
-pub struct IRMinTree<S> {
-    root: S,
-    root_cost: f32,
+pub struct IRMinTree {
     root_data: IRStateData,
     data: BTreeMap<ActionsTaken, IRStateData>,
 }
 
+
+// todo! refactor with
+//pub enum IRStateData {
+//     Active { frequency: usize, Vec<IRActionData> },
+//     FullyExplored { best_final_value: f32 }
+// }
 pub struct IRStateData {
     frequency: usize,
     actions: Vec<IRActionData>,
@@ -166,27 +170,23 @@ impl IRStateData {
     }
 }
 
-impl<S> IRMinTree<S> {
-    pub fn root_cost(&self) -> f32 {
-        self.root_cost
-    }
-
-    pub fn new(root: &S, probability_predictions: &[f32]) -> Self
-    where
-        S: Clone + IRState,
+impl IRMinTree {
+    pub fn new(
+        rewards: &[(usize, f32)],
+        probability_predictions: &[f32],
+    ) -> Self
     {
-        let rewards = root.action_rewards();
         let mut actions: Vec<_> = rewards
             .into_iter()
             .map(|(i, r)| {
-                let p = *probability_predictions.get(i).unwrap();
+                let p = *probability_predictions.get(*i).unwrap();
                 // const C_PUCT: f32 = 30.0;
                 let u = r + C_PUCT * p;
                 IRActionData {
-                    action: i,
+                    action: *i,
                     frequency: 0,
                     probability: p,
-                    reward: r,
+                    reward: *r,
                     q_minus_r_sum: 0.0,
                     upper_estimate: u,
                 }
@@ -198,21 +198,17 @@ impl<S> IRMinTree<S> {
             actions,
         };
         Self {
-            root_cost: root.cost(),
-            root: root.clone(),
             root_data,
             data: Default::default(),
         }
     }
 
     // refactor so that transitions instead hold &mut's to the values
-    pub fn simulate_once(&self) -> (Transitions, S)
+    pub fn simulate_once<S>(&self, root: &S) -> (Transitions, S)
     where
         S: Clone + IRState,
     {
         let Self {
-            root_cost: _,
-            root,
             root_data,
             data,
         } = self;
@@ -256,8 +252,6 @@ impl<S> IRMinTree<S> {
     // refactor without the `&mut self` to update the &mut values in-place
     pub fn update(&mut self, transitions: &Transitions, gains: &[f32]) {
         let Self {
-            root_cost: _,
-            root: _,
             root_data,
             data,
         } = self;
@@ -288,14 +282,10 @@ impl<S> IRMinTree<S> {
     pub fn insert(
         &mut self,
         transitions: &Transitions,
-        end_state: &S,
+        end_state_rewards: &[(usize, f32)],
         probability_predictions: &[f32],
-    ) where
-        S: IRState,
-    {
+    ) {
         let Self {
-            root_cost: _,
-            root: _,
             root_data: _,
             data,
         } = self;
@@ -306,19 +296,17 @@ impl<S> IRMinTree<S> {
             end: new_path,
         } = transitions;
         if let SearchEnd::New{ end: new_path, .. } = new_path {
-            let state_data = IRStateData::new(probability_predictions, &end_state.action_rewards());
+            let state_data = IRStateData::new(probability_predictions, end_state_rewards);
             data.insert(new_path.clone(), state_data);
         }
     }
 
     // todo! this is only a method on `root_data`
-    pub fn observations(&self) -> Vec<f32>
+    pub fn observations<S>(&self) -> Vec<f32>
     where
         S: IRState,
     {
         let Self {
-            root_cost: _,
-            root: _,
             root_data,
             data: _,
         } = self;
