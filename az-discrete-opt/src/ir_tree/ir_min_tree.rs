@@ -334,6 +334,7 @@ impl<S> IRMinTree<S> {
                 q_minus_r_sum: future_reward_sum,
                 upper_estimate: _,
             } = a;
+            // todo! should there be a max(0.0) here?
             gain_sum += *reward;
             gain_sum += *future_reward_sum;
             *observations.get_mut(*action).unwrap() = *action_frequency as f32 / *frequency as f32;
