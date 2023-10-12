@@ -19,6 +19,7 @@ const ACTION: usize = C * E;
 
 type Tree = IRMinTree<GraphState>;
 
+// todo! move to ir_min_tree
 fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) -> [Tree; BATCH] {
     let mut trees: [MaybeUninit<Tree>; BATCH] = unsafe {
         let trees: MaybeUninit<[Tree; BATCH]> = MaybeUninit::uninit();
@@ -70,6 +71,7 @@ impl GraphLogs {
     }
 }
 
+// todo? move to ir_min_tree
 fn par_update_logs(logs: &mut [GraphLogs; BATCH], transitions: &[Trans; BATCH]) {
     let logs = logs.par_iter_mut();
     let transitions = transitions.par_iter();
@@ -189,6 +191,7 @@ fn main() {
     });
 }
 
+// todo! move to ir_min_tree
 fn par_update_roots(roots: &mut [GraphState; BATCH], logs: &[GraphLogs; BATCH], time: usize) {
     let roots = roots.par_iter_mut();
     let logs = logs.par_iter();
@@ -198,6 +201,7 @@ fn par_update_roots(roots: &mut [GraphState; BATCH], logs: &[GraphLogs; BATCH], 
     });
 }
 
+// todo! move to ir_min_tree
 fn par_insert_into_forest(
     trees: &mut [Tree; BATCH],
     transitions: &[Trans; BATCH],
@@ -215,6 +219,7 @@ fn par_insert_into_forest(
         .for_each(|(((tree, trans), state), probs)| tree.insert(trans, state, probs));
 }
 
+// todo! move to ir_min_tree
 fn par_forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
     let mut probabilities: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
     let mut values: [ValueVec; BATCH] = [[0.0f32; VALUE]; BATCH];
@@ -250,6 +255,7 @@ fn par_update_forest(
         });
 }
 
+// todo! move to ir_min_tree
 fn par_state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
     let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = unsafe {
         let state_vecs: MaybeUninit<[StateVec; BATCH]> = MaybeUninit::uninit();
@@ -264,6 +270,7 @@ fn par_state_batch_to_vecs(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
     unsafe { transmute(state_vecs) }
 }
 
+// todo! move to ir_min_tree
 fn par_simulate_forest_once(trees: &[Tree; BATCH]) -> ([Trans; BATCH], [GraphState; BATCH]) {
     let mut transitions: [MaybeUninit<Trans>; BATCH] = unsafe {
         let transitions: MaybeUninit<[Trans; BATCH]> = MaybeUninit::uninit();

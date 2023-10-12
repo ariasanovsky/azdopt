@@ -1,4 +1,3 @@
-use core::time;
 use std::collections::BTreeMap;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -25,6 +24,7 @@ impl ActionsTaken {
     }
 }
 
+// todo! move the root & root_cost outside the tree to batch-sized arrays
 pub struct IRMinTree<S> {
     root: S,
     root_cost: f32,
@@ -37,15 +37,55 @@ pub struct IRStateData {
     actions: Vec<IRActionData>,
 }
 
+/* todo! make family of trees:
+    * IQMinTree
+      * (I)nitial cost is calculated when rooting a tree
+      * (Q)quickly calculate rewards when new states are encountered
+      * thus, we use q(s, a) = r(s, a) + q'(s, a)
+    * IAMinTree
+      * (I)mmediately cost calculated when rooting a tree
+      * (A)ction rewards are calculated during the transition between states only
+      * we still use q(s, a) = r(s, a) + q'(s, a)
+        * but we initialize r(s, a) = 0 when s is added
+        * and we update r(s, a) when visiting (s, a) for the first time
+        * NOTE: this motivates replacing frequency with Option<NonzeroUsize>
+    * INTMinTree (similar to IAMinTree)
+      * (I)nitial cost is calculated when rooting a tree
+      * (N)ew states added also get their costs calculated and stored
+      * (T)erminal states also get their costs calculated and stored
+        * we still use q(s, a) = r(s, a) + q'(s, a)
+          * but we initialize r(s, a) = 0 when s is added
+          * and we update r(s, a) when visiting (s, a) for the first time
+          * NOTE: this motivates replacing frequency with Option<NonzeroUsize>
+    * TMinTree
+        * (T)erminal states get their costs calculated and stored
+          * only terminal states 
+*/
+
+/* todo! what to do when (s, a) transitions to a terminal state?
+  * in future visits to s, we need not consider a
+  * thus we can remove a from the action space
+  * if s has no actions, it is `fully explored`
+  * some refactors to consider:
+    * best_action returns an enum:
+      * action (and reward),
+      * fully_explored (with final gain)
+      * NOTE: enum with variants Vec<T> (T not ZST?) & f32 has size 3 * 8
+*/
+
+// todo! refactor into a pair of values
 pub struct IRActionData {
+    // not mut
     action: usize,
-    frequency: usize,
     probability: f32,
     reward: f32,
-    future_reward_sum: f32,
+    // mut
+    frequency: usize,
+    q_minus_r_sum: f32,
     upper_estimate: f32,
 }
 
+// todo! refactor without the globals, haven't thought too hard about it, low priority
 const C_PUCT: f32 = 5.0;
 const C_PUCT_0: f32 = 5.0;
 
@@ -60,7 +100,7 @@ impl IRActionData {
             frequency: 0,
             probability,
             reward,
-            future_reward_sum: 0.0,
+            q_minus_r_sum: 0.0,
             upper_estimate: u,
         }
     }
@@ -71,7 +111,7 @@ impl IRActionData {
             frequency,
             probability: _,
             reward: _,
-            future_reward_sum,
+            q_minus_r_sum: future_reward_sum,
             upper_estimate: _,
         } = self;
         *frequency += 1;
@@ -84,7 +124,7 @@ impl IRActionData {
             frequency: action_frequency,
             probability,
             reward,
-            future_reward_sum,
+            q_minus_r_sum: future_reward_sum,
             upper_estimate,
         } = self;
         let q = *reward + *future_reward_sum / frequency as f32;
@@ -147,7 +187,7 @@ impl<S> IRMinTree<S> {
                     frequency: 0,
                     probability: p,
                     reward: r,
-                    future_reward_sum: 0.0,
+                    q_minus_r_sum: 0.0,
                     upper_estimate: u,
                 }
             })
@@ -165,6 +205,7 @@ impl<S> IRMinTree<S> {
         }
     }
 
+    // refactor so that transitions instead hold &mut's to the values
     pub fn simulate_once(&self) -> (Transitions, S)
     where
         S: Clone + IRState,
@@ -212,6 +253,7 @@ impl<S> IRMinTree<S> {
         )
     }
 
+    // refactor without the `&mut self` to update the &mut values in-place
     pub fn update(&mut self, transitions: &Transitions, gains: &[f32]) {
         let Self {
             root_cost: _,
@@ -225,35 +267,24 @@ impl<S> IRMinTree<S> {
             transitions,
             end: new_path,
         } = transitions;
-        /* todo!()
-            https://github.com/ariasanovsky/ariasanovsky.github.io/blob/main/content/posts/2023-09-mcts.md
-            https://riasanovsky.me/posts/2023-09-mcts/
-            currently `approximate_gain_to_terminal` equals g(s) as in this writeup
-            we will eventually accommodate g^*(s) and \tilde{g}^*(s)
-            the target to optimize is g^*(s)
-        */
         assert_eq!(gains.len(), 1);
         let mut approximate_gain_to_terminal = match new_path {
             SearchEnd::Terminal{ .. } => 0.0f32,
-            SearchEnd::New { .. } => gains.first().unwrap().max(0.0f32),
+            SearchEnd::New { .. } => gains.first().unwrap().max(0.0),
         };
-        /* we have the vector (p_1, a_2, r_2), ..., (p_{t-1}, a_t, r_t)
-            we need to update p_{t-1} (s_{t-1}) with n(s_{t-1}, a_t) += 1 & n(s_{t-1}) += 1
-            ...
-            then p_i (s_i) with the future reward r_{i+2} + ... + r_t as well as the n increments
-            ...
-            then p_1 (s_1) with the future reward r_3 + ... + r_t as well as the n increments
-            then p_0 (s_0) with the future reward r_2 + ... + r_t as well as the n increments
-        */
+        // values compliant with https://github.com/ariasanovsky/azdopt/issues/11
         transitions.iter().rev().for_each(|(path, action, reward)| {
             let state_data = data.get_mut(path).unwrap();
+            approximate_gain_to_terminal = approximate_gain_to_terminal.max(0.0);
             state_data.update_future_reward(*action, approximate_gain_to_terminal);
             approximate_gain_to_terminal += reward;
         });
-        approximate_gain_to_terminal += first_reward;
+        approximate_gain_to_terminal = approximate_gain_to_terminal.max(0.0);
         root_data.update_future_reward(*first_action, approximate_gain_to_terminal);
+        approximate_gain_to_terminal += first_reward;
     }
 
+    // todo! this only uses the end path
     pub fn insert(
         &mut self,
         transitions: &Transitions,
@@ -280,6 +311,7 @@ impl<S> IRMinTree<S> {
         }
     }
 
+    // todo! this is only a method on `root_data`
     pub fn observations(&self) -> Vec<f32>
     where
         S: IRState,
@@ -299,9 +331,10 @@ impl<S> IRMinTree<S> {
                 frequency: action_frequency,
                 probability: _,
                 reward,
-                future_reward_sum,
+                q_minus_r_sum: future_reward_sum,
                 upper_estimate: _,
             } = a;
+            // todo! should there be a max(0.0) here?
             gain_sum += *reward;
             gain_sum += *future_reward_sum;
             *observations.get_mut(*action).unwrap() = *action_frequency as f32 / *frequency as f32;
@@ -344,6 +377,7 @@ impl SearchEnd {
     }
 }
 
+// todo! refactor with &mut's to the tree's values instead of vecs of cloned vecs
 pub struct Transitions {
     first_action: usize,
     first_reward: f32,

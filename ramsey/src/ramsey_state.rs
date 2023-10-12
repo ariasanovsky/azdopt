@@ -13,6 +13,15 @@ use crate::{
     MulticoloredGraphNeighborhoods, OrderedEdgeRecolorings, C, E, N,
 };
 
+/* todo! remove globals
+  * macros (and traits) to handle:
+    * E-sized arrays (no const generics ;____;)
+    * optimal choices of bitsets
+  * generalize for clique size != 4
+  * generalize for imbalanced weights for different clique sizes
+    * renormalize w.r.t. the expected counts in the optimal G(n, \vec{p}) graph
+      * solve for optimum w/ lagrange multiplier
+*/
 pub const BATCH: usize = 64;
 const ACTION: usize = C * E;
 
@@ -293,6 +302,7 @@ impl IRState for GraphState {
             .collect()
     }
 
+    // todo! lol
     fn act(&mut self, action: usize) {
         let Self {
             colors: ColoredCompleteGraph(colors),
