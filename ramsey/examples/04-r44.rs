@@ -1,19 +1,14 @@
-use core::mem::transmute;
-use core::mem::MaybeUninit;
+use core::mem::{MaybeUninit, transmute};
 
-use az_discrete_opt::ir_tree::ir_min_tree::ActionsTaken;
-use az_discrete_opt::ir_tree::ir_min_tree::IRState;
-use az_discrete_opt::ir_tree::ir_min_tree::{IRMinTree, Transitions};
+use az_discrete_opt::ir_tree::ir_min_tree::{IRState, ActionsTaken, IRMinTree, Transitions};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
     cross_entropy_with_logits_loss, mse_loss, DeviceBuildExt, Linear, Module, Optimizer, ReLU,
     ZeroGrads,
 };
 use dfdx::shapes::Axis;
-use dfdx::tensor::Trace;
-use dfdx::tensor::{AsArray, AutoDevice, TensorFrom};
-use dfdx::tensor_ops::Backward;
-use dfdx::tensor_ops::{AdamConfig, WeightDecay};
+use dfdx::tensor::{AsArray, AutoDevice, TensorFrom, Trace};
+use dfdx::tensor_ops::{AdamConfig, Backward, WeightDecay};
 use ramsey::ramsey_state::{ActionVec, GraphState, StateVec, ValueVec, BATCH, STATE, VALUE};
 use ramsey::{C, E};
 use rayon::prelude::{
