@@ -204,15 +204,15 @@ impl IRMinTree {
     }
 
     // todo! refactor so that transitions instead hold &mut's to the values
-    pub fn simulate_once<S>(&self, root: &S) -> (Transitions, S)
+    pub fn simulate_once<S>(&self, root: &mut S) -> Transitions
     where
-        S: Clone + IRState,
+        S: IRState,
     {
         let Self {
             root_data,
             data,
         } = self;
-        let mut state = root.clone();
+        let state = root;
         let (first_action, first_reward) = root_data.best_action();
         state.act(first_action);
         let mut state_path = ActionsTaken::new(first_action);
@@ -227,26 +227,20 @@ impl IRMinTree {
                 state_path.push(action);
             } else {
                 // new state
-                return (
-                    Transitions {
-                        first_action,
-                        first_reward,
-                        transitions,
-                        end: SearchEnd::New { end: state_path, gain }
-                    },
-                    state,
-                );
+                return Transitions {
+                    first_action,
+                    first_reward,
+                    transitions,
+                    end: SearchEnd::New { end: state_path, gain }
+                };
             }
         }
-        (
-            Transitions {
-                first_action,
-                first_reward,
-                transitions,
-                end: SearchEnd::Terminal { end: state_path, gain },
-            },
-            state,
-        )
+        Transitions {
+            first_action,
+            first_reward,
+            transitions,
+            end: SearchEnd::Terminal { end: state_path, gain },
+        }
     }
 
     // todo! refactor without the `&mut self` to update the &mut values in-place

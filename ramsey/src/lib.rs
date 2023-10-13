@@ -1,3 +1,6 @@
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_array_assume_init)]
+
 pub mod ramsey_state;
 
 // todo! we are hard-coding N = 17 to get the R(4, 4) example working

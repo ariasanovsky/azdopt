@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::{ir_min_tree::IRState, arr_map::BATCH};
+use az_discrete_opt::{ir_min_tree::IRState, arr_map::VALUE};
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -27,7 +27,6 @@ const ACTION: usize = C * E;
 pub const STATE: usize = 6 * E + 1;
 pub type StateVec = [f32; STATE];
 pub type ActionVec = [f32; ACTION];
-pub const VALUE: usize = 1;
 pub type ValueVec = [f32; VALUE];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,31 +145,30 @@ impl GraphState {
         Self::new(colors, edges, neighborhoods, available_actions, t)
     }
 
-    pub fn par_generate_batch(t: usize) -> [Self; BATCH] {
-        let mut states: [MaybeUninit<Self>; BATCH] = unsafe { MaybeUninit::uninit().assume_init() };
+    pub fn par_generate_batch<const BATCH: usize>(t: usize) -> [Self; BATCH] {
+        let mut states: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
         states.par_iter_mut().for_each(|s| {
             s.write(GraphState::generate_random(t, &mut rand::thread_rng()));
         });
-        let b: [Self; BATCH] = unsafe { transmute(states) };
+        let b: [Self; BATCH] = unsafe { MaybeUninit::array_assume_init(states) };
         // b.iter().for_each(|s| {
         //     s.check_for_inconsistencies();
         // });
         b
     }
 
-    pub fn par_generate_vecs(states: &[Self; BATCH]) -> [StateVec; BATCH] {
+    pub fn par_generate_vecs<const BATCH: usize>(states: &[Self; BATCH]) -> [StateVec; BATCH] {
         // states.iter().for_each(|s| {
         //     s.check_for_inconsistencies();
         // });
-        let mut state_vecs: [MaybeUninit<StateVec>; BATCH] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = MaybeUninit::uninit_array();
         states
             .par_iter()
             .zip_eq(state_vecs.par_iter_mut())
             .for_each(|(s, v)| {
                 v.write(s.to_vec());
             });
-        unsafe { transmute(state_vecs) }
+        unsafe { MaybeUninit::array_assume_init(state_vecs) }
     }
 
     pub fn to_vec(&self) -> StateVec {
