@@ -64,10 +64,7 @@ impl GraphState {
         time_remaining: usize,
     ) -> Self
     {
-        let mut counts: [[MaybeUninit<i32>; E]; C] = unsafe {
-            let counts: MaybeUninit<[[i32; E]; C]> = MaybeUninit::uninit();
-            transmute(counts)
-        };
+        let mut counts: [[MaybeUninit<i32>; E]; C] = unsafe { MaybeUninit::uninit().assume_init() };
         neighborhoods
             .iter()
             .zip(counts.iter_mut())
@@ -124,10 +121,7 @@ impl GraphState {
     fn generate_random<R: rand::Rng>(t: usize, rng: &mut R) -> Self {
         let mut edges: [[bool; E]; C] = [[false; E]; C];
         let mut neighborhoods: [[u32; N]; C] = [[0; N]; C];
-        let mut colors: [MaybeUninit<Color>; E] = unsafe {
-            let colors: MaybeUninit<[Color; E]> = MaybeUninit::uninit();
-            transmute(colors)
-        };
+        let mut colors: [MaybeUninit<Color>; E] = unsafe { MaybeUninit::uninit().assume_init() };
         let mut available_actions: [[bool; E]; C] = [[true; E]; C];
         let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
         edge_iterator
@@ -252,7 +246,7 @@ pub fn edge_to_position(u: usize, v: usize) -> usize {
     upper_position - difference
 }
 
-impl IRState for GraphState {
+impl IRState<STATE> for GraphState {
     const ACTION: usize = ACTION;
     fn cost(&self) -> f32 {
         let Self {
@@ -563,6 +557,10 @@ impl IRState for GraphState {
         });
         // update time_remaining
         *time_remaining = time;
+    }
+
+    fn to_vec(&self) -> [f32; STATE] {
+        todo!()
     }
 }
 

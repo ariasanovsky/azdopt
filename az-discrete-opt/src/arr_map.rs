@@ -2,12 +2,12 @@ use core::mem::MaybeUninit;
 
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
-use crate::ir_min_tree::{IRState, IRMinTree, Transitions};
+use crate::{ir_min_tree::{IRState, IRMinTree, Transitions}, log::GraphLogs};
 
 // pub const BATCH: usize = 64;
 pub const VALUE: usize = 1;
 
-pub fn par_plant_forest<const BATCH: usize, const ACTION: usize, S: IRState + Sync>(
+pub fn par_plant_forest<const BATCH: usize, const ACTION: usize, const STATE: usize, S: IRState<STATE> + Sync>(
     states: &[S; BATCH],
     predictions: &[[f32; ACTION]; BATCH],
 ) -> [IRMinTree; BATCH] {
@@ -22,7 +22,7 @@ pub fn par_plant_forest<const BATCH: usize, const ACTION: usize, S: IRState + Sy
     unsafe { MaybeUninit::array_assume_init(trees) }
 }
 
-pub fn par_insert_into_forest<const BATCH: usize, const ACTION: usize, S: IRState + Sync> (
+pub fn par_insert_into_forest<const BATCH: usize, const ACTION: usize, const STATE: usize, S: IRState<STATE> + Sync> (
     trees: &mut [IRMinTree; BATCH],
     transitions: &[Transitions; BATCH],
     end_states: &[S; BATCH],
@@ -60,7 +60,7 @@ pub fn par_forest_observations<const BATCH: usize, const ACTION: usize, const VA
     (probabilities, values)
 }
 
-pub fn par_update_costs<const BATCH: usize, S: IRState + Sync>(costs: &mut [f32; BATCH], states: &[S; BATCH]) {
+pub fn par_update_costs<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Sync>(costs: &mut [f32; BATCH], states: &[S; BATCH]) {
     let costs = costs.par_iter_mut();
     let states = states.par_iter();
     costs.zip_eq(states).for_each(|(c, s)| {
@@ -68,7 +68,7 @@ pub fn par_update_costs<const BATCH: usize, S: IRState + Sync>(costs: &mut [f32;
     });
 }
 
-pub fn par_simulate_forest_once<const BATCH: usize, S: Send + Sync + Clone + IRState>(
+pub fn par_simulate_forest_once<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Send + Sync + Clone>(
     trees: &[IRMinTree; BATCH],
     roots: &[S; BATCH],
     states: &mut [S; BATCH],
@@ -100,4 +100,28 @@ pub fn par_update_forest<const BATCH: usize>(
         .for_each(|((tree, trans), values)| {
             tree.update(trans, values);
         });
+}
+
+pub fn par_update_roots<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Send>(
+    roots: &mut [S; BATCH],
+    logs: &[GraphLogs; BATCH],
+    time: usize,
+) {
+    let roots = roots.par_iter_mut();
+    let logs = logs.par_iter();
+    roots.zip_eq(logs).for_each(|(root, log)| {
+        root.apply(&log.path);
+        root.reset(time);
+    });
+}
+
+pub fn par_state_batch_to_vecs<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Sync>(states: &[S; BATCH]) -> [[f32; STATE]; BATCH] {
+    let mut state_vecs: [MaybeUninit<[f32; STATE]>; BATCH] = MaybeUninit::uninit_array();
+    state_vecs
+        .par_iter_mut()
+        .zip_eq(states.par_iter())
+        .for_each(|(v, s)| {
+            v.write(s.to_vec());
+        });
+    unsafe { MaybeUninit::array_assume_init(state_vecs) }
 }

@@ -1,10 +1,6 @@
-#![feature(maybe_uninit_uninit_array)]
-#![feature(maybe_uninit_array_assume_init)]
-
-use core::mem::MaybeUninit;
-
-use az_discrete_opt::arr_map::{par_plant_forest, par_insert_into_forest, par_forest_observations, par_update_costs, par_simulate_forest_once, par_update_forest};
-use az_discrete_opt::ir_min_tree::{IRState, ActionsTaken, IRMinTree, Transitions};
+use az_discrete_opt::arr_map::{par_plant_forest, par_insert_into_forest, par_forest_observations, par_update_costs, par_simulate_forest_once, par_update_forest, par_update_roots, par_state_batch_to_vecs};
+use az_discrete_opt::ir_min_tree::{IRMinTree, Transitions};
+use az_discrete_opt::log::{GraphLogs, par_update_logs};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
     cross_entropy_with_logits_loss, mse_loss, DeviceBuildExt, Linear, Module, Optimizer, ReLU,
@@ -15,57 +11,11 @@ use dfdx::tensor::{AsArray, AutoDevice, TensorFrom, Trace};
 use dfdx::tensor_ops::{AdamConfig, Backward, WeightDecay};
 use ramsey::ramsey_state::{ActionVec, GraphState, StateVec, ValueVec, STATE};
 use ramsey::{C, E};
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
 
 const ACTION: usize = C * E;
 const BATCH: usize = 64;
 
 type Tree = IRMinTree;
-
-struct GraphLogs {
-    path: ActionsTaken,
-    gain: f32,
-}
-
-impl GraphLogs {
-    fn empty() -> Self {
-        Self {
-            path: ActionsTaken::empty(),
-            gain: 0.0,
-        }
-    }
-
-    fn par_new_logs<const BATCH: usize>() -> [Self; BATCH] {
-        let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        logs.par_iter_mut().for_each(|l| {
-            l.write(Self::empty());
-        });
-        unsafe { MaybeUninit::array_assume_init(logs) }
-    }
-
-    fn update(&mut self, transitions: &Trans) {
-        let end = transitions.end();
-        let gain = end.gain();
-        match gain.total_cmp(&self.gain) {
-            std::cmp::Ordering::Greater => {
-                self.gain = gain;
-                self.path = end.path().clone();
-            }
-            _ => {}
-        }
-    }
-}
-
-// todo? move to ir_min_tree
-fn par_update_logs<const BATCH: usize>(logs: &mut [GraphLogs; BATCH], transitions: &[Trans; BATCH]) {
-    let logs = logs.par_iter_mut();
-    let transitions = transitions.par_iter();
-    logs.zip_eq(transitions).for_each(|(l, t)| {
-        l.update(t)
-    });
-}
 
 fn main() {
     const EPOCH: usize = 30;
@@ -177,28 +127,6 @@ fn main() {
         par_update_roots(&mut roots, &logs, 5 * epoch);
         par_update_costs(&mut root_costs, &roots);
     });
-}
-
-// todo! move to ir_min_tree
-fn par_update_roots(roots: &mut [GraphState; BATCH], logs: &[GraphLogs; BATCH], time: usize) {
-    let roots = roots.par_iter_mut();
-    let logs = logs.par_iter();
-    roots.zip_eq(logs).for_each(|(root, log)| {
-        root.apply(&log.path);
-        root.reset(time);
-    });
-}
-
-// todo! move to ir_min_tree
-fn par_state_batch_to_vecs<const BATCH: usize>(states: &[GraphState; BATCH]) -> [StateVec; BATCH] {
-    let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = MaybeUninit::uninit_array();
-    state_vecs
-        .par_iter_mut()
-        .zip_eq(states.par_iter())
-        .for_each(|(v, s)| {
-            v.write(s.to_vec());
-        });
-    unsafe { MaybeUninit::array_assume_init(state_vecs) }
 }
 
 type Trans = Transitions;

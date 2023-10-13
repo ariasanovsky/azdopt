@@ -101,9 +101,9 @@ impl IRActionData {
         let u = q + C_PUCT_0 * probability * noise;
         Self {
             action,
-            frequency: 0,
             probability,
             reward,
+            frequency: 0,
             q_minus_r_sum: 0.0,
             upper_estimate: u,
         }
@@ -112,9 +112,9 @@ impl IRActionData {
     fn update_future_reward(&mut self, approximate_gain_to_terminal: f32) {
         let Self {
             action: _,
-            frequency,
             probability: _,
             reward: _,
+            frequency,
             q_minus_r_sum: future_reward_sum,
             upper_estimate: _,
         } = self;
@@ -125,9 +125,9 @@ impl IRActionData {
     fn update_upper_estimate(&mut self, frequency: usize) {
         let Self {
             action: _,
-            frequency: action_frequency,
             probability,
             reward,
+            frequency: action_frequency,
             q_minus_r_sum: future_reward_sum,
             upper_estimate,
         } = self;
@@ -184,9 +184,9 @@ impl IRMinTree {
                 let u = r + C_PUCT * p;
                 IRActionData {
                     action: *i,
-                    frequency: 0,
                     probability: p,
                     reward: *r,
+                    frequency: 0,
                     q_minus_r_sum: 0.0,
                     upper_estimate: u,
                 }
@@ -204,9 +204,9 @@ impl IRMinTree {
     }
 
     // todo! refactor so that transitions instead hold &mut's to the values
-    pub fn simulate_once<S>(&self, root: &mut S) -> Transitions
+    pub fn simulate_once<const STATE: usize, S>(&self, root: &mut S) -> Transitions
     where
-        S: IRState,
+        S: IRState<STATE>,
     {
         let Self {
             root_data,
@@ -307,9 +307,9 @@ impl IRMinTree {
         actions.iter().for_each(|a| {
             let IRActionData {
                 action,
-                frequency: action_frequency,
                 probability: _,
                 reward,
+                frequency: action_frequency,
                 q_minus_r_sum: future_reward_sum,
                 upper_estimate: _,
             } = a;
@@ -323,7 +323,7 @@ impl IRMinTree {
     }
 }
 
-pub trait IRState {
+pub trait IRState<const STATE: usize> {
     const ACTION: usize;
     fn cost(&self) -> f32;
     fn action_rewards(&self) -> Vec<(usize, f32)>;
@@ -333,6 +333,7 @@ pub trait IRState {
         actions.actions_taken.iter().for_each(|a| self.act(*a));
     }
     fn reset(&mut self, time: usize);
+    fn to_vec(&self) -> [f32; STATE];
 }
 
 pub enum SearchEnd {
