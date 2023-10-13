@@ -28,24 +28,37 @@ impl BasicLog {
     }
 
     pub fn update(&mut self, transitions: &Transitions) {
-        // let Self { path, gain } = self;
-        // let Transitions {
-        //     first_action,
-        //     first_reward,
-        //     transitions,
-        //     end,
-        // } = transitions;
-        let end = transitions.end();
-        let gain = end.gain();
-        let gain_cmp = gain.total_cmp(&self.gain);
-        let path = end.path();
-        let length_cmp = path.len().cmp(&self.path.len());
+        let Self { path: logged_path, gain: logged_gain } = self;
+        let Transitions {
+            first_action: _,
+            first_reward,
+            transitions,
+            end,
+        } = transitions;
+        let mut gain = *first_reward;
         use core::cmp::Ordering;
+        transitions.iter().for_each(|(path, _, reward)| {
+            let gain_cmp = gain.total_cmp(logged_gain);
+            let length_cmp = path.len().cmp(&logged_path.len());
+            // prioritize gain, then length
+            match (gain_cmp, length_cmp) {
+                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
+                    *logged_gain = gain;
+                    logged_path.clone_from(path);
+                }
+                _ => {}
+            }
+            gain += reward;
+        });
+        let end_path = end.path();
+        let end_gain = end.gain();
+        let gain_cmp = end_gain.total_cmp(logged_gain);
+        let length_cmp = end_path.len().cmp(&logged_path.len());
         // prioritize gain, then length
         match (gain_cmp, length_cmp) {
             (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
-                self.gain = gain;
-                self.path = end.path().clone();
+                *logged_gain = end_gain;
+                logged_path.clone_from(end_path);
             }
             _ => {}
         }

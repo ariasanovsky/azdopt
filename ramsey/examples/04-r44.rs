@@ -43,7 +43,7 @@ type Valuation = (
 
 fn main() {
     const EPOCH: usize = 30;
-    const EPISODES: usize = 500;
+    const EPISODES: usize = 4_000;
 
     // todo!() visuals with https://wandb.ai/site
 
