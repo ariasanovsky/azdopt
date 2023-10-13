@@ -1,5 +1,6 @@
 use core::mem::{MaybeUninit, transmute};
 
+use az_discrete_opt::arr_map::{BATCH, par_plant_forest, par_insert_into_forest, par_forest_observations};
 use az_discrete_opt::ir_min_tree::{IRState, ActionsTaken, IRMinTree, Transitions};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
@@ -9,7 +10,7 @@ use dfdx::prelude::{
 use dfdx::shapes::Axis;
 use dfdx::tensor::{AsArray, AutoDevice, TensorFrom, Trace};
 use dfdx::tensor_ops::{AdamConfig, Backward, WeightDecay};
-use ramsey::ramsey_state::{ActionVec, GraphState, StateVec, ValueVec, BATCH, STATE, VALUE};
+use ramsey::ramsey_state::{ActionVec, GraphState, StateVec, ValueVec, STATE, VALUE};
 use ramsey::{C, E};
 use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
@@ -18,21 +19,6 @@ use rayon::prelude::{
 const ACTION: usize = C * E;
 
 type Tree = IRMinTree;
-
-// todo! move to ir_min_tree
-fn plant_forest(states: &[GraphState; BATCH], predictions: &[ActionVec; BATCH]) -> [Tree; BATCH] {
-    let mut trees: [MaybeUninit<Tree>; BATCH] = unsafe {
-        let trees: MaybeUninit<[Tree; BATCH]> = MaybeUninit::uninit();
-        transmute(trees)
-    };
-    trees
-        .par_iter_mut()
-        .zip_eq(states.par_iter().zip_eq(predictions.par_iter()))
-        .for_each(|(t, (s, p))| {
-            t.write(IRMinTree::new(&s.action_rewards(), p));
-        });
-    unsafe { transmute(trees) }
-}
 
 struct GraphLogs {
     path: ActionsTaken,
@@ -126,7 +112,7 @@ fn main() {
         let mut probs_tensor = logits_tensor.softmax::<Axis<1>>();
         let mut value_tensor = value_model.forward(prediction_tensor.clone());
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
-        let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
+        let mut trees: [Tree; BATCH] = par_plant_forest(&roots, &predictions);
 
         let mut logs: [GraphLogs; 64] = GraphLogs::par_new_logs();
 
@@ -196,7 +182,7 @@ fn main() {
         core_model.zero_grads(&mut grads);
 
         par_update_roots(&mut roots, &logs, 5 * epoch);
-        par_update_costs(&mut root_costs, &roots)
+        par_update_costs(&mut root_costs, &roots);
     });
 }
 
@@ -208,45 +194,6 @@ fn par_update_roots(roots: &mut [GraphState; BATCH], logs: &[GraphLogs; BATCH], 
         root.apply(&log.path);
         root.reset(time);
     });
-}
-
-// todo! move to ir_min_tree
-fn par_insert_into_forest(
-    trees: &mut [Tree; BATCH],
-    transitions: &[Trans; BATCH],
-    end_states: &[GraphState; BATCH],
-    probs: &[ActionVec; BATCH],
-) {
-    let trees = trees.par_iter_mut();
-    let trans = transitions.par_iter();
-    let end_states = end_states.par_iter();
-    let probs = probs.par_iter();
-    trees
-        .zip_eq(trans)
-        .zip_eq(end_states)
-        .zip_eq(probs)
-        .for_each(|(((tree, trans), state), probs)| tree.insert(trans, &state.action_rewards(), probs));
-}
-
-// todo! move to ir_min_tree
-fn par_forest_observations(trees: &[Tree; BATCH]) -> ([ActionVec; BATCH], [ValueVec; BATCH]) {
-    let mut probabilities: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
-    let mut values: [ValueVec; BATCH] = [[0.0f32; VALUE]; BATCH];
-    trees
-        .par_iter()
-        .zip_eq(probabilities.par_iter_mut())
-        .zip_eq(values.par_iter_mut())
-        .for_each(|((tree, p), v)| {
-            let observations = tree.observations::<GraphState>();
-            let (prob, value) = observations.split_at(ACTION);
-            p.iter_mut().zip(prob.iter()).for_each(|(p, prob)| {
-                *p = *prob;
-            });
-            v.iter_mut().zip(value.iter()).for_each(|(v, value)| {
-                *v = *value;
-            });
-        });
-    (probabilities, values)
 }
 
 // todo!() update values separately from inserting new path

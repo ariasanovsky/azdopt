@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::ir_min_tree::IRState;
+use az_discrete_opt::{ir_min_tree::IRState, arr_map::BATCH};
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -22,7 +22,6 @@ use crate::{
     * renormalize w.r.t. the expected counts in the optimal G(n, \vec{p}) graph
       * solve for optimum w/ lagrange multiplier
 */
-pub const BATCH: usize = 64;
 const ACTION: usize = C * E;
 
 pub const STATE: usize = 6 * E + 1;
@@ -477,7 +476,6 @@ impl IRState for GraphState {
         BitIter::from(new_neigh_uv)
             .tuple_combinations()
             .for_each(|(w, x)| {
-                // dbg!(w, x);
                 let wx_position = edge_to_position(w, x);
                 counts[new_uv_color][wx_position] += 1;
                 // todo!("adjust all affected values of r(wx, c)")
@@ -499,30 +497,17 @@ impl IRState for GraphState {
             });
         });
 
-        // todo!("update colors");
         colors[edge_position] = Color(new_uv_color);
-        // todo!("update edges");
         edges[old_uv_color][edge_position] = false;
         edges[new_uv_color][edge_position] = true;
-        // todo!("update neighborhoods");
         neighborhoods[old_uv_color][u] ^= 1 << v;
         neighborhoods[old_uv_color][v] ^= 1 << u;
         neighborhoods[new_uv_color][u] ^= 1 << v;
         neighborhoods[new_uv_color][v] ^= 1 << u;
 
-        // (0..C).for_each(|c| {
-        //     (0..N).for_each(|u| {
-        //         let neigh = neighborhoods[c][u];
-        //         assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
-        //     });
-        // });
-
-        // todo!("update available_actions");
         (0..C).for_each(|c| {
             available_actions[c][edge_position] = false;
         });
-        // todo!("update ordered_actions");
-        // todo!("remove uv actions from ordered_actions");
         (0..C).for_each(|c| {
             let recoloring = EdgeRecoloring {
                 new_color: c,
@@ -530,8 +515,6 @@ impl IRState for GraphState {
             };
             ordered_actions.remove(&recoloring);
         });
-        // todo!("update counts");
-        // todo!("update time_remaining");
         *time_remaining -= 1;
     }
 

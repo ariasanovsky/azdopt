@@ -302,17 +302,14 @@ impl IRMinTree {
     }
 
     // todo! this is only a method on `root_data`
-    pub fn observations<S>(&self) -> Vec<f32>
-    where
-        S: IRState,
-    {
+    pub fn observations<const ACTION: usize>(&self) -> Vec<f32> {
         let Self {
             root_data,
             data: _,
         } = self;
         let IRStateData { frequency, actions } = root_data;
         let mut gain_sum = 0.0;
-        let mut observations = vec![0.0; S::ACTION + 1];
+        let mut observations = vec![0.0; ACTION + 1];
         actions.iter().for_each(|a| {
             let IRActionData {
                 action,

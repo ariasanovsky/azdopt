@@ -3,3 +3,4 @@ members = [
     "ramsey",
     "az-discrete-opt",
 ]
+resolver = "2"
