@@ -203,7 +203,7 @@ impl IRMinTree {
         }
     }
 
-    // refactor so that transitions instead hold &mut's to the values
+    // todo! refactor so that transitions instead hold &mut's to the values
     pub fn simulate_once<S>(&self, root: &S) -> (Transitions, S)
     where
         S: Clone + IRState,
@@ -249,7 +249,7 @@ impl IRMinTree {
         )
     }
 
-    // refactor without the `&mut self` to update the &mut values in-place
+    // todo! refactor without the `&mut self` to update the &mut values in-place
     pub fn update(&mut self, transitions: &Transitions, gains: &[f32]) {
         let Self {
             root_data,

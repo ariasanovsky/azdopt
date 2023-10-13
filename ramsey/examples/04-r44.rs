@@ -1,6 +1,6 @@
 use core::mem::{MaybeUninit, transmute};
 
-use az_discrete_opt::ir_tree::ir_min_tree::{IRState, ActionsTaken, IRMinTree, Transitions};
+use az_discrete_opt::ir_min_tree::{IRState, ActionsTaken, IRMinTree, Transitions};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
     cross_entropy_with_logits_loss, mse_loss, DeviceBuildExt, Linear, Module, Optimizer, ReLU,
@@ -122,10 +122,10 @@ fn main() {
 
         let root_tensor = dev.tensor(root_vecs.clone());
         let mut prediction_tensor = core_model.forward(root_tensor);
-        let mut logits_tensor = logits_model.forward(prediction_tensor.clone());
+        let logits_tensor = logits_model.forward(prediction_tensor.clone());
         let mut probs_tensor = logits_tensor.softmax::<Axis<1>>();
         let mut value_tensor = value_model.forward(prediction_tensor.clone());
-        let mut predictions: [ActionVec; BATCH] = probs_tensor.array();
+        let predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = plant_forest(&roots, &predictions);
 
         let mut logs: [GraphLogs; 64] = GraphLogs::par_new_logs();
@@ -137,13 +137,10 @@ fn main() {
             par_update_logs(&mut logs, &transitions);
             if episode % 500 == 0 {
                 println!("episode {}", episode);
-                trees
-                    .chunks_exact(4)
-                    .into_iter()
-                    .zip(transitions.chunks_exact(4).into_iter())
+                transitions.chunks_exact(4).into_iter()
                     .zip(root_costs.chunks_exact(4).into_iter())
-                    .for_each(|((trees, trans), costs)| {
-                        trees.iter().zip(trans.iter()).zip(costs).for_each(|((tree, trans), cost)| {
+                    .for_each(|(trans, costs)| {
+                        trans.iter().zip(costs).for_each(|(trans, cost)| {
                             let costs = trans.costs(*cost);
                             let arr = match &costs[..] {
                                 [a, ..] if *a == 0.0 => format!("[{a}] (done)"),
@@ -174,7 +171,7 @@ fn main() {
         // println!();
         // backprop loss
         let observations: ([ActionVec; BATCH], [ValueVec; BATCH]) = par_forest_observations(&trees);
-        let mut entropy = 0.0f32;
+        let entropy;
         grads = {
             let root_tensor = dev.tensor(root_vecs.clone());
             let traced_predictions = core_model.forward(root_tensor.trace(grads));

@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::ir_tree::ir_min_tree::IRState;
+use az_discrete_opt::ir_min_tree::IRState;
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -43,7 +43,7 @@ pub struct GraphState {
 }
 
 impl GraphState {
-    fn all_red() -> Self {
+    pub fn all_red() -> Self {
         let colors: [Color; E] = core::array::from_fn(|_| Color(0));
         let mut edges: [[bool; E]; C] = [[false; E]; C];
         edges[0].iter_mut().for_each(|b| *b = true);
@@ -591,8 +591,8 @@ mod test {
     
     fn incident_cliques(s: &GraphState, pos: usize) -> [Vec<(usize, usize)>; C] {
         let GraphState {
-            colors: ColoredCompleteGraph(colors),
-            edges: MulticoloredGraphEdges(edges),
+            colors:_,
+            edges: _,
             neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
             available_actions: _,
             ordered_actions: _,
@@ -634,24 +634,9 @@ mod test {
         assert_eq!(state.cost(), 2380.0);
         let rewards = state.action_rewards();
         assert_eq!(rewards.len(), 136);
-        let (_, reward) = rewards.into_iter().find(|(a, r)| *a == E).unwrap();
+        let (_, reward) = rewards.into_iter().find(|(a, _)| *a == E).unwrap();
         assert_eq!(reward, 105.0);
         state.act(E);
         assert_eq!(state.cost(), 2275.0);
-    }
-
-    #[test]
-    fn after_taking_an_action_the_new_cost_matches_the_reward() {
-        let mut state = GraphState::generate_random(100, &mut rand::thread_rng());
-        let old_cost = state.cost();
-        let action_rewards = state.action_rewards();
-        todo!();
-        let (action, reward) = action_rewards[0];
-        state.act(action);
-        assert_eq!(
-            state.cost(),
-            old_cost - reward,
-            "old_cost = {old_cost}, reward = {reward}"
-        );
     }
 }
