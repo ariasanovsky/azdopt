@@ -12,16 +12,20 @@ fn r44_17_search_tree_with_trivial_predictions(c: &mut Criterion) {
         100_000_000,
         1_000_000_000,
     ] {
-        group.bench_with_input(BenchmarkId::new("perform a search with a given length and ...?", n), &n, |b, &n| {
-            b.iter(|| {
-                // construct a root
-                // construct a search tree
-                // perform a search with a given length and ...?
-                // calculate the observations
-                // maybe loop the search -- root a new tree at a chosesn value from the search and repeat
-                black_box(todo!("put some output here"))
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("perform a search with a given length and ...?", n),
+            &n,
+            |b, &n| {
+                b.iter(|| {
+                    // construct a root
+                    // construct a search tree
+                    // perform a search with a given length and ...?
+                    // calculate the observations
+                    // maybe loop the search -- root a new tree at a chosesn value from the search and repeat
+                    black_box(todo!("put some output here"))
+                })
+            },
+        );
     }
 }
 

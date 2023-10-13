@@ -1,6 +1,9 @@
-use az_discrete_opt::arr_map::{par_plant_forest, par_insert_into_forest, par_forest_observations, par_update_costs, par_simulate_forest_once, par_update_forest, par_update_roots, par_state_batch_to_vecs};
-use az_discrete_opt::ir_min_tree::{IRMinTree, Transitions};
-use az_discrete_opt::log::{GraphLogs, par_update_logs};
+use az_discrete_opt::arr_map::{
+    par_forest_observations, par_insert_into_forest, par_plant_forest, par_simulate_forest_once,
+    par_state_batch_to_vecs, par_update_costs, par_update_forest, par_update_roots,
+};
+use az_discrete_opt::ir_min_tree::{IQMinTree, Transitions};
+use az_discrete_opt::log::{par_update_logs, BasicLog};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
     cross_entropy_with_logits_loss, mse_loss, DeviceBuildExt, Linear, Module, Optimizer, ReLU,
@@ -15,7 +18,28 @@ use ramsey::{C, E};
 const ACTION: usize = C * E;
 const BATCH: usize = 64;
 
-type Tree = IRMinTree;
+type Tree = IQMinTree;
+type Trans = Transitions;
+
+const HIDDEN_1: usize = 256;
+const HIDDEN_2: usize = 128;
+
+type Core = (
+    (Linear<STATE, HIDDEN_1>, ReLU),
+    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
+    // Linear<HIDDEN_2, PREDICTION>,
+);
+
+type Logits = (
+    Linear<HIDDEN_2, ACTION>,
+    // Softmax,
+);
+
+type Valuation = (
+    Linear<HIDDEN_2, 1>,
+    // Linear<HIDDEN_2, 3>,
+);
+
 
 fn main() {
     const EPOCH: usize = 30;
@@ -40,7 +64,7 @@ fn main() {
 
     let mut roots: [GraphState; BATCH] = GraphState::par_generate_batch(5);
     let mut states: [GraphState; BATCH] = roots.clone();
-    let mut root_costs: [f32; BATCH] =[0.0f32; BATCH];
+    let mut root_costs: [f32; BATCH] = [0.0f32; BATCH];
     par_update_costs(&mut root_costs, &roots);
     let mut losses: Vec<(f32, f32)> = vec![];
 
@@ -58,7 +82,7 @@ fn main() {
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = par_plant_forest(&roots, &predictions);
 
-        let mut logs: [GraphLogs; 64] = GraphLogs::par_new_logs();
+        let mut logs: [BasicLog; BATCH] = BasicLog::par_new_logs();
 
         // play episodes
         (1..=EPISODES).for_each(|episode| {
@@ -66,8 +90,10 @@ fn main() {
             par_update_logs(&mut logs, &transitions);
             if episode % 500 == 0 {
                 println!("episode {episode}");
-                transitions.chunks_exact(4).into_iter()
-                    .zip(root_costs.chunks_exact(4).into_iter())
+                transitions
+                    .chunks(4)
+                    .into_iter()
+                    .zip(root_costs.chunks(4).into_iter())
                     .for_each(|(trans, costs)| {
                         trans.iter().zip(costs).for_each(|(trans, cost)| {
                             let costs = trans.costs(*cost);
@@ -75,15 +101,17 @@ fn main() {
                                 [a, ..] if *a == 0.0 => format!("[{a}] (done)"),
                                 c if c.len() <= 10 => format!("{c:?}"),
                                 [a, b, c, d, .., w, x, y, z] => {
-                                    format!("(l = {}) [{a}, {b}, {c}, {d}, .., {w}, {x}, {y}, {z}]", costs.len())
+                                    format!(
+                                        "(l = {}) [{a}, {b}, {c}, {d}, .., {w}, {x}, {y}, {z}]",
+                                        costs.len()
+                                    )
                                 }
-                                c => unreachable!("costs = {c:?}")
+                                c => unreachable!("costs = {c:?}"),
                             };
                             print!("{arr:64}");
                         });
                         println!();
                     });
-                // panic!("done")
             }
             let end_state_vecs: [StateVec; BATCH] = par_state_batch_to_vecs(&states);
             prediction_tensor = core_model.forward(dev.tensor(end_state_vecs));
@@ -97,7 +125,6 @@ fn main() {
             par_update_forest(&mut trees, &transitions, &values);
             par_insert_into_forest(&mut trees, &transitions, &states, &probs);
         });
-        // println!();
         // backprop loss
         let observations: ([ActionVec; BATCH], [ValueVec; BATCH]) = par_forest_observations(&trees);
         let entropy;
@@ -128,24 +155,3 @@ fn main() {
         par_update_costs(&mut root_costs, &roots);
     });
 }
-
-type Trans = Transitions;
-
-const HIDDEN_1: usize = 256;
-const HIDDEN_2: usize = 128;
-
-type Core = (
-    (Linear<STATE, HIDDEN_1>, ReLU),
-    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    // Linear<HIDDEN_2, PREDICTION>,
-);
-
-type Logits = (
-    Linear<HIDDEN_2, ACTION>,
-    // Softmax,
-);
-
-type Valuation = (
-    Linear<HIDDEN_2, 1>,
-    // Linear<HIDDEN_2, 3>,
-);

@@ -358,6 +358,4 @@
 //         .collect();
 //     model.update(observations);
 // }
-fn main() {
-    
-}
+fn main() {}

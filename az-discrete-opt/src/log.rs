@@ -1,15 +1,17 @@
 use core::mem::MaybeUninit;
 
-use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator, IndexedParallelIterator, IntoParallelRefIterator};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
 use crate::ir_min_tree::{ActionsTaken, Transitions};
 
-pub struct GraphLogs {
+pub struct BasicLog {
     pub(crate) path: ActionsTaken,
     pub(crate) gain: f32,
 }
 
-impl GraphLogs {
+impl BasicLog {
     pub fn empty() -> Self {
         Self {
             path: ActionsTaken::empty(),
@@ -26,10 +28,22 @@ impl GraphLogs {
     }
 
     pub fn update(&mut self, transitions: &Transitions) {
+        // let Self { path, gain } = self;
+        // let Transitions {
+        //     first_action,
+        //     first_reward,
+        //     transitions,
+        //     end,
+        // } = transitions;
         let end = transitions.end();
         let gain = end.gain();
-        match gain.total_cmp(&self.gain) {
-            std::cmp::Ordering::Greater => {
+        let gain_cmp = gain.total_cmp(&self.gain);
+        let path = end.path();
+        let length_cmp = path.len().cmp(&self.path.len());
+        use core::cmp::Ordering;
+        // prioritize gain, then length
+        match (gain_cmp, length_cmp) {
+            (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
                 self.gain = gain;
                 self.path = end.path().clone();
             }
@@ -38,11 +52,11 @@ impl GraphLogs {
     }
 }
 
-pub fn par_update_logs<const BATCH: usize>(logs: &mut [GraphLogs; BATCH], transitions: &[Transitions; BATCH]) {
+pub fn par_update_logs<const BATCH: usize>(
+    logs: &mut [BasicLog; BATCH],
+    transitions: &[Transitions; BATCH],
+) {
     let logs = logs.par_iter_mut();
     let transitions = transitions.par_iter();
-    logs.zip_eq(transitions).for_each(|(l, t)| {
-        l.update(t)
-    });
+    logs.zip_eq(transitions).for_each(|(l, t)| l.update(t));
 }
-

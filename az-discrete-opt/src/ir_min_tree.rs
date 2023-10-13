@@ -22,14 +22,21 @@ impl ActionsTaken {
         self.actions_taken.push(action);
         self.actions_taken.sort_unstable();
     }
+
+    pub fn len(&self) -> usize {
+        self.actions_taken.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.actions_taken.is_empty()
+    }
 }
 
 // todo! move the root & root_cost outside the tree to batch-sized arrays
-pub struct IRMinTree {
+pub struct IQMinTree {
     root_data: IRStateData,
     data: BTreeMap<ActionsTaken, IRStateData>,
 }
-
 
 // todo! refactor with
 //pub enum IRStateData {
@@ -170,14 +177,10 @@ impl IRStateData {
     }
 }
 
-impl IRMinTree {
-    pub fn new(
-        rewards: &[(usize, f32)],
-        probability_predictions: &[f32],
-    ) -> Self
-    {
+impl IQMinTree {
+    pub fn new(rewards: &[(usize, f32)], probability_predictions: &[f32]) -> Self {
         let mut actions: Vec<_> = rewards
-            .into_iter()
+            .iter()
             .map(|(i, r)| {
                 let p = *probability_predictions.get(*i).unwrap();
                 // const C_PUCT: f32 = 30.0;
@@ -208,10 +211,7 @@ impl IRMinTree {
     where
         S: IRState<STATE>,
     {
-        let Self {
-            root_data,
-            data,
-        } = self;
+        let Self { root_data, data } = self;
         let state = root;
         let (first_action, first_reward) = root_data.best_action();
         state.act(first_action);
@@ -231,7 +231,10 @@ impl IRMinTree {
                     first_action,
                     first_reward,
                     transitions,
-                    end: SearchEnd::New { end: state_path, gain }
+                    end: SearchEnd::New {
+                        end: state_path,
+                        gain,
+                    },
                 };
             }
         }
@@ -239,16 +242,16 @@ impl IRMinTree {
             first_action,
             first_reward,
             transitions,
-            end: SearchEnd::Terminal { end: state_path, gain },
+            end: SearchEnd::Terminal {
+                end: state_path,
+                gain,
+            },
         }
     }
 
     // todo! refactor without the `&mut self` to update the &mut values in-place
     pub fn update(&mut self, transitions: &Transitions, gains: &[f32]) {
-        let Self {
-            root_data,
-            data,
-        } = self;
+        let Self { root_data, data } = self;
         let Transitions {
             first_action,
             first_reward,
@@ -257,7 +260,7 @@ impl IRMinTree {
         } = transitions;
         assert_eq!(gains.len(), 1);
         let mut approximate_gain_to_terminal = match new_path {
-            SearchEnd::Terminal{ .. } => 0.0f32,
+            SearchEnd::Terminal { .. } => 0.0f32,
             SearchEnd::New { .. } => gains.first().unwrap().max(0.0),
         };
         // values compliant with https://github.com/ariasanovsky/azdopt/issues/11
@@ -279,17 +282,14 @@ impl IRMinTree {
         end_state_rewards: &[(usize, f32)],
         probability_predictions: &[f32],
     ) {
-        let Self {
-            root_data: _,
-            data,
-        } = self;
+        let Self { root_data: _, data } = self;
         let Transitions {
             first_action: _,
             first_reward: _,
             transitions: _,
             end: new_path,
         } = transitions;
-        if let SearchEnd::New{ end: new_path, .. } = new_path {
+        if let SearchEnd::New { end: new_path, .. } = new_path {
             let state_data = IRStateData::new(probability_predictions, end_state_rewards);
             data.insert(new_path.clone(), state_data);
         }
@@ -297,10 +297,7 @@ impl IRMinTree {
 
     // todo! this is only a method on `root_data`
     pub fn observations<const ACTION: usize>(&self) -> Vec<f32> {
-        let Self {
-            root_data,
-            data: _,
-        } = self;
+        let Self { root_data, data: _ } = self;
         let IRStateData { frequency, actions } = root_data;
         let mut gain_sum = 0.0;
         let mut observations = vec![0.0; ACTION + 1];
@@ -337,8 +334,8 @@ pub trait IRState<const STATE: usize> {
 }
 
 pub enum SearchEnd {
-    Terminal{ end: ActionsTaken, gain: f32 },
-    New{ end: ActionsTaken, gain: f32 },
+    Terminal { end: ActionsTaken, gain: f32 },
+    New { end: ActionsTaken, gain: f32 },
 }
 
 impl SearchEnd {
@@ -359,10 +356,10 @@ impl SearchEnd {
 
 // todo! refactor with &mut's to the tree's values instead of vecs of cloned vecs
 pub struct Transitions {
-    first_action: usize,
-    first_reward: f32,
-    transitions: Vec<(ActionsTaken, usize, f32)>,
-    end: SearchEnd,
+    pub(crate) first_action: usize,
+    pub(crate) first_reward: f32,
+    pub(crate) transitions: Vec<(ActionsTaken, usize, f32)>,
+    pub(crate) end: SearchEnd,
 }
 
 impl Transitions {

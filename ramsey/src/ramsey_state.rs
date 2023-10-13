@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::{ir_min_tree::IRState, arr_map::VALUE};
+use az_discrete_opt::{arr_map::VALUE, ir_min_tree::IRState};
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -46,14 +46,23 @@ impl GraphState {
         let mut edges: [[bool; E]; C] = [[false; E]; C];
         edges[0].iter_mut().for_each(|b| *b = true);
         let mut neighborhoods: [[u32; N]; C] = [[0; N]; C];
-        neighborhoods[0].iter_mut().enumerate().for_each(|(i, neigh)| {
-            *neigh = (1 << N) - 1;
-            *neigh ^= 1 << i;
-        });
+        neighborhoods[0]
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, neigh)| {
+                *neigh = (1 << N) - 1;
+                *neigh ^= 1 << i;
+            });
         let mut available_actions: [[bool; E]; C] = [[true; E]; C];
         available_actions[0].iter_mut().for_each(|b| *b = false);
         let time_remaining = 1;
-        Self::new(colors, edges, neighborhoods, available_actions, time_remaining)
+        Self::new(
+            colors,
+            edges,
+            neighborhoods,
+            available_actions,
+            time_remaining,
+        )
     }
 
     fn new(
@@ -62,8 +71,7 @@ impl GraphState {
         neighborhoods: [[u32; N]; C],
         available_actions: [[bool; E]; C],
         time_remaining: usize,
-    ) -> Self
-    {
+    ) -> Self {
         let mut counts: [[MaybeUninit<i32>; E]; C] = unsafe { MaybeUninit::uninit().assume_init() };
         neighborhoods
             .iter()
@@ -104,7 +112,6 @@ impl GraphState {
         //     });
         // });
 
-        
         // s.check_for_inconsistencies();
         // s
         Self {
@@ -114,7 +121,7 @@ impl GraphState {
             available_actions,
             ordered_actions: OrderedEdgeRecolorings(recolorings),
             counts: CliqueCounts(counts),
-            time_remaining: time_remaining
+            time_remaining,
         }
     }
 
@@ -343,18 +350,13 @@ impl IRState<STATE> for GraphState {
         let mut affected_count_columns: Vec<usize> = vec![];
 
         let old_neigh_u = neighborhoods[old_uv_color][u];
-        // dbg!(format!("{old_neigh_u:b}"));
         let old_neigh_v = neighborhoods[old_uv_color][v];
-        // dbg!(format!("{old_neigh_v:b}"));
         
         // we remove v and u so that they are not treated as w or x in the following
         let old_neigh_u = old_neigh_u ^ (1 << v);
-        // dbg!(format!("{old_neigh_u:b}"));
         let old_neigh_v = old_neigh_v ^ (1 << u);
-        // dbg!(format!("{old_neigh_v:b}"));
         let old_neigh_uv = old_neigh_u & old_neigh_v;
-        // dbg!(format!("{old_neigh_uv:b}"));
-
+        
         // assert_eq!(old_neigh_u & (1 << u), 0, "u = {u}, v = {v}, old_neigh_u = {old_neigh_u:b}");
         // assert_eq!(old_neigh_v & (1 << v), 0, "u = {u}, v = {v}, old_neigh_v = {old_neigh_v:b}");
 
@@ -560,17 +562,17 @@ impl IRState<STATE> for GraphState {
     }
 
     fn to_vec(&self) -> [f32; STATE] {
-        todo!()
+        self.to_vec()
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    
+
     fn incident_cliques(s: &GraphState, pos: usize) -> [Vec<(usize, usize)>; C] {
         let GraphState {
-            colors:_,
+            colors: _,
             edges: _,
             neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
             available_actions: _,
