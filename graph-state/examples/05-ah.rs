@@ -6,6 +6,9 @@ const HIDDEN_2: usize = 128;
 
 const N: usize = 32;
 const E: usize = N * (N - 1) / 2;
+pub type State = AHState<N, E>;
+
+
 const STATE: usize = 2 * E;
 const ACTION: usize = 2 * E;
 
@@ -45,6 +48,6 @@ fn main() {
     //     },
     // );
 
-    let mut roots: [AHState; BATCH] = AHState::par_generate_batch();
+    let mut roots: [State; BATCH] = AHState::par_generate_batch();
     
 }
