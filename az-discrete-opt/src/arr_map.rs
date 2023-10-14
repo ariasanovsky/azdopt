@@ -6,7 +6,7 @@ use rayon::prelude::{
 
 use crate::{
     ir_min_tree::{IQMinTree, IRState, Transitions},
-    log::BasicLog,
+    log::BasicLog, state::Cost,
 };
 
 // pub const BATCH: usize = 64;
@@ -79,7 +79,7 @@ pub fn par_forest_observations<const BATCH: usize, const ACTION: usize, const VA
     (probabilities, values)
 }
 
-pub fn par_update_costs<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Sync>(
+pub fn par_update_costs<const BATCH: usize, S: Cost + Sync>(
     costs: &mut [f32; BATCH],
     states: &[S; BATCH],
 ) {

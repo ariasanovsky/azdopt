@@ -121,3 +121,19 @@ macro_rules! static_assert_first_choose_two_equals_second {
         const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $e>::VALID;
     };
 }
+
+#[doc(hidden)]
+pub struct CheckFirstTimesThreePlusOneEqualsSecond<const E: usize, const STATE: usize>(core::marker::PhantomData<([(); E], [(); STATE])>);
+impl<const E: usize, const STATE: usize> CheckFirstTimesThreePlusOneEqualsSecond<E, STATE> {
+    pub const VALID: () = {
+        assert!(3 * E + 1 == STATE);
+        ()
+    };
+}
+
+#[macro_export]
+macro_rules! static_assert_first_times_three_plus_one_equals_second {
+    ($n: expr, $s: expr) => {
+        const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $s>::VALID;
+    };
+}

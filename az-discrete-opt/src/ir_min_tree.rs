@@ -322,7 +322,6 @@ impl IQMinTree {
 
 pub trait IRState<const STATE: usize> {
     const ACTION: usize;
-    fn cost(&self) -> f32;
     fn action_rewards(&self) -> Vec<(usize, f32)>;
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;

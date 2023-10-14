@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::{arr_map::VALUE, ir_min_tree::IRState};
+use az_discrete_opt::{arr_map::VALUE, ir_min_tree::IRState, state::Cost};
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -255,28 +255,6 @@ pub fn edge_to_position(u: usize, v: usize) -> usize {
 
 impl IRState<STATE> for RamseyState {
     const ACTION: usize = ACTION;
-    fn cost(&self) -> f32 {
-        let Self {
-            colors: ColoredCompleteGraph(colors),
-            edges: _,
-            neighborhoods: _,
-            available_actions: _,
-            ordered_actions: _,
-            counts: CliqueCounts(counts),
-            time_remaining: _,
-        } = self;
-        let count = colors
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let Color(c) = c;
-                counts[*c][i]
-            })
-            .sum::<i32>()
-            / 6;
-        count as f32
-    }
-
     fn action_rewards(&self) -> Vec<(usize, f32)> {
         let Self {
             colors: _,
@@ -563,6 +541,30 @@ impl IRState<STATE> for RamseyState {
 
     fn to_vec(&self) -> [f32; STATE] {
         self.to_vec()
+    }
+}
+
+impl Cost for RamseyState {
+    fn cost(&self) -> f32 {
+        let Self {
+            colors: ColoredCompleteGraph(colors),
+            edges: _,
+            neighborhoods: _,
+            available_actions: _,
+            ordered_actions: _,
+            counts: CliqueCounts(counts),
+            time_remaining: _,
+        } = self;
+        let count = colors
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let Color(c) = c;
+                counts[*c][i]
+            })
+            .sum::<i32>()
+            / 6;
+        count as f32
     }
 }
 
