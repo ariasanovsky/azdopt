@@ -104,3 +104,20 @@ pub struct CliqueCounts(pub [[i32; E]; 2]);
 //         assert_eq!(blue_uvwx, g.counts[1][i] as usize);
 //     });
 // }
+
+// borrorwed from faer: https://github.com/sarah-ek/pulp/blob/17902ba463667a02e21a509b1b94ccbf62c4e75f/src/lib.rs#L1297-L1346
+#[doc(hidden)]
+pub struct CheckFirstChooseTwoEqualsSecond<const N: usize, const E: usize>(core::marker::PhantomData<([(); N], [(); E])>);
+impl<const N: usize, const E: usize> CheckFirstChooseTwoEqualsSecond<N, E> {
+    pub const VALID: () = {
+        assert!(N * (N - 1) / 2 == E);
+        ()
+    };
+}
+
+#[macro_export]
+macro_rules! static_assert_first_choose_two_equals_second {
+    ($n: expr, $e: expr) => {
+        const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $e>::VALID;
+    };
+}
