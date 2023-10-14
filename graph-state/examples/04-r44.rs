@@ -12,8 +12,8 @@ use dfdx::prelude::{
 use dfdx::shapes::Axis;
 use dfdx::tensor::{AsArray, AutoDevice, TensorFrom, Trace};
 use dfdx::tensor_ops::{AdamConfig, Backward, WeightDecay};
-use ramsey::ramsey_state::{ActionVec, GraphState, StateVec, ValueVec, STATE};
-use ramsey::{C, E};
+use graph_state::ramsey_state::{ActionVec, RamseyState, StateVec, ValueVec, STATE};
+use graph_state::{C, E};
 
 const ACTION: usize = C * E;
 const BATCH: usize = 64;
@@ -62,8 +62,8 @@ fn main() {
         },
     );
 
-    let mut roots: [GraphState; BATCH] = GraphState::par_generate_batch(5);
-    let mut states: [GraphState; BATCH] = roots.clone();
+    let mut roots: [RamseyState; BATCH] = RamseyState::par_generate_batch(5);
+    let mut states: [RamseyState; BATCH] = roots.clone();
     let mut root_costs: [f32; BATCH] = [0.0f32; BATCH];
     par_update_costs(&mut root_costs, &roots);
     let mut losses: Vec<(f32, f32)> = vec![];
@@ -71,7 +71,7 @@ fn main() {
     (1..=EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
         let mut grads = core_model.alloc_grads();
-        let root_vecs: [StateVec; BATCH] = GraphState::par_generate_vecs(&roots);
+        let root_vecs: [StateVec; BATCH] = RamseyState::par_generate_vecs(&roots);
         // dbg!(root_vecs.get(0).unwrap());
 
         let root_tensor = dev.tensor(root_vecs.clone());

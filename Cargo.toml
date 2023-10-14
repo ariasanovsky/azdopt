@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "ramsey",
+    "graph-state",
     "az-discrete-opt",
 ]
 resolver = "2"

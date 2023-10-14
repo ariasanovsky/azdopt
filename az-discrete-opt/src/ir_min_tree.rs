@@ -69,8 +69,8 @@ pub struct IRStateData {
           * and we update r(s, a) when visiting (s, a) for the first time
           * NOTE: this motivates replacing frequency with Option<NonzeroUsize>
     * TMinTree
-        * (T)erminal states get their costs calculated and stored
-          * only terminal states 
+      * (T)erminal states get their costs calculated and stored
+        * only terminal states 
 */
 
 /* todo! what to do when (s, a) transitions to a terminal state?

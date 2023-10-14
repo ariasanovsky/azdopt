@@ -30,7 +30,7 @@ pub type ActionVec = [f32; ACTION];
 pub type ValueVec = [f32; VALUE];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GraphState {
+pub struct RamseyState {
     colors: ColoredCompleteGraph,
     edges: MulticoloredGraphEdges,
     neighborhoods: MulticoloredGraphNeighborhoods,
@@ -40,7 +40,7 @@ pub struct GraphState {
     time_remaining: usize,
 }
 
-impl GraphState {
+impl RamseyState {
     pub fn all_red() -> Self {
         let colors: [Color; E] = core::array::from_fn(|_| Color(0));
         let mut edges: [[bool; E]; C] = [[false; E]; C];
@@ -149,7 +149,7 @@ impl GraphState {
     pub fn par_generate_batch<const BATCH: usize>(t: usize) -> [Self; BATCH] {
         let mut states: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
         states.par_iter_mut().for_each(|s| {
-            s.write(GraphState::generate_random(t, &mut rand::thread_rng()));
+            s.write(RamseyState::generate_random(t, &mut rand::thread_rng()));
         });
         let b: [Self; BATCH] = unsafe { MaybeUninit::array_assume_init(states) };
         // b.iter().for_each(|s| {
@@ -253,7 +253,7 @@ pub fn edge_to_position(u: usize, v: usize) -> usize {
     upper_position - difference
 }
 
-impl IRState<STATE> for GraphState {
+impl IRState<STATE> for RamseyState {
     const ACTION: usize = ACTION;
     fn cost(&self) -> f32 {
         let Self {
@@ -570,8 +570,8 @@ impl IRState<STATE> for GraphState {
 mod test {
     use super::*;
 
-    fn incident_cliques(s: &GraphState, pos: usize) -> [Vec<(usize, usize)>; C] {
-        let GraphState {
+    fn incident_cliques(s: &RamseyState, pos: usize) -> [Vec<(usize, usize)>; C] {
+        let RamseyState {
             colors: _,
             edges: _,
             neighborhoods: MulticoloredGraphNeighborhoods(neighborhoods),
@@ -599,7 +599,7 @@ mod test {
 
     #[test]
     fn the_all_red_graph_has_the_correct_graph_state() {
-        let mut state = GraphState::all_red();
+        let mut state = RamseyState::all_red();
         // let GraphState {
         //     colors: ColoredCompleteGraph(colors),
         //     edges: MulticoloredGraphEdges(edges),
