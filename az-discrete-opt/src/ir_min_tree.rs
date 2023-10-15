@@ -183,6 +183,7 @@ impl IQMinTree {
             .iter()
             .map(|(i, r)| {
                 let p = *probability_predictions.get(*i).unwrap();
+                // todo? use a method here instead
                 // const C_PUCT: f32 = 30.0;
                 let u = r + C_PUCT * p;
                 IRActionData {
