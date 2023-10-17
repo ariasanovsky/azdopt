@@ -4,7 +4,7 @@ use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-use crate::ir_min_tree::{ActionsTaken, Transitions};
+use crate::iq_min_tree::{ActionsTaken, Transitions};
 
 pub struct BasicLog {
     pub(crate) path: ActionsTaken,
@@ -28,7 +28,10 @@ impl BasicLog {
     }
 
     pub fn update(&mut self, transitions: &Transitions) {
-        let Self { path: logged_path, gain: logged_gain } = self;
+        let Self { 
+            path: logged_path,
+            gain: logged_gain,
+         } = self;
         let Transitions {
             first_action: _,
             first_reward,
@@ -42,7 +45,11 @@ impl BasicLog {
             let length_cmp = path.len().cmp(&logged_path.len());
             // prioritize gain, then length
             match (gain_cmp, length_cmp) {
-                (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
+                (Ordering::Greater, _) => {
+                    *logged_gain = gain;
+                    logged_path.clone_from(path);
+                }
+                (Ordering::Equal, Ordering::Greater) => {
                     *logged_gain = gain;
                     logged_path.clone_from(path);
                 }
@@ -56,7 +63,11 @@ impl BasicLog {
         let length_cmp = end_path.len().cmp(&logged_path.len());
         // prioritize gain, then length
         match (gain_cmp, length_cmp) {
-            (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater) => {
+            (Ordering::Greater, _) => {
+                *logged_gain = end_gain;
+                logged_path.clone_from(end_path);
+            }
+            (Ordering::Equal, Ordering::Greater) => {
                 *logged_gain = end_gain;
                 logged_path.clone_from(end_path);
             }

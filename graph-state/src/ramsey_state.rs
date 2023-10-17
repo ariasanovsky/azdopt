@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::{arr_map::VALUE, ir_min_tree::IRState, state::Cost};
+use az_discrete_opt::{arr_map::VALUE, iq_min_tree::IQState, state::Cost};
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -253,7 +253,7 @@ pub fn edge_to_position(u: usize, v: usize) -> usize {
     upper_position - difference
 }
 
-impl IRState<STATE> for RamseyState {
+impl IQState<STATE> for RamseyState {
     const ACTION: usize = ACTION;
     fn action_rewards(&self) -> Vec<(usize, f32)> {
         let Self {
