@@ -86,11 +86,10 @@ fn main() {
 
         // play episodes
         (1..=EPISODES).for_each(|episode| {
-            println!("==== EPISODE {episode} ====");
             let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &roots, &mut states);
             par_update_logs(&mut logs, &transitions);
             if episode % 500 == 0 {
-                println!("episode {episode}");
+                println!("==== EPISODE {episode} ====");
                 transitions
                     .chunks(4)
                     .into_iter()

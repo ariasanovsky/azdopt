@@ -68,7 +68,7 @@ fn main() {
     
     // roots change across epochs
     let (mut root_states, mut root_vecs): ([State; BATCH], [StateVec; BATCH])
-        = AHState::par_generate_batch();
+        = AHState::par_generate_batch(5);
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
     

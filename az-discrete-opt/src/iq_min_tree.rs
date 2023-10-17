@@ -213,7 +213,6 @@ impl IQMinTree {
         S: IQState<STATE>,
     {
         let Self { root_data, data } = self;
-        dbg!(&root_data.frequency);
         let state = root;
         let (first_action, first_reward) = root_data.best_action();
         state.act(first_action);
