@@ -12,7 +12,7 @@ const ACTION: usize = 2 * E;
 const STATE: usize = E + ACTION + 1;
 type StateVec = [f32; STATE];
 
-const BATCH: usize = 64;
+const BATCH: usize = 1;
 
 const HIDDEN_1: usize = 1280;
 const HIDDEN_2: usize = 1024;
@@ -68,7 +68,7 @@ fn main() {
     
     // roots change across epochs
     let (mut root_states, mut root_vecs): ([State; BATCH], [StateVec; BATCH])
-        = AHState::par_generate_batch(5);
+        = AHState::par_generate_batch(5, 0.5);
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
     
