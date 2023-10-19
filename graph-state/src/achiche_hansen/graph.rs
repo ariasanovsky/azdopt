@@ -7,6 +7,12 @@ pub(crate) struct BoolEdges<const E: usize, Connectivity = ()> {
 }
 
 #[derive(Clone)]
+pub struct Neighborhoods<const N: usize, Connectivity = ()> {
+    neighborhoods: [u32; N],
+    connected: PhantomData<Connectivity>,
+}
+
+#[derive(Clone)]
 pub enum Connected {}
 
 
@@ -26,48 +32,82 @@ impl<const E: usize, C> BoolEdges<E, C> {
     }
 }
 
-impl<const E: usize> BoolEdges<E, ()> {
-    pub fn generate<R: rand::Rng>(rng: &mut R, p: f64) -> Self {
+impl<const N: usize> Neighborhoods<N, ()> {
+    pub fn new(neighborhoods: [u32; N]) -> Self {
         Self {
-            edges: core::array::from_fn(|_| rng.gen_bool(p)),
+            neighborhoods,
             connected: PhantomData,
         }
     }
 
-    pub fn to_connected_graph_with_blocks<const N: usize>(self) -> Option<(BoolEdges<E, Connected>, BlockForest<N, Connected>)> {
+    pub fn block_tree(&self) -> Option<BlockForest<N, Connected>> {
+        todo!()
+    }
+
+    pub unsafe fn assert_connected(self) -> Neighborhoods<N, Connected> {
+        Neighborhoods {
+            neighborhoods: self.neighborhoods,
+            connected: PhantomData,
+        }
+    }
+}
+
+impl<const N: usize, C> Neighborhoods<N, C> {
+    pub fn distance_matrix(&self, blocks: &BlockForest<N, C>) -> DistanceMatrix<N, C> {
+        todo!()
+    }
+
+    pub fn forget_connectivity(self) -> Neighborhoods<N, ()> {
+        Neighborhoods {
+            neighborhoods: self.neighborhoods,
+            connected: PhantomData,
+        }
+    }
+
+    pub fn cut_edges(&self, blocks: &BlockForest<N, C>) -> Vec<(usize, usize)> {
         todo!()
     }
 }
 
 impl<const E: usize> BoolEdges<E, ()> {
-    pub fn complement(self) -> BoolEdges<E> {
-        let Self {
+    pub fn new(edges: [bool; E]) -> Self {
+        Self {
             edges,
-            connected: _,
-        } = self;
+            connected: PhantomData,
+        }
+    }
+    
+    pub unsafe fn assert_connected(self) -> BoolEdges<E, Connected> {
         BoolEdges {
-            edges: edges.map(|b| !b),
-            connected: Default::default(),
+            edges: self.edges,
+            connected: PhantomData,
+        }
+    }
+}
+
+impl<const E: usize> BoolEdges<E, ()> {
+    pub fn complement(self) -> BoolEdges<E> {
+        BoolEdges {
+            edges: self.edges.map(|b| !b),
+            connected: PhantomData,
         }
     }
 }
 
 impl<const E: usize> BoolEdges<E, Connected> {
     pub fn complement(self) -> BoolEdges<E> {
-        let edges = self.forget_connectivity().edges;
         BoolEdges {
-            edges,
-            connected: Default::default(),
+            edges: self.forget_connectivity().edges,
+            connected: PhantomData,
         }
     }
 }
 
 impl<const E: usize> BoolEdges<E, Disconnected> {
     pub fn complement(self) -> BoolEdges<E, Connected> {
-        let edges = self.forget_connectivity().edges;
         BoolEdges {
-            edges,
-            connected: Default::default(),
+            edges: self.edges,
+            connected: PhantomData,
         }
     }
 }
@@ -78,6 +118,6 @@ pub struct BlockForest<const N: usize, Connectivity = ()> {
 }
 
 #[derive(Clone)]
-pub struct DistanceMatrix<const N: usize> {
-
+pub struct DistanceMatrix<const N: usize, C> {
+    connected: PhantomData<C>,
 }
