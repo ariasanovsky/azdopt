@@ -7,18 +7,17 @@ use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, Parall
 
 use crate::ramsey_state::edge_to_position;
 
-use self::graph::{BoolEdges, Connected, BlockForest, DistanceMatrix, Neighborhoods};
+use self::graph::{BlockTree, DistanceMatrix, Neighborhoods};
 
 mod graph;
 
 #[derive(Clone)]
 pub struct AHState<const N: usize, const E: usize> {
-    // edges: BoolEdges<E, Connected>,
-    neighborhoods: Neighborhoods<N, Connected>,
-    blocks: BlockForest<N, Connected>,
+    neighborhoods: Neighborhoods<N>,
+    blocks: BlockTree<N>,
     add_actions: [bool; E],
     delete_actions: [bool; E],
-    distances: DistanceMatrix<N, Connected>,
+    distances: DistanceMatrix<N>,
     time: usize,
 }
 
@@ -48,42 +47,25 @@ impl<const N: usize, const E: usize> AHState<N, E> {
             and 3*E is the time as a f32
         */
         let mut rng = rand::thread_rng();
-        let (edges, neighborhoods, blocks) = loop {
-            let mut edges: [bool; E] = [false; E];
+        let (neighborhoods, blocks) = loop {
             let mut neighborhoods: [u32; N] = [0; N];
             let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
-            edge_iterator.zip_eq(edges.iter_mut()).for_each(|((u, v), e)| {
+            edge_iterator.zip_eq(vec[..E].iter_mut()).for_each(|((u, v), e)| {
                 if rng.gen_bool(p) {
-                    *e = true;
+                    *e = 1.0;
                     neighborhoods[u] |= 1 << v;
                     neighborhoods[v] |= 1 << u;
+                } else {
+                    *e = 0.0;
                 }
             });
-            let edges = BoolEdges::new(edges);
             let neighborhoods = Neighborhoods::new(neighborhoods);
             if let Some(blocks) = neighborhoods.block_tree() {
-                break unsafe {
-                    (edges.assert_connected(), neighborhoods.assert_connected(), blocks)
-                };
+                todo!();
+                break ((), ())
             }
         };
-        let add_actions: [bool; E] = edges.complement().edges;
-        let mut delete_actions: [bool; E] = [false; E];
-        let cut_edges = neighborhoods.cut_edges(&blocks);
-        cut_edges.into_iter().for_each(|(u, v)| {
-            let pos = edge_to_position(u, v);
-            delete_actions[pos] = true;
-        });
-        let distances = neighborhoods.distance_matrix(&blocks);
-        Self {
-            // edges,
-            neighborhoods,
-            blocks,
-            add_actions,
-            delete_actions,
-            distances,
-            time,
-        }
+        todo!()
     }
 }
 

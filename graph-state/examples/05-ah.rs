@@ -1,10 +1,10 @@
 #![feature(slice_flatten)]
 
 use az_discrete_opt::{arr_map::par_update_costs, log::BasicLog, int_min_tree::INTMinTree};
-use dfdx::{tensor::{AutoDevice, TensorFrom, Tensor2D, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
+use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
 
-const N: usize = 32;
+const N: usize = 31;
 const E: usize = N * (N - 1) / 2;
 type State = AHState<N, E>;
 
@@ -68,7 +68,7 @@ fn main() {
     
     // roots change across epochs
     let (mut root_states, mut root_vecs): ([State; BATCH], [StateVec; BATCH])
-        = AHState::par_generate_batch(5, 0.5);
+        = AHState::par_generate_batch(5, 0.12);
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
     
