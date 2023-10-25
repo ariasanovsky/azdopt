@@ -3,17 +3,27 @@ use std::{array::from_fn, collections::VecDeque};
 
 use super::{my_bitsets_to_refactor_later::B32, graph::{Neighborhoods, Tree}};
 
+#[derive(Clone, Debug)]
 pub(crate) enum PartiallyExplored {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum Insertion {
     Root,
     NewHost { previous_host: usize },
     Hosted { host: usize },
 }
 
+impl Insertion {
+    pub(crate) fn host(&self) -> Option<usize> {
+        match self {
+            Self::Root | Self::NewHost { previous_host: _ } => None,
+            Self::Hosted { host } => Some(*host),
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct BlockForest<const N: usize, State = ()> {
+pub struct BlockForest<const N: usize, State = PartiallyExplored> {
     pub(crate) hosted_vertices: [B32; N],
     pub(crate) hosts_below: [B32; N],
     pub(crate) insertion: [Option<Insertion>; N],
@@ -22,12 +32,8 @@ pub struct BlockForest<const N: usize, State = ()> {
 }
 
 impl<const N: usize, S> BlockForest<N, S> {
-    pub(crate) fn host(&self, u: usize) -> usize {
-        self.insertion[u].as_ref().map(|i| match i {
-            Insertion::Root => u,
-            Insertion::NewHost { previous_host: _ } => u,
-            Insertion::Hosted { host } => *host,
-        }).unwrap_or(u)
+    pub(crate) fn blocks(&self) -> Vec<B32> {
+        self.active_hosts.iter().map(|h| self.hosted_vertices[h].clone()).collect()
     }
 }
 
@@ -67,14 +73,34 @@ impl<const N: usize> BlockForest<N, PartiallyExplored> {
         explored_vertices: &mut B32,
         root: usize,
     ) {
+        let Self {
+            hosted_vertices,
+            hosts_below,
+            insertion,
+            active_hosts,
+            state: _,
+        } = self;
         let Neighborhoods { neighborhoods } = neighborhoods;
+        println!("{:?}", neighborhoods.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+        explored_vertices.insert_unchecked(root);
         let mut seen_vertices = explored_vertices.clone();
-        let mut new_neighborhoods = VecDeque::from([(root, neighborhoods[root].clone())]);
+        let n_root = neighborhoods[root].minus(&seen_vertices);
+        if n_root.is_empty() {
+            return;
+        }
+        seen_vertices.union_assign(&n_root);
+        let mut new_neighborhoods = VecDeque::from([(root, n_root)]);
         while let Some((u, n_u)) = new_neighborhoods.pop_front() {
+            println!("u = {u}\nn_{u} = {n_u}");
+            println!("seen = {seen_vertices}\nexplored = {explored_vertices}");
+            active_hosts.iter().for_each(|w| {
+                println!("\tblock {w} = {}", hosted_vertices[w]);
+            });
             // elements of `n_u` with a neighbor with in `n_u`
             let mut t_u = B32::empty();
             // explored vertices whose blocks merge with `u`'s
             let mut x_u = B32::empty();
+            x_u.insert_unchecked(u);
             // elements of `n_u` which witness such a merge
             let mut a_u = B32::empty();
             n_u.iter().for_each(|v| {
@@ -82,6 +108,7 @@ impl<const N: usize> BlockForest<N, PartiallyExplored> {
                 let new_v = n_v.minus(&seen_vertices);
                 if !new_v.is_empty() {
                     seen_vertices.union_assign(&new_v);
+                    println!("new_{v} = {new_v}");
                     new_neighborhoods.push_back((v, new_v));
                 }
                 // the common neighbors of `u` and `v` belong in the block of `u`
@@ -97,54 +124,60 @@ impl<const N: usize> BlockForest<N, PartiallyExplored> {
                     a_u.insert_unchecked(v);
                 }
             });
-            let mut host_u = self.host(u);
+            println!("t_{u} = {t_u}\nx_{u} = {x_u}\na_{u} = {a_u}");
+            let mut host_u = insertion[u].as_ref().map(Insertion::host).flatten().unwrap_or(u);
             // merge blocks first
             if !x_u.is_singleton() {
                 x_u.add_or_remove_unchecked(u);
                 let mut hosts_of_blocks_to_merge = B32::empty();
                 hosts_of_blocks_to_merge.insert_unchecked(host_u);
                 x_u.iter().for_each(|v| {
-                    let host_v = self.host(v);
+                    let host_v = insertion[v].as_ref().map(Insertion::host).flatten().unwrap_or(v);
                     hosts_of_blocks_to_merge.insert_unchecked(host_v);
                 });
                 if !hosts_of_blocks_to_merge.is_singleton() {
-                    let mut meet_u = self.hosts_below[host_u].clone();
-                    let mut join_u = self.hosts_below[host_u].clone();
+                    let mut meet_u = hosts_below[host_u].clone();
+                    let mut join_u = hosts_below[host_u].clone();
                     hosts_of_blocks_to_merge.add_or_remove_unchecked(host_u);
                     hosts_of_blocks_to_merge.iter().for_each(|h| {
-                        meet_u.intersection_assign(&self.hosts_below[h]);
-                        join_u.union_assign(&self.hosts_below[h]);
+                        meet_u.intersection_assign(&hosts_below[h]);
+                        join_u.union_assign(&hosts_below[h]);
                     });
-                    meet_u.intersection_assign(&self.active_hosts);
+                    meet_u.intersection_assign(&active_hosts);
                     let meet_host = meet_u.max_unchecked();
-                    let mut meet_hosted_vertices = self.hosted_vertices[meet_host].clone();
-                    join_u.intersection_assign(&self.active_hosts);
+                    let mut meet_hosted_vertices = hosted_vertices[meet_host].clone();
+                    join_u.intersection_assign(&active_hosts);
                     let hosts_to_deactivate = join_u.clone().symmetric_difference(&meet_u);
                     hosts_to_deactivate.iter().for_each(|h| {
-                        meet_hosted_vertices.union_assign(&self.hosted_vertices[h]);
+                        meet_hosted_vertices.union_assign(&hosted_vertices[h]);
                     });
-                    self.hosted_vertices[meet_host] = meet_hosted_vertices;
-                    self.active_hosts.minus_assign(&hosts_to_deactivate);
+                    hosted_vertices[meet_host] = meet_hosted_vertices;
+                    active_hosts.minus_assign(&hosts_to_deactivate);
                     host_u = meet_host;
                 }
             }
             let mut new_block_vertices_u = t_u;
             new_block_vertices_u.union_assign(&a_u);
-            self.hosted_vertices[host_u].union_assign(&new_block_vertices_u);
+            hosted_vertices[host_u].union_assign(&new_block_vertices_u);
             new_block_vertices_u.iter().for_each(|v| {
-                self.insertion[v] = Some(Insertion::Hosted { host: host_u });
-                self.hosts_below[v] = self.hosts_below[host_u].clone();
-                self.hosts_below[v].insert_unchecked(v);
+                insertion[v] = Some(Insertion::Hosted { host: host_u });
             });
             // other vertices get added to the tree via a cut edge
             let c_u = n_u.symmetric_difference(&new_block_vertices_u);
+            println!("c_{u} = {c_u}");
             c_u.iter().for_each(|v| {
-                self.insertion[v] = Some(Insertion::NewHost { previous_host: host_u });
+                insertion[v] = Some(Insertion::NewHost { previous_host: host_u });
+                hosts_below[v] = hosts_below[host_u].clone();
+                hosts_below[v].insert_unchecked(v);
+                hosted_vertices[v] = B32::empty();
+                hosted_vertices[v].insert_unchecked(v);
             });
-            self.active_hosts.union_assign(&c_u);
+            active_hosts.union_assign(&c_u);
+            // `u` is already explored
+            // mark `n_u` as explored
             explored_vertices.union_assign(&n_u);
+            
         }
-        todo!()
     }
 
     pub(crate) fn assert_tree(self) -> BlockForest<N, Tree> {

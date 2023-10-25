@@ -1,8 +1,3 @@
-use core::{num::NonZeroUsize, marker::PhantomData, array::from_fn};
-use std::collections::VecDeque;
-
-use bit_iter::BitIter;
-
 use crate::achiche_hansen::{valid::GenericsAreValid, block_forest::BlockForest};
 
 use super::my_bitsets_to_refactor_later::B32;
@@ -12,15 +7,11 @@ pub struct Neighborhoods<const N: usize> {
     pub(crate) neighborhoods: [B32; N],
 }
 
-fn nonzeroes(s: u32) -> Vec<usize> {
-    BitIter::from(s).collect()
-}
-
 #[test]
 fn block_decomposition_of_bowtie() {
     impl Neighborhoods<6> {
         fn bowtie(vertices: [usize; 6]) -> Self {
-            let mut neighborhoods = from_fn(|_| B32::empty());
+            let mut neighborhoods = core::array::from_fn(|_| B32::empty());
             let [a, b, c, d, e, f] = vertices;
             [(a, b), (b, c), (a, c), (c, d), (d, e), (d, f), (e, f)].into_iter().for_each(|(u, v)| {
                 neighborhoods[u].insert_unchecked(v);
@@ -31,15 +22,15 @@ fn block_decomposition_of_bowtie() {
     }
     let neighborhoods = Neighborhoods::bowtie([0, 4, 5, 1, 2, 3]);
     let block_tree = neighborhoods.block_tree().unwrap();
-    todo!("finish writing a test")
+    assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 4, 5, ]", "[1, 2, 3, ]"]);
 }
 
 
 #[test]
 fn block_decomposition_of_c4() {
-    impl Neighborhoods<6> {
+    impl Neighborhoods<4> {
         fn c4(vertices: [usize; 4]) -> Self {
-            let mut neighborhoods = from_fn(|_| B32::empty());
+            let mut neighborhoods = core::array::from_fn(|_| B32::empty());
             let [a, b, c, d] = vertices;
             [(a, b), (b, c), (c, d), (a, d)].into_iter().for_each(|(u, v)| {
                 neighborhoods[u].insert_unchecked(v);
@@ -50,7 +41,7 @@ fn block_decomposition_of_c4() {
     }
     let neighborhoods = Neighborhoods::c4([0, 1, 2, 3]);
     let block_tree = neighborhoods.block_tree().unwrap();
-    todo!("finish writing a test")
+    assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, ]"]);
 }
 
 pub enum Tree {}

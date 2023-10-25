@@ -5,6 +5,29 @@ pub(crate) struct B32 {
     bits: u32,
 }
 
+impl TryFrom<&[usize]> for B32 {
+    type Error = ();
+
+    fn try_from(value: &[usize]) -> Result<Self, Self::Error> {
+        let mut bits = 0;
+        for &n in value {
+            if n >= 32 {
+                return Err(());
+            }
+            bits |= 1 << n;
+        }
+        Ok(Self::new(bits))
+    }
+}
+
+impl core::fmt::Display for B32 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        self.iter().try_for_each(|n| write!(f, "{}, ", n))?;
+        write!(f, "]")
+    }
+}
+
 impl B32 {
     pub const fn new(bits: u32) -> Self {
         Self { bits }
