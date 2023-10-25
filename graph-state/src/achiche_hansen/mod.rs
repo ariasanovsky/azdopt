@@ -5,9 +5,13 @@ use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-use self::graph::{BlockForest, DistanceMatrix, Neighborhoods};
+use crate::achiche_hansen::my_bitsets_to_refactor_later::B32;
 
+use self::{graph::{DistanceMatrix, Neighborhoods}, block_forest::BlockForest};
+
+mod block_forest;
 mod graph;
+pub(crate) mod my_bitsets_to_refactor_later;
 mod valid;
 
 #[derive(Clone)]
@@ -47,13 +51,13 @@ impl<const N: usize, const E: usize> AHState<N, E> {
         */
         let mut rng = rand::thread_rng();
         let (neighborhoods, blocks) = loop {
-            let mut neighborhoods: [u32; N] = [0; N];
+            let mut neighborhoods: [B32; N] = core::array::from_fn(|_| B32::empty());
             let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
             edge_iterator.zip_eq(vec[..E].iter_mut()).for_each(|((u, v), e)| {
                 if rng.gen_bool(p) {
                     *e = 1.0;
-                    neighborhoods[u] |= 1 << v;
-                    neighborhoods[v] |= 1 << u;
+                    neighborhoods[u].insert_unchecked(v);
+                    neighborhoods[v].insert_unchecked(u);
                 } else {
                     *e = 0.0;
                 }
