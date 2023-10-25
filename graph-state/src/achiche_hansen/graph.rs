@@ -1,6 +1,9 @@
-use std::{collections::VecDeque, num::NonZeroUsize};
+use core::{num::NonZeroUsize, marker::PhantomData};
+use std::collections::VecDeque;
 
 use bit_iter::BitIter;
+
+use crate::achiche_hansen::valid::GenericsAreValid;
 
 #[derive(Clone)]
 pub struct Neighborhoods<const N: usize> {
@@ -11,15 +14,81 @@ fn nonzeroes(s: u32) -> Vec<usize> {
     BitIter::from(s).collect()
 }
 
+#[test]
+fn block_decomposition_of_bowtie() {
+    impl Neighborhoods<6> {
+        fn bowtie(vertices: [usize; 6]) -> Self {
+            let mut neighborhoods = [0; 6];
+            let [a, b, c, d, e, f] = vertices;
+            [(a, b), (b, c), (a, c), (c, d), (d, e), (d, f), (e, f)].into_iter().for_each(|(u, v)| {
+                neighborhoods[u] |= 1 << v;
+                neighborhoods[v] |= 1 << u;
+            });
+            Self::new(neighborhoods)
+        }
+    }
+    let neighborhoods = Neighborhoods::bowtie([0, 4, 5, 1, 2, 3]);
+    let block_tree = neighborhoods.block_tree().unwrap();
+    todo!("finish writing a test")
+}
+
+
+#[test]
+fn block_decomposition_of_c4() {
+    impl Neighborhoods<6> {
+        fn c4(vertices: [usize; 4]) -> Self {
+            let mut neighborhoods = [0; 6];
+            let [a, b, c, d] = vertices;
+            [(a, b), (b, c), (c, d), (a, d)].into_iter().for_each(|(u, v)| {
+                neighborhoods[u] |= 1 << v;
+                neighborhoods[v] |= 1 << u;
+            });
+            Self::new(neighborhoods)
+        }
+    }
+    let neighborhoods = Neighborhoods::c4([0, 1, 2, 3]);
+    let block_tree = neighborhoods.block_tree().unwrap();
+    todo!("finish writing a test")
+}
+
+pub enum Tree {}
+
+pub(crate) trait Connectivity {
+    const CONNECTED: bool;
+}
+
+impl Connectivity for Tree {
+    const CONNECTED: bool = true;
+}
+
 impl<const N: usize> Neighborhoods<N> {
     pub fn new(neighborhoods: [u32; N]) -> Self {
+        let _ = <Self as GenericsAreValid>::VALID;
         Self { neighborhoods }
     }
 
-    pub fn block_tree(&self) -> Option<BlockTree<N>> {
+    pub fn block_tree(&self) -> Option<BlockForest<N, Tree>> {
+        let _ = <Self as GenericsAreValid>::VALID;
+        
         if N == 0 {
-            todo!()
+            return Some(BlockForest {
+                owned_vertices: [0; N],
+                owners_below: [0; N],
+                parents: [None; N],
+                owners: 0,
+                state: PhantomData,
+            })
         }
+
+        let mut forest: BlockForest<N, Unexplored> = BlockForest {
+            owned_vertices: [0; N],
+            owners_below: [0; N],
+            parents: [None; N],
+            owners: 0,
+            state: PhantomData,
+        };
+        let mut explored_vertices: u32 = 1 << 0;
+
         let mut explored = 1 << 0;
         let mut blocks_sets = vec![1 << 0];
         let mut blocks_below = vec![1 << 0];
@@ -63,7 +132,7 @@ impl<const N: usize> Neighborhoods<N> {
             // track the elements in `n_u` to add into `u`'s block
             let mut b_u = 0;
             // track the explored vertices whose blocks merge with `u`'s block
-            let mut x_u = 1 << u;
+            let mut x_u = 0; // 1 << u;
             BitIter::from(n_u).for_each(|v| {
                 let n_v = neighborhoods[v];
                 let new_v = !seen & n_v;
@@ -99,10 +168,15 @@ impl<const N: usize> Neighborhoods<N> {
                 //     nonzeroes(x_v),
                 // );
             });
+            x_u ^= 1 << u;
             let i_u = insertion_position[u].as_ref().map(|i| i.block_position()).unwrap();
             let blocks_below_u = blocks_below[i_u];
             let active_blocks_below_u = blocks_below_u & active_blocks;
-            let j_u = active_blocks_below_u.trailing_zeros() as usize;
+            let j_u = 31 - active_blocks_below_u.leading_zeros() as usize;
+
+            // const ZERO_AND_ONE: u32 = 0b11;
+            // const MIN: u32 = ZERO_AND_ONE.trailing_zeros();
+            // const MAX: u32 = 31 - ZERO_AND_ONE.leading_zeros();
 
             // println!(
             //     "
@@ -116,7 +190,7 @@ impl<const N: usize> Neighborhoods<N> {
             let mut blocks_to_merge: u32 = 1 << j_u;
             BitIter::from(x_u).for_each(|v| {
                 let i_v = insertion_position[v].as_ref().unwrap().block_position();
-                let j_v = (blocks_below[i_v] & active_blocks).trailing_zeros();
+                let j_v = 31 - (blocks_below[i_v] & active_blocks).leading_zeros();
                 blocks_to_merge |= 1 << j_v;
             });
             if !blocks_to_merge.is_power_of_two() { // or != 1 << j_u
@@ -129,15 +203,15 @@ impl<const N: usize> Neighborhoods<N> {
                     blocks_sets[j_u as usize] |= blocks_sets[j_v as usize];
                 });
                 let deactivated_blocks = meet_u ^ join_u;
-                // println!(
-                //     "
-                //     meet_u             = {:?}
-                //     join_u             = {:?}
-                //     deactivated_blocks = {:?}",
-                //     nonzeroes(meet_u),
-                //     nonzeroes(join_u),
-                //     nonzeroes(deactivated_blocks),
-                // );
+                println!(
+                    "
+                    meet_u             = {:?}
+                    join_u             = {:?}
+                    deactivated_blocks = {:?}",
+                    nonzeroes(meet_u),
+                    nonzeroes(join_u),
+                    nonzeroes(deactivated_blocks),
+                );
                 active_blocks ^= deactivated_blocks;
                 blocks_below[j_u] = join_u;
             }
@@ -150,7 +224,7 @@ impl<const N: usize> Neighborhoods<N> {
                     parent_position: j_u,
                     new_position: i_v,
                 };
-                dbg!(u, v, &insertion);
+                // dbg!(u, v, &insertion);
                 insertion_position[v] = Some(insertion);
                 blocks_sets.push(1 << v);
                 let blocks_below_v = blocks_below_u | (1 << i_v);
@@ -159,7 +233,7 @@ impl<const N: usize> Neighborhoods<N> {
             });
             BitIter::from(b_u).for_each(|v| {
                 let insertion = Insertion::IntoExistingBlock { block_position: j_u };
-                dbg!(u, v, &insertion);
+                // dbg!(u, v, &insertion);
                 insertion_position[v] = Some(insertion);
             });
             explored |= n_u;
@@ -173,14 +247,49 @@ impl<const N: usize> Neighborhoods<N> {
 }
 
 impl<const N: usize> Neighborhoods<N> {
-    pub fn distance_matrix(&self, blocks: &BlockTree<N>) -> DistanceMatrix<N> {
+    pub fn distance_matrix(&self, blocks: &BlockForest<N>) -> DistanceMatrix<N> {
         todo!()
     }
 }
 
-#[derive(Clone)]
-pub struct BlockTree<const N: usize> {
+enum Unexplored {}
 
+#[derive(Clone)]
+pub struct BlockForest<const N: usize, State = ()> {
+    owned_vertices: [u32; N],
+    owners_below: [u32; N],
+    parents: [Option<usize>; N],
+    owners: u32,
+    state: PhantomData<State>,
+}
+
+impl<const N: usize> BlockForest<N, Unexplored> {
+    fn insert_root(
+        &mut self,
+        explored_vertices: u32,
+        u: usize,
+        neighborhoods: Neighborhoods<N>
+    ) {
+        let Self {
+            owned_vertices,
+            owners_below,
+            parents,
+            owners,
+            state: _
+        } = self;
+        todo!()
+    }
+
+    fn visit(&mut self, u: usize, n_u: u32) {
+        let Self {
+            owned_vertices,
+            owners_below,
+            parents,
+            owners,
+            state: _
+        } = self;
+        todo!()
+    }
 }
 
 #[derive(Clone)]

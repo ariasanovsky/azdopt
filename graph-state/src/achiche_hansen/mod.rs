@@ -5,16 +5,15 @@ use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-use crate::ramsey_state::edge_to_position;
-
-use self::graph::{BlockTree, DistanceMatrix, Neighborhoods};
+use self::graph::{BlockForest, DistanceMatrix, Neighborhoods};
 
 mod graph;
+mod valid;
 
 #[derive(Clone)]
 pub struct AHState<const N: usize, const E: usize> {
     neighborhoods: Neighborhoods<N>,
-    blocks: BlockTree<N>,
+    blocks: BlockForest<N>,
     add_actions: [bool; E],
     delete_actions: [bool; E],
     distances: DistanceMatrix<N>,
