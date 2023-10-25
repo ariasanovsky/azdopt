@@ -31,9 +31,18 @@ pub struct BlockForest<const N: usize, State = PartiallyExplored> {
     pub(crate) state: PhantomData<State>,
 }
 
-impl<const N: usize, S> BlockForest<N, S> {
+impl<const N: usize> BlockForest<N, Tree> {
     pub(crate) fn blocks(&self) -> Vec<B32> {
         self.active_hosts.iter().map(|h| self.hosted_vertices[h].clone()).collect()
+    }
+
+    pub(crate) fn cut_edges(&self) -> Vec<(usize, usize)> {
+        self.active_hosts.iter().map(|u| {
+            match self.insertion[u] {
+                Some(Insertion::NewHost { previous_host }) => (previous_host, u),
+                _ => unreachable!(),
+            }
+        }).collect()
     }
 }
 

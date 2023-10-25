@@ -44,6 +44,25 @@ fn block_decomposition_of_c4() {
     assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, ]"]);
 }
 
+#[test]
+fn block_decomposition_of_c5() {
+    impl Neighborhoods<5> {
+        fn c5(vertices: [usize; 5]) -> Self {
+            let mut neighborhoods = core::array::from_fn(|_| B32::empty());
+            let [a, b, c, d, e] = vertices;
+            [(a, b), (b, c), (c, d), (d, e), (a, e)].into_iter().for_each(|(u, v)| {
+                neighborhoods[u].insert_unchecked(v);
+                neighborhoods[v].insert_unchecked(u);
+            });
+            Self::new(neighborhoods)
+        }
+    }
+    let neighborhoods = Neighborhoods::c5([0, 1, 2, 3, 4]);
+    let block_tree = neighborhoods.block_tree().unwrap();
+    assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, 4, ]"]);
+}
+
+#[derive(Clone)]
 pub enum Tree {}
 
 impl<const N: usize> Neighborhoods<N> {

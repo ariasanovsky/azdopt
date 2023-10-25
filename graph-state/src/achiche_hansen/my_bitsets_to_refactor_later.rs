@@ -63,7 +63,6 @@ impl B32 {
     }
 
     pub fn max_unchecked(&self) -> usize {
-        dbg!(self.bits);
         31 - self.bits.leading_zeros() as usize
     }
 
