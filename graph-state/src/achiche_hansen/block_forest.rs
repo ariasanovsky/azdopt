@@ -37,10 +37,11 @@ impl<const N: usize> BlockForest<N, Tree> {
     }
 
     pub(crate) fn cut_edges(&self) -> Vec<(usize, usize)> {
-        self.active_hosts.iter().map(|u| {
+        self.active_hosts.iter().filter_map(|u| {
             match self.insertion[u] {
-                Some(Insertion::NewHost { previous_host }) => (previous_host, u),
-                _ => unreachable!(),
+                Some(Insertion::NewHost { previous_host }) => Some((previous_host, u)),
+                Some(Insertion::Root) => None,
+                _ => unreachable!("all active hosts except roots should be new inserted as new hosts")
             }
         }).collect()
     }
@@ -204,5 +205,11 @@ impl<const N: usize> BlockForest<N, PartiallyExplored> {
             active_hosts: owners,
             state: PhantomData,
         }
+    }
+}
+
+impl<const N: usize, S> BlockForest<N, S> {
+    pub(crate) fn forget_state(&self) -> &BlockForest<N> {
+        unsafe { core::mem::transmute(self) }
     }
 }

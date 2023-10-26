@@ -1,3 +1,5 @@
+use faer::{Mat, Faer};
+
 use crate::achiche_hansen::{valid::GenericsAreValid, block_forest::BlockForest};
 
 use super::my_bitsets_to_refactor_later::B32;
@@ -252,11 +254,51 @@ impl<const N: usize> Neighborhoods<N> {
 
 impl<const N: usize> Neighborhoods<N> {
     pub fn distance_matrix(&self, blocks: &BlockForest<N>) -> DistanceMatrix<N> {
-        todo!()
+        // todo! refactor with blocks
+        let mut distances = [[0.0; N]; N];
+        for u in 0..N {
+            let mut explored = B32::empty();
+            explored.insert_unchecked(u);
+            let mut newly_seen_vertices = self.neighborhoods[u].clone();
+            explored.insert_unchecked(u);
+            for d in 0.. {
+                if newly_seen_vertices.is_empty() {
+                    break;
+                }
+                explored.union_assign(&newly_seen_vertices);
+                let recently_seen_vertices = newly_seen_vertices;
+                newly_seen_vertices = B32::empty();
+                recently_seen_vertices.iter().for_each(|v| {
+                    distances[u][v] = d as f64;
+                    newly_seen_vertices.union_assign(&self.neighborhoods[v]);
+                });
+                newly_seen_vertices.minus_assign(&explored);
+            }
+        }
+        DistanceMatrix { distances }
     }
 }
 
 #[derive(Clone)]
 pub struct DistanceMatrix<const N: usize> {
+    distances: [[f64; N]; N]
+}
 
+impl<const N: usize> DistanceMatrix<N> {
+    pub fn eigenvalues(&self) -> Vec<f64> {
+        // todo! clunky use of faer here
+        // self.distances.iter().for_each(|row| {
+        //     println!("{row:?}");
+        // });
+        let a: Mat<f64> = Mat::from_fn(N, N, |i, j| self.distances[i][j]);
+        let mut eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
+        eigs.sort_floats();
+        eigs.reverse();
+        eigs
+    }
+
+    pub fn proximity(&self) -> f64 {
+        self.distances.iter().map(|row| row.iter().sum::<f64>()).min_by(|a, b| a.total_cmp(b)).unwrap()
+        / (N - 1) as f64
+    }
 }

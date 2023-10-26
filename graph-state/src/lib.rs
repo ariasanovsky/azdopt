@@ -1,5 +1,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
+#![feature(slice_flatten)]
+#![feature(sort_floats)]
 
 pub mod ramsey_state;
 pub mod achiche_hansen;

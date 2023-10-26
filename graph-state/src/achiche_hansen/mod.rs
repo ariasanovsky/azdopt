@@ -7,7 +7,7 @@ use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, Parall
 
 use crate::{achiche_hansen::my_bitsets_to_refactor_later::B32, ramsey_state::edge_to_position};
 
-use self::{graph::{DistanceMatrix, Neighborhoods, Tree}, block_forest::BlockForest};
+use self::{graph::{Neighborhoods, Tree}, block_forest::BlockForest};
 
 mod block_forest;
 mod graph;
@@ -20,7 +20,6 @@ pub struct AHState<const N: usize, const E: usize> {
     blocks: BlockForest<N, Tree>,
     add_actions: [bool; E],
     delete_actions: [bool; E],
-    distances: DistanceMatrix<N>,
     time: usize,
 }
 
@@ -41,6 +40,7 @@ impl<const N: usize, const E: usize> AHState<N, E> {
 
     // todo! too many generics
     fn generate<const STATE: usize>(vec: &mut [f32; STATE], time: usize, p: f64) -> Self {
+        dbg!();
         // todo! improve to comp-time assert, or less ugly
         let _: () = assert!(vec.len() == Self::STATE);
         /* indices 0..3*E are 1.0f32 or 0.0-valued corresponding to:
@@ -53,7 +53,6 @@ impl<const N: usize, const E: usize> AHState<N, E> {
         let (vec_add_actions, vec) = vec.split_at_mut(E);
         let (vec_delete_actions, vec_time) = vec.split_at_mut(E);
         assert_eq!(vec_time.len(), 1);
-        vec_time[0] = time as f32;
         
         let mut add_actions: [bool; E] = [false; E];
         let mut delete_actions: [bool; E] = [false; E];
@@ -83,12 +82,30 @@ impl<const N: usize, const E: usize> AHState<N, E> {
                 break (neighborhoods, blocks)
             }
         };
+
+        // indicate edges with 1.0 (iff the add action is not valid) or 0.0
+        vec_edges.iter_mut().zip_eq(vec_add_actions).zip_eq(add_actions.iter()).for_each(|((vec_e, vec_a), a)| {
+            if *a {
+                *vec_e = 0.0;
+                *vec_a = 1.0;
+            } else {
+                *vec_e = 1.0;
+                *vec_a = 0.0;
+            }
+        });
+        vec_delete_actions.iter_mut().zip_eq(delete_actions.iter()).for_each(|(vec_d, d)| {
+            if *d {
+                *vec_d = 1.0;
+            } else {
+                *vec_d = 0.0;
+            }
+        });
+        vec_time[0] = time as f32;
         Self {
             neighborhoods,
             blocks,
             add_actions,
             delete_actions,
-            distances: todo!(),
             time,
         }
     }
@@ -96,6 +113,10 @@ impl<const N: usize, const E: usize> AHState<N, E> {
 
 impl<const N: usize, const E: usize> Cost for AHState<N, E> {
     fn cost(&self) -> f32 {
-        todo!()
+        let distance_matrix = self.neighborhoods.distance_matrix(self.blocks.forget_state());
+        let eigs = distance_matrix.eigenvalues();
+        let k = (2 * N) / 3 - 1;
+        let proximity = distance_matrix.proximity();
+        (eigs[k] + proximity) as f32
     }
 }
