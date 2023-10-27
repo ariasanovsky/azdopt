@@ -1,8 +1,13 @@
 #![feature(slice_flatten)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_array_assume_init)]
+
+use core::mem::MaybeUninit;
 
 use az_discrete_opt::{arr_map::par_update_costs, log::BasicLog, int_min_tree::INTMinTree};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
+use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
 const N: usize = 31;
 const E: usize = N * (N - 1) / 2;
@@ -81,7 +86,7 @@ fn main() {
         prediction_tensor = core_model.forward(state_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
-        let mut trees: [Tree; BATCH] = par_plant_forest(&root_states, &predictions);
+        let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &root_costs);
         let mut logs: [BasicLog; BATCH] = BasicLog::par_new_logs();
         
         let mut grads = core_model.alloc_grads();
@@ -191,8 +196,14 @@ fn par_simulate_forest_once<const BATCH: usize>(
 }
 
 fn par_plant_forest<const BATCH: usize>(
-    roots: &[State; BATCH],
-    predictions: &[ActionVec; BATCH],
+    root_predictions: &[ActionVec; BATCH],
+    root_costs: &[f32; BATCH],
 ) -> [Tree; BATCH] {
-    todo!()
+    let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
+    let predictions = root_predictions.par_iter();
+    let costs = root_costs.par_iter();
+    trees.par_iter_mut().zip_eq(predictions).zip_eq(costs).for_each(|((tree, prediction), cost)| {
+        tree.write(INTMinTree::new(prediction, *cost));
+    });
+    unsafe { MaybeUninit::array_assume_init(trees) }
 }
