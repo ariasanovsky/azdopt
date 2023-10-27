@@ -19,7 +19,13 @@ impl INTMinTree {
         self.data.clear();
         self.root_data = INTStateData::new(root_predictions, cost);
     }
+
+    pub fn simulate_once<S>(&self, state: &mut S, actions: &mut [f32]) -> Transitions {
+        todo!()
+    }
 }
+
+pub struct Transitions;
 
 /* todo! refactor so that:
     `actions` = [a0, ..., a_{k-1}, a_k, ..., a_{n-1}]

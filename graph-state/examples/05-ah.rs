@@ -4,7 +4,7 @@
 
 use core::mem::MaybeUninit;
 
-use az_discrete_opt::{arr_map::par_update_costs, log::BasicLog, int_min_tree::INTMinTree};
+use az_discrete_opt::{arr_map::par_update_costs, log::BasicLog, int_min_tree::{INTMinTree, Transitions}};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
@@ -143,6 +143,8 @@ fn main() {
     });
 }
 
+type Trans = Transitions;
+
 fn par_use_logged_roots<const BATCH: usize>(
     roots: &mut [State; BATCH],
     root_vecs: &mut [StateVec; BATCH],
@@ -178,7 +180,6 @@ fn par_update_state_data<const BATCH: usize>(
 }
 
 type ActionVec = [f32; ACTION];
-struct Trans;
 
 fn par_update_logs<const BATCH: usize>(
     logs: &mut [BasicLog; BATCH],
@@ -192,7 +193,14 @@ fn par_simulate_forest_once<const BATCH: usize>(
     states: &mut [State; BATCH],
     vecs: &mut [StateVec; BATCH],
 ) -> [Trans; BATCH] {
-    todo!()
+    let trees = trees.par_iter();
+    let states = states.par_iter_mut();
+    let vecs = vecs.par_iter_mut();
+    let mut trans: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
+    trees.zip_eq(states).zip_eq(vecs).zip_eq(trans.par_iter_mut()).for_each(|(((tree, state), vec), trans)| {
+        trans.write(tree.simulate_once(state, vec));
+    });
+    unsafe { MaybeUninit::array_assume_init(trans) }
 }
 
 fn par_plant_forest<const BATCH: usize>(
