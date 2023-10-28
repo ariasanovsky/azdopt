@@ -50,13 +50,17 @@ impl INTMinTree {
         }
     }
 
-    pub fn insert(
+    pub fn insert<S: INTState>(
         &mut self,
         transitions: &INTTransitions,
+        state: &S,
+        cost: f32,
         probabilities: &[f32],
     ) {
-        let Self { root_data, data } = self;
-        todo!()
+        let Self { root_data: _, data } = self;
+        let end_state_path = transitions.last_path();
+        let state_data = INTStateData::new(probabilities, cost, state);
+        data.insert(end_state_path.clone(), state_data);
     }
 }
 

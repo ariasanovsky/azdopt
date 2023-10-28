@@ -111,7 +111,7 @@ fn main() {
             *  - we avoid encountering the same ex
             
             */
-            par_insert_new_states(&mut trees, &transitions, &probs);
+            par_insert_new_states(&mut trees, &transitions, &states, &last_calculated_costs, &probs);
             par_update_state_data(&mut trees, &transitions, &values);
         });
         let mut probs: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
@@ -180,23 +180,32 @@ fn par_set_observations<const BATCH: usize>(
 fn par_insert_new_states<const BATCH: usize>(
     trees: &mut [Tree; BATCH],
     trans: &[Trans; BATCH],
+    states: &[State; BATCH],
+    costs: &[f32; BATCH],
     probs: &[ActionVec; BATCH],
     
 ) {
     let trees = trees.par_iter_mut();
     let trans = trans.par_iter();
+    let states = states.par_iter();
+    let costs = costs.par_iter();
     let probs = probs.par_iter();
-    trees.zip_eq(trans).zip_eq(probs).for_each(|((t, trans), p)| {
-        t.insert(trans, p)
+    trees.zip_eq(trans).zip_eq(states).zip_eq(costs).zip_eq(probs).for_each(|((((t, trans), s), c), p)| {
+        t.insert(trans, s, *c, p)
     });
 }
 
 fn par_update_state_data<const BATCH: usize>(
     trees: &mut [Tree; BATCH],
     trans: &[Trans; BATCH],
-    v: &[[f32; 1]],
+    values: &[[f32; 1]; BATCH],
 ) {
-    todo!()
+    let trees = trees.par_iter_mut();
+    let trans = trans.par_iter();
+    let values = values.par_iter();
+    trees.zip_eq(trans).zip_eq(values).for_each(|((t, trans), v)| {
+        todo!()
+    });
 }
 
 type ActionVec = [f32; ACTION];
