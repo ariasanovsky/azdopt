@@ -45,6 +45,42 @@ impl<const N: usize> BlockForest<N, Tree> {
             }
         }).collect()
     }
+
+    pub(crate) fn update_by_adding_edge(
+        &mut self,
+        neighborhoods: &mut Neighborhoods<N>,
+        u: usize,
+        v: usize,
+    ) {
+        // let Self {
+        //     hosted_vertices,
+        //     hosts_below,
+        //     insertion,
+        //     active_hosts,
+        //     state: _,
+        // } = self;
+        // todo! lazy approach: recompute the whole thing
+        neighborhoods.add_or_delete_edge_unchecked(u, v);
+        *self = neighborhoods.block_tree().unwrap();
+    }
+
+    pub(crate) fn update_by_deleting_block_edge(
+        &mut self,
+        neighborhoods: &mut Neighborhoods<N>,
+        u: usize,
+        v: usize,
+    ) {
+        // let Self {
+        //     hosted_vertices,
+        //     hosts_below,
+        //     insertion,
+        //     active_hosts,
+        //     state: _,
+        // } = self;
+        // todo! lazy approach: recompute the whole thing
+        neighborhoods.add_or_delete_edge_unchecked(u, v);
+        *self = neighborhoods.block_tree().unwrap();
+    }
 }
 
 impl<const N: usize> BlockForest<N, PartiallyExplored> {

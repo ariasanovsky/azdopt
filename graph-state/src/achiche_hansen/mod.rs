@@ -1,11 +1,11 @@
-use std::mem::MaybeUninit;
+use std::{mem::MaybeUninit, collections::BTreeSet};
 
 use az_discrete_opt::{state::Cost, int_min_tree::INTState};
 use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-use crate::{achiche_hansen::my_bitsets_to_refactor_later::B32, ramsey_state::edge_to_position};
+use crate::{achiche_hansen::my_bitsets_to_refactor_later::B32, ramsey_state::{edge_to_position, edge_from_position}};
 
 use self::{graph::{Neighborhoods, Tree}, block_forest::BlockForest};
 
@@ -18,13 +18,58 @@ mod valid;
 pub struct AHState<const N: usize, const E: usize> {
     neighborhoods: Neighborhoods<N>,
     blocks: BlockForest<N, Tree>,
+    edges: [bool; E],
     add_actions: [bool; E],
     delete_actions: [bool; E],
     time: usize,
+    modified_edges: BTreeSet<usize>,
 }
 
 impl<const N: usize, const E: usize> INTState for AHState<N, E> {
     fn act(&mut self, state_vec: &mut [f32], action: usize) {
+        let Self {
+            neighborhoods,
+            blocks,
+            edges,
+            add_actions,
+            delete_actions,
+            time,
+            modified_edges,
+        } = self;
+        if action < E {
+            // action is an add
+            let (u, v) = edge_from_position(action);
+            blocks.update_by_adding_edge(neighborhoods, u, v);
+            // the edge may no longer be added
+            modified_edges.insert(action);
+            // the edge is added to the edge vector
+            edges[action] = true;
+            // the edge is removed from the action vector
+            add_actions[action] = false;
+            // the edge is added to the state vector
+            state_vec[action] = 1.0;
+            // the action is removed from the action vector
+            state_vec[action + E] = 0.0;
+        } else {
+            // action is a delete
+            let (u, v) = edge_from_position(action - E);
+            blocks.update_by_deleting_block_edge(neighborhoods, u, v);
+            modified_edges.insert(action - E);
+            // the edge is removed from the edge vector
+            edges[action - E] = false;
+            // the edge is removed from the state vector
+            state_vec[action] = 0.0;
+            // `add_actions` does not change because we avoid modifying the same edge twice
+        }
+        // todo! lazy: recompute the whole thing
+        *delete_actions = edges.clone();
+        let cut_edges = blocks.cut_edges();
+        cut_edges.into_iter().for_each(|(u, v)| {
+            let i = edge_to_position(u, v);
+            delete_actions[i] = false;
+        });
+        todo!("update state_vec delete actions");
+        *time -= 1;
         todo!()
     }
 
@@ -50,7 +95,7 @@ impl<const N: usize, const E: usize> AHState<N, E> {
 
     // todo! too many generics
     fn generate<const STATE: usize>(vec: &mut [f32; STATE], time: usize, p: f64) -> Self {
-        dbg!();
+        // dbg!();
         // todo! improve to comp-time assert, or less ugly
         let _: () = assert!(vec.len() == Self::STATE);
         /* indices 0..3*E are 1.0f32 or 0.0-valued corresponding to:
@@ -64,6 +109,7 @@ impl<const N: usize, const E: usize> AHState<N, E> {
         let (vec_delete_actions, vec_time) = vec.split_at_mut(E);
         assert_eq!(vec_time.len(), 1);
         
+        let mut edges: [bool; E] = [false; E];
         let mut add_actions: [bool; E] = [false; E];
         let mut delete_actions: [bool; E] = [false; E];
 
@@ -72,15 +118,18 @@ impl<const N: usize, const E: usize> AHState<N, E> {
             let mut neighborhoods: [B32; N] = core::array::from_fn(|_| B32::empty());
             let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
             edge_iterator
+                .zip_eq(edges.iter_mut())
                 .zip_eq(add_actions.iter_mut())
                 .zip_eq(delete_actions.iter_mut())
-            .for_each(|(((u, v), a), d)| {
+            .for_each(|((((u, v), e), a), d)| {
                 if rng.gen_bool(p) {
+                    *e = true;
                     *a = false;
                     *d = true;
                     neighborhoods[u].insert_unchecked(v);
                     neighborhoods[v].insert_unchecked(u);
                 } else {
+                    *e = false;
                     *a = true;
                     *d = false;
                 }
@@ -114,9 +163,11 @@ impl<const N: usize, const E: usize> AHState<N, E> {
         Self {
             neighborhoods,
             blocks,
+            edges,
             add_actions,
             delete_actions,
             time,
+            modified_edges: BTreeSet::new(),
         }
     }
 }

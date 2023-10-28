@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Cost};
+use crate::{iq_min_tree::ActionsTaken, state::Cost};
 
 pub struct INTMinTree {
     root_data: INTStateData,
@@ -81,15 +81,22 @@ struct INTStateData {
 
 impl INTStateData {
     pub fn new(predctions: &[f32], cost: f32) -> Self {
+        let mut actions = predctions.iter().enumerate().map(|(a, p)| INTActionData::new(a, *p)).collect::<Vec<_>>();
+        actions.sort_by(|a, b| b.upper_estimate.total_cmp(&a.upper_estimate));
         Self {
             frequency: 0,
             cost,
-            actions: predctions.iter().enumerate().map(|(a, p)| INTActionData::new(a, *p)).collect(),
+            actions,
         }
     }
 
     pub fn best_action(&self) -> usize {
-        todo!()
+        let Self {
+            frequency: _,
+            cost: _,
+            actions,
+        } = self;
+        actions[0].action
     }
 }
 
@@ -101,6 +108,9 @@ struct INTActionData {
     upper_estimate: f32,    
 }
 
+const C_PUCT_0: f32 = 1.0;
+const C_PUCT: f32 = 1.0;
+
 impl INTActionData {
     pub fn new(action: usize, probability: f32) -> Self {
         Self {
@@ -108,7 +118,7 @@ impl INTActionData {
             probability,
             frequency: 0,
             q_sum: 0.0,
-            upper_estimate: 0.0,
+            upper_estimate: C_PUCT_0 * probability,
         }
     }
 }

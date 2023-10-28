@@ -75,6 +75,12 @@ impl<const N: usize> Neighborhoods<N> {
         Self { neighborhoods }
     }
 
+    pub fn add_or_delete_edge_unchecked(&mut self, u: usize, v: usize) {
+        let Neighborhoods { neighborhoods } = self;
+        neighborhoods[u].add_or_remove_unchecked(v);
+        neighborhoods[v].add_or_remove_unchecked(u);
+    }
+
     pub fn block_tree(&self) -> Option<BlockForest<N, Tree>> {
         let _ = <Self as GenericsAreValid>::VALID;
         
