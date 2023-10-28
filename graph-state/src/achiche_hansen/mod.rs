@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use az_discrete_opt::state::Cost;
+use az_discrete_opt::{state::Cost, int_min_tree::INTState};
 use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
@@ -21,6 +21,16 @@ pub struct AHState<const N: usize, const E: usize> {
     add_actions: [bool; E],
     delete_actions: [bool; E],
     time: usize,
+}
+
+impl<const N: usize, const E: usize> INTState for AHState<N, E> {
+    fn act(&mut self, state_vec: &mut [f32], action: usize) {
+        todo!()
+    }
+
+    fn is_terminal(&self) -> bool {
+        todo!()
+    }
 }
 
 impl<const N: usize, const E: usize> AHState<N, E> {

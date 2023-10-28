@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::iq_min_tree::ActionsTaken;
+use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Cost};
 
 pub struct INTMinTree {
     root_data: INTStateData,
@@ -20,12 +20,49 @@ impl INTMinTree {
         self.root_data = INTStateData::new(root_predictions, cost);
     }
 
-    pub fn simulate_once<S>(&self, state: &mut S, actions: &mut [f32]) -> Transitions {
-        todo!()
+    pub fn simulate_once<S: INTState + Cost>(&self, state: &mut S, state_vec: &mut [f32]) -> INTTransitions {
+        let Self { root_data, data } = self;
+        let first_action = root_data.best_action();
+        state.act(state_vec, first_action);
+        let mut state_path = ActionsTaken::new(first_action);
+        let mut transitions: Vec<(ActionsTaken, f32, usize)> = vec![];
+        while !state.is_terminal() {
+            if let Some(data) = data.get(&state_path) {
+                let action = data.best_action();
+                state.act(state_vec, action);
+                state_path.push(action);
+                transitions.push((state_path.clone(), data.cost, action));
+            } else {
+                return INTTransitions {
+                    first_action,
+                    transitions,
+                    end: INTSearchEnd::Unvisited { state_path, cost: state.cost() },
+                }
+            }
+        }
+        INTTransitions {
+            first_action,
+            transitions,
+            end: INTSearchEnd::Terminal { state_path, cost: state.cost() },
+        }
     }
 }
 
-pub struct Transitions;
+pub trait INTState {
+    fn act(&mut self, state_vec: &mut [f32], action: usize);
+    fn is_terminal(&self) -> bool;
+}
+
+pub struct INTTransitions {
+    first_action: usize,
+    transitions: Vec<(ActionsTaken, f32, usize)>,
+    end: INTSearchEnd,
+}
+
+enum INTSearchEnd {
+    Terminal { state_path: ActionsTaken, cost: f32 },
+    Unvisited { state_path: ActionsTaken, cost: f32 },
+}
 
 /* todo! refactor so that:
     `actions` = [a0, ..., a_{k-1}, a_k, ..., a_{n-1}]
@@ -49,6 +86,10 @@ impl INTStateData {
             cost,
             actions: predctions.iter().enumerate().map(|(a, p)| INTActionData::new(a, *p)).collect(),
         }
+    }
+
+    pub fn best_action(&self) -> usize {
+        todo!()
     }
 }
 
