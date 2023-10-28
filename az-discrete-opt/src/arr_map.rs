@@ -79,7 +79,7 @@ pub fn par_forest_observations<const BATCH: usize, const ACTION: usize, const VA
     (probabilities, values)
 }
 
-pub fn par_update_costs<const BATCH: usize, S: Cost + Sync>(
+pub fn par_set_costs<const BATCH: usize, S: Cost + Sync>(
     costs: &mut [f32; BATCH],
     states: &[S; BATCH],
 ) {

@@ -1,6 +1,6 @@
 use az_discrete_opt::arr_map::{
     par_forest_observations, par_insert_into_forest, par_plant_forest, par_simulate_forest_once,
-    par_state_batch_to_vecs, par_update_costs, par_update_forest, par_use_logged_roots,
+    par_state_batch_to_vecs, par_set_costs, par_update_forest, par_use_logged_roots,
 };
 use az_discrete_opt::iq_min_tree::{IQMinTree, Transitions};
 use az_discrete_opt::log::{par_update_logs, BasicLog};
@@ -65,7 +65,7 @@ fn main() {
     let mut roots: [RamseyState; BATCH] = RamseyState::par_generate_batch(5);
     let mut states: [RamseyState; BATCH] = roots.clone();
     let mut root_costs: [f32; BATCH] = [0.0f32; BATCH];
-    par_update_costs(&mut root_costs, &roots);
+    par_set_costs(&mut root_costs, &roots);
     let mut losses: Vec<(f32, f32)> = vec![];
 
     (1..=EPOCH).for_each(|epoch| {
@@ -152,6 +152,6 @@ fn main() {
         core_model.zero_grads(&mut grads);
 
         par_use_logged_roots(&mut roots, &mut logs, 5 * epoch);
-        par_update_costs(&mut root_costs, &roots);
+        par_set_costs(&mut root_costs, &roots);
     });
 }

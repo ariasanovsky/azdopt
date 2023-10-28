@@ -4,7 +4,7 @@ use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-use crate::{iq_min_tree::{ActionsTaken, Transitions}, int_min_tree::INTTransitions};
+use crate::{iq_min_tree::{ActionsTaken, Transitions}, int_min_tree::INTTransitions, state::Cost};
 
 pub struct CostLog {
     path: ActionsTaken,
@@ -23,21 +23,21 @@ impl CostLog {
         &self.path
     }
 
-    pub fn par_new_logs<const BATCH: usize>(costs: &[f32; BATCH]) -> [Self; BATCH] {
-        let costs = costs.par_iter();
+    pub fn par_new_logs<const BATCH: usize, S: Cost + Sync>(states: &[S; BATCH]) -> [Self; BATCH] {
+        let states = states.par_iter();
         let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        logs.par_iter_mut().zip_eq(costs).for_each(|(l, c)| {
-            l.write(Self::new(*c));
+        logs.par_iter_mut().zip_eq(states).for_each(|(l, s)| {
+            l.write(Self::new(s.cost()));
         });
         unsafe { MaybeUninit::array_assume_init(logs) }
     }
 
-    pub fn update(&mut self, transitions: &INTTransitions) {
+    pub fn update(&mut self, transitions: &INTTransitions, last_cost: f32) {
         let Self { 
             path: logged_path,
             cost: logged_cost,
         } = self;
-        let last_cost = transitions.last_cost();
+        let last_cost = transitions.last_cost().unwrap_or(last_cost);
         let last_path = transitions.last_path();
         let cost_cmp = last_cost.total_cmp(logged_cost);
         let length_cmp = last_path.len().cmp(&logged_path.len());

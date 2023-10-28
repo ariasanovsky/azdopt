@@ -102,6 +102,31 @@ impl<const N: usize, const E: usize> INTState for AHState<N, E> {
         // set time
         vec_time[0] = *time as f32;
     }
+
+    fn actions(&self) -> Vec<usize> {
+        let Self {
+            neighborhoods,
+            edges,
+            blocks,
+            time,
+            modified_edges,
+        } = self;
+        // each missing edge not previous modified is an add action
+        let cut_edges = blocks.cut_edges();
+        edges.into_iter().enumerate().filter(|(pos, _)| {
+            !modified_edges.contains(pos)
+        }).filter_map(|(pos, e)| {
+            if *e {
+                if cut_edges.contains(&edge_from_position(pos)) {
+                    None
+                } else {
+                    Some(pos + E)
+                }
+            } else {
+                Some(pos)
+            }
+        }).collect()
+    }
 }
 
 impl<const N: usize, const E: usize> AHState<N, E> {

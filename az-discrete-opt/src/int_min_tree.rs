@@ -8,44 +8,55 @@ pub struct INTMinTree {
 }
 
 impl INTMinTree {
-    pub fn new(root_predictions: &[f32], cost: f32) -> Self {
+    pub fn new<S: INTState>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
         Self {
-            root_data: INTStateData::new(root_predictions, cost),
+            root_data: INTStateData::new(root_predictions, cost, root),
             data: BTreeMap::new(),
         }
     }
 
-    pub fn replant(&mut self, root_predictions: &[f32], cost: f32) {
+    pub fn replant<S: INTState>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
         self.data.clear();
-        self.root_data = INTStateData::new(root_predictions, cost);
+        self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S: INTState + Cost>(&self, state: &mut S, state_vec: &mut [f32]) -> INTTransitions {
+    pub fn simulate_once<S: INTState>(&self, state: &mut S, state_vec: &mut [f32]) -> INTTransitions {
         let Self { root_data, data } = self;
         let first_action = root_data.best_action();
         state.act(first_action);
         let mut state_path = ActionsTaken::new(first_action);
         let mut transitions: Vec<(ActionsTaken, f32, usize)> = vec![];
+        let mut cost = root_data.cost;
         while !state.is_terminal() {
             if let Some(data) = data.get(&state_path) {
                 let action = data.best_action();
                 state.act(action);
                 state_path.push(action);
-                transitions.push((state_path.clone(), data.cost, action));
+                cost = data.cost;
+                transitions.push((state_path.clone(), cost, action));
             } else {
                 state.update_vec(state_vec);
                 return INTTransitions {
                     first_action,
                     transitions,
-                    end: INTSearchEnd::Unvisited { state_path, cost: state.cost() },
+                    end: INTSearchEnd::Unvisited { state_path },
                 }
             }
         }
         INTTransitions {
             first_action,
             transitions,
-            end: INTSearchEnd::Terminal { state_path, cost: state.cost() },
+            end: INTSearchEnd::Terminal { state_path, cost },
         }
+    }
+
+    pub fn insert(
+        &mut self,
+        transitions: &INTTransitions,
+        probabilities: &[f32],
+    ) {
+        let Self { root_data, data } = self;
+        todo!()
     }
 }
 
@@ -53,6 +64,7 @@ pub trait INTState {
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
     fn update_vec(&self, state_vec: &mut [f32]);
+    fn actions(&self) -> Vec<usize>;
 }
 
 pub struct INTTransitions {
@@ -62,10 +74,10 @@ pub struct INTTransitions {
 }
 
 impl INTTransitions {
-    pub fn last_cost(&self) -> f32 {
+    pub fn last_cost(&self) -> Option<f32> {
         match &self.end {
-            INTSearchEnd::Terminal { cost, .. } => *cost,
-            INTSearchEnd::Unvisited { cost, .. } => *cost,
+            INTSearchEnd::Terminal { cost, .. } => Some(*cost),
+            INTSearchEnd::Unvisited { .. } => None,
         }
     }
 
@@ -79,7 +91,7 @@ impl INTTransitions {
 
 pub(crate) enum INTSearchEnd {
     Terminal { state_path: ActionsTaken, cost: f32 },
-    Unvisited { state_path: ActionsTaken, cost: f32 },
+    Unvisited { state_path: ActionsTaken },
 }
 
 /* todo! refactor so that:
@@ -98,8 +110,11 @@ struct INTStateData {
 }
 
 impl INTStateData {
-    pub fn new(predctions: &[f32], cost: f32) -> Self {
-        let mut actions = predctions.iter().enumerate().map(|(a, p)| INTActionData::new(a, *p)).collect::<Vec<_>>();
+    pub fn new<S: INTState>(predctions: &[f32], cost: f32, state: &S) -> Self {
+        let mut actions = state.actions().into_iter().map(|a| {
+            let p = predctions[a];
+            INTActionData::new(a, p)
+        }).collect::<Vec<_>>();
         actions.sort_by(|a, b| b.upper_estimate.total_cmp(&a.upper_estimate));
         Self {
             frequency: 0,

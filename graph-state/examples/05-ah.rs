@@ -4,7 +4,7 @@
 
 use core::mem::MaybeUninit;
 
-use az_discrete_opt::{arr_map::par_update_costs, log::CostLog, int_min_tree::{INTMinTree, INTTransitions}};
+use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::Cost};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
@@ -80,14 +80,14 @@ fn main() {
     (1..=EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
         // todo! refactor without outparam
-        let mut root_costs: [f32; BATCH] = [0.0f32; BATCH];
-        par_update_costs(&mut root_costs, &root_states);
+        let mut last_calculated_costs: [f32; BATCH] = [0.0f32; BATCH];
+        par_set_costs(&mut last_calculated_costs, &root_states);
         state_tensor.copy_from(&root_vecs.flatten());
         prediction_tensor = core_model.forward(state_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
-        let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &root_costs);
-        let mut logs: [CostLog; BATCH] = CostLog::par_new_logs(&root_costs);
+        let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &last_calculated_costs, &root_states);
+        let mut logs: [CostLog; BATCH] = CostLog::par_new_logs(&root_states);
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
@@ -99,7 +99,8 @@ fn main() {
             * 1. from state s, we select action a only if
             */
             let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut states, &mut vecs);
-            par_update_logs(&mut logs, &transitions);
+            par_update_last_cost(&mut last_calculated_costs, &transitions, &states);
+            par_update_logs(&mut logs, &transitions, &last_calculated_costs);
             state_tensor.copy_from(&vecs.flatten());
             let prediction_tensor = core_model.forward(state_tensor.clone());
             let probs = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>().array();
@@ -138,12 +139,26 @@ fn main() {
         opt.update(&mut core_model, &grads).expect("optimizer failed");
         // is this correct management of the tape?
         core_model.zero_grads(&mut grads);
+        
         par_use_logged_roots(&mut root_states, &mut root_vecs, &mut logs, 5 * epoch);
-        par_update_costs(&mut root_costs, &root_states);
+        par_set_costs(&mut last_calculated_costs, &root_states);
     });
 }
 
 type Trans = INTTransitions;
+
+fn par_update_last_cost<const BATCH: usize>(
+    costs: &mut [f32; BATCH],
+    transitions: &[Trans; BATCH],
+    states: &[State; BATCH],
+) {
+    let costs = costs.par_iter_mut();
+    let transitions = transitions.par_iter();
+    let states = states.par_iter();
+    costs.zip_eq(transitions).zip_eq(states).for_each(|((c, t), s)| {
+        *c = t.last_cost().unwrap_or_else(|| s.cost());
+    });
+}
 
 fn par_use_logged_roots<const BATCH: usize>(
     roots: &mut [State; BATCH],
@@ -168,7 +183,12 @@ fn par_insert_new_states<const BATCH: usize>(
     probs: &[ActionVec; BATCH],
     
 ) {
-    todo!()
+    let trees = trees.par_iter_mut();
+    let trans = trans.par_iter();
+    let probs = probs.par_iter();
+    trees.zip_eq(trans).zip_eq(probs).for_each(|((t, trans), p)| {
+        t.insert(trans, p)
+    });
 }
 
 fn par_update_state_data<const BATCH: usize>(
@@ -184,10 +204,12 @@ type ActionVec = [f32; ACTION];
 fn par_update_logs<const BATCH: usize>(
     logs: &mut [CostLog; BATCH],
     transitions: &[Trans; BATCH],
+    last_calculated_costs: &[f32; BATCH],
 ) {
     let logs = logs.par_iter_mut();
     let transitions = transitions.par_iter();
-    logs.zip_eq(transitions).for_each(|(l, t)| l.update(t));
+    let last_calculated_costs = last_calculated_costs.par_iter();
+    logs.zip_eq(transitions).zip_eq(last_calculated_costs).for_each(|((l, t), c)| l.update(t, *c));
 }
 
 fn par_simulate_forest_once<const BATCH: usize>(
@@ -207,13 +229,15 @@ fn par_simulate_forest_once<const BATCH: usize>(
 
 fn par_plant_forest<const BATCH: usize>(
     root_predictions: &[ActionVec; BATCH],
-    root_costs: &[f32; BATCH],
+    costs: &[f32; BATCH],
+    roots: &[State; BATCH],
 ) -> [Tree; BATCH] {
     let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
     let predictions = root_predictions.par_iter();
-    let costs = root_costs.par_iter();
-    trees.par_iter_mut().zip_eq(predictions).zip_eq(costs).for_each(|((tree, prediction), cost)| {
-        tree.write(INTMinTree::new(prediction, *cost));
+    let costs = costs.par_iter();
+    let roots = roots.par_iter();
+    trees.par_iter_mut().zip_eq(costs).zip_eq(predictions).zip_eq(roots).for_each(|(((tree, cost), prediction), root)| {
+        tree.write(INTMinTree::new(prediction, *cost, root));
     });
     unsafe { MaybeUninit::array_assume_init(trees) }
 }
