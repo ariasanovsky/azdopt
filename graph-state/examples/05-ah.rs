@@ -4,7 +4,7 @@
 
 use core::mem::MaybeUninit;
 
-use az_discrete_opt::{arr_map::par_update_costs, log::BasicLog, int_min_tree::{INTMinTree, INTTransitions}};
+use az_discrete_opt::{arr_map::par_update_costs, log::CostLog, int_min_tree::{INTMinTree, INTTransitions}};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
@@ -87,7 +87,7 @@ fn main() {
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &root_costs);
-        let mut logs: [BasicLog; BATCH] = BasicLog::par_new_logs();
+        let mut logs: [CostLog; BATCH] = CostLog::par_new_logs(&root_costs);
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
@@ -148,7 +148,7 @@ type Trans = INTTransitions;
 fn par_use_logged_roots<const BATCH: usize>(
     roots: &mut [State; BATCH],
     root_vecs: &mut [StateVec; BATCH],
-    logs: &mut [BasicLog; BATCH],
+    logs: &mut [CostLog; BATCH],
     epoch: usize,
 ) {
     todo!()
@@ -182,10 +182,12 @@ fn par_update_state_data<const BATCH: usize>(
 type ActionVec = [f32; ACTION];
 
 fn par_update_logs<const BATCH: usize>(
-    logs: &mut [BasicLog; BATCH],
+    logs: &mut [CostLog; BATCH],
     transitions: &[Trans; BATCH],
 ) {
-    todo!()
+    let logs = logs.par_iter_mut();
+    let transitions = transitions.par_iter();
+    logs.zip_eq(transitions).for_each(|(l, t)| l.update(t));
 }
 
 fn par_simulate_forest_once<const BATCH: usize>(

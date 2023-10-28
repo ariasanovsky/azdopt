@@ -56,12 +56,28 @@ pub trait INTState {
 }
 
 pub struct INTTransitions {
-    first_action: usize,
-    transitions: Vec<(ActionsTaken, f32, usize)>,
-    end: INTSearchEnd,
+    pub(crate) first_action: usize,
+    pub(crate) transitions: Vec<(ActionsTaken, f32, usize)>,
+    pub(crate) end: INTSearchEnd,
 }
 
-enum INTSearchEnd {
+impl INTTransitions {
+    pub fn last_cost(&self) -> f32 {
+        match &self.end {
+            INTSearchEnd::Terminal { cost, .. } => *cost,
+            INTSearchEnd::Unvisited { cost, .. } => *cost,
+        }
+    }
+
+    pub fn last_path(&self) -> &ActionsTaken {
+        match &self.end {
+            INTSearchEnd::Terminal { state_path, .. } => state_path,
+            INTSearchEnd::Unvisited { state_path, .. } => state_path,
+        }
+    }
+}
+
+pub(crate) enum INTSearchEnd {
     Terminal { state_path: ActionsTaken, cost: f32 },
     Unvisited { state_path: ActionsTaken, cost: f32 },
 }

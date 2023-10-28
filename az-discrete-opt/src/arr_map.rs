@@ -137,7 +137,7 @@ pub fn par_use_logged_roots<const BATCH: usize, const STATE: usize, S: IQState<S
     let roots = roots.par_iter_mut();
     let logs = logs.par_iter_mut();
     roots.zip_eq(logs).for_each(|(root, log)| {
-        root.apply(&log.path);
+        root.apply(&log.path());
         root.reset(time);
     });
 }
