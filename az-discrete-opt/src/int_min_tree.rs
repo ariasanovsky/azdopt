@@ -23,16 +23,17 @@ impl INTMinTree {
     pub fn simulate_once<S: INTState + Cost>(&self, state: &mut S, state_vec: &mut [f32]) -> INTTransitions {
         let Self { root_data, data } = self;
         let first_action = root_data.best_action();
-        state.act(state_vec, first_action);
+        state.act(first_action);
         let mut state_path = ActionsTaken::new(first_action);
         let mut transitions: Vec<(ActionsTaken, f32, usize)> = vec![];
         while !state.is_terminal() {
             if let Some(data) = data.get(&state_path) {
                 let action = data.best_action();
-                state.act(state_vec, action);
+                state.act(action);
                 state_path.push(action);
                 transitions.push((state_path.clone(), data.cost, action));
             } else {
+                state.update_vec(state_vec);
                 return INTTransitions {
                     first_action,
                     transitions,
@@ -49,8 +50,9 @@ impl INTMinTree {
 }
 
 pub trait INTState {
-    fn act(&mut self, state_vec: &mut [f32], action: usize);
+    fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
+    fn update_vec(&self, state_vec: &mut [f32]);
 }
 
 pub struct INTTransitions {

@@ -19,62 +19,88 @@ pub struct AHState<const N: usize, const E: usize> {
     neighborhoods: Neighborhoods<N>,
     blocks: BlockForest<N, Tree>,
     edges: [bool; E],
-    add_actions: [bool; E],
-    delete_actions: [bool; E],
+    // add_actions: [bool; E],
+    // delete_actions: [bool; E],
     time: usize,
     modified_edges: BTreeSet<usize>,
 }
 
 impl<const N: usize, const E: usize> INTState for AHState<N, E> {
-    fn act(&mut self, state_vec: &mut [f32], action: usize) {
+    fn act(&mut self, action: usize) {
         let Self {
             neighborhoods,
-            blocks,
             edges,
-            add_actions,
-            delete_actions,
+            blocks,
             time,
             modified_edges,
         } = self;
         if action < E {
             // action is an add
             let (u, v) = edge_from_position(action);
-            blocks.update_by_adding_edge(neighborhoods, u, v);
-            // the edge may no longer be added
+            neighborhoods.add_or_delete_edge_unchecked(u, v);
             modified_edges.insert(action);
-            // the edge is added to the edge vector
             edges[action] = true;
-            // the edge is removed from the action vector
-            add_actions[action] = false;
-            // the edge is added to the state vector
-            state_vec[action] = 1.0;
-            // the action is removed from the action vector
-            state_vec[action + E] = 0.0;
         } else {
             // action is a delete
             let (u, v) = edge_from_position(action - E);
-            blocks.update_by_deleting_block_edge(neighborhoods, u, v);
+            neighborhoods.add_or_delete_edge_unchecked(u, v);
             modified_edges.insert(action - E);
-            // the edge is removed from the edge vector
             edges[action - E] = false;
-            // the edge is removed from the state vector
-            state_vec[action] = 0.0;
-            // `add_actions` does not change because we avoid modifying the same edge twice
         }
-        // todo! lazy: recompute the whole thing
-        *delete_actions = edges.clone();
-        let cut_edges = blocks.cut_edges();
-        cut_edges.into_iter().for_each(|(u, v)| {
-            let i = edge_to_position(u, v);
-            delete_actions[i] = false;
-        });
-        todo!("update state_vec delete actions");
+        // todo! lazy approach: recompute the whole thing
+        *blocks = neighborhoods.block_tree().unwrap();
         *time -= 1;
-        todo!()
     }
 
     fn is_terminal(&self) -> bool {
-        todo!()
+        self.time == 0
+    }
+
+    fn update_vec(&self, state_vec: &mut [f32]) {
+        let Self {
+            neighborhoods: _,
+            edges,
+            blocks,
+            time,
+            modified_edges,
+        } = self;
+        let (vec_edges, vec) = state_vec.split_at_mut(E);
+        let (vec_add_actions, vec) = vec.split_at_mut(E);
+        let (vec_delete_actions, vec_time) = vec.split_at_mut(E);
+        assert_eq!(vec_time.len(), 1);
+        // initialize edges
+        edges.into_iter().zip_eq(vec_edges).for_each(|(e, vec_e)| {
+            if *e {
+                *vec_e = 1.0;
+            } else {
+                *vec_e = 0.0;
+            }
+        });
+        // initialize add actions
+        vec_add_actions.iter_mut().zip_eq(edges.iter()).for_each(|(vec_a, e)| {
+            if *e {
+                *vec_a = 0.0;
+            } else {
+                *vec_a = 1.0;
+            }
+        });
+        // initialize delete actions
+        vec_delete_actions.iter_mut().zip_eq(edges.iter()).for_each(|(vec_d, e)| {
+            if *e {
+                *vec_d = 1.0;
+            } else {
+                *vec_d = 0.0;
+            }
+        });
+        // prohibit actions on previously modified edges
+        modified_edges.iter().for_each(|i| {
+            vec_add_actions[*i] = 0.0;
+            vec_delete_actions[*i] = 0.0;
+        });
+        // prohibit delete actions corresponding to cut-edges
+        blocks.cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| vec_delete_actions[i] = 0.0);
+        // set time
+        vec_time[0] = *time as f32;
     }
 }
 
@@ -162,10 +188,8 @@ impl<const N: usize, const E: usize> AHState<N, E> {
         vec_time[0] = time as f32;
         Self {
             neighborhoods,
-            blocks,
             edges,
-            add_actions,
-            delete_actions,
+            blocks,
             time,
             modified_edges: BTreeSet::new(),
         }
