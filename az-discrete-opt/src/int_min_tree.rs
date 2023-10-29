@@ -32,10 +32,10 @@ impl INTMinTree {
 
     pub fn simulate_once<S: INTState + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S) -> INTTransitions {
         let Self { root_data, data } = self;
-        let __root_data_actions = root_data.__actions();
-        let __state_actions = s_i.__actions();
+        let mut __state_actions = s_i.__actions();
+        __state_actions.sort();
         // dbg!();
-        assert_eq!(s_i.actions(), __state_actions);
+        assert_eq!(__state_actions, root_data.__actions());
         assert_eq!(s_i.cost(), root_data.c_s);
         let a_1 = root_data.best_action();
         s_i.act(a_1);
@@ -44,8 +44,9 @@ impl INTMinTree {
         while !s_i.is_terminal() {
             if let Some(data) = data.get(&p_i) {
                 assert_eq!(s_i.cost(), data.c_s);
-                let __data_actions = data.__actions();
-                assert_eq!(s_i.actions(), __data_actions);
+                let mut __state_actions = s_i.__actions();
+                __state_actions.sort();
+                assert_eq!(__state_actions, data.__actions());
                 let a_i_plus_one = data.best_action();
                 transitions.push(INTTransition {
                     p_i: p_i.clone(),
@@ -182,7 +183,7 @@ impl INTStateData {
         } = self;
         let n_s = *n_s as f32;
         let mut value = 0.0;
-        actions.iter().for_each(|a| {
+        actions.iter().filter(|a| a.n_sa != 0).for_each(|a| {
             let n_sa = a.n_sa as f32;
             let q_sa = a.g_sa_sum / n_sa;
             probs[a.a] = n_sa / n_s;

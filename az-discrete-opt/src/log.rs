@@ -50,10 +50,12 @@ impl CostLog {
             (core::cmp::Ordering::Less, _) => {
                 *c_star = c_t;
                 p_star.clone_from(p_t);
+                println!("c_star = {}", c_star);
             }
             (core::cmp::Ordering::Equal, core::cmp::Ordering::Less) => {
                 *c_star = c_t;
                 p_star.clone_from(p_t);
+                println!("c_star = {}", c_star);
             }
             _ => {}
         }

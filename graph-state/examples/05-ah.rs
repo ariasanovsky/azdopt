@@ -5,7 +5,7 @@
 use core::mem::MaybeUninit;
 
 use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions, INTState}, arr_map::par_set_costs, state::Cost};
-use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
+use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
@@ -17,7 +17,7 @@ const ACTION: usize = 2 * E;
 const STATE: usize = E + ACTION + 1;
 type StateVec = [f32; STATE];
 
-const BATCH: usize = 1;
+const BATCH: usize = 64;
 
 const HIDDEN_1: usize = 1280;
 const HIDDEN_2: usize = 1024;
@@ -73,7 +73,7 @@ fn main() {
     
     // roots change across epochs
     let (mut s_0, mut v_0): ([State; BATCH], [StateVec; BATCH])
-        = AHState::par_generate_batch(5, 1.0);
+        = AHState::par_generate_batch(5, 0.2);
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
     
@@ -91,7 +91,7 @@ fn main() {
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
-            if episode % 500 == 0 {
+            if episode % 1 == 0 {
                 println!("==== EPISODE {episode} ====");
             }
             // states change during episodes
@@ -120,23 +120,44 @@ fn main() {
         let mut probs: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
         let mut values: [[f32; 1]; BATCH] = [[0.0f32; 1]; BATCH];
         par_set_observations(&trees, &mut probs, &mut values);
+        // dbg!(&values);
         observed_probabilities_tensor.copy_from(&probs.flatten());
         observed_values_tensor.copy_from(&values.flatten());
         
-        // pass the root state vector into the core model
+        // todo! retry this `optimizer failed: UnusedParams(UnusedTensors { ids: [UniqueId(0), UniqueId(1), UniqueId(2), UniqueId(3)] })`
+        // // pass the root state vector into the core model
+        // let root_tensor = dev.tensor(v_0.clone());
+        // let predictions = core_model.forward(root_tensor.trace(grads));
+        // let (predictions, tape) = predictions.split_tape();
+        // // calculated cross entropy loss
+        // let logits = logits_model.forward(predictions.clone().put_tape(tape));
+        // let entropy_tensor = cross_entropy_with_logits_loss(logits.with_empty_tape(), observed_probabilities_tensor.clone());
+        // let (entropy_tensor, tape) = entropy_tensor.split_tape();
+        // let entropy = entropy_tensor.array();
+        // // do the same for L2 loss on the value function
+        // let values = value_model.forward(predictions.put_tape(tape));
+        // let mse_tensor = mse_loss(values.with_empty_tape(), observed_values_tensor.clone());
+        // let mse = mse_tensor.array();
+        // grads = mse_tensor.backward();
+        let entropy: f32;
         let root_tensor = dev.tensor(v_0.clone());
-        let predictions = core_model.forward(root_tensor.trace(grads));
-        let (predictions, tape) = predictions.split_tape();
-        // calculated cross entropy loss
-        let logits = logits_model.forward(predictions.clone().put_tape(tape));
-        let entropy_tensor = cross_entropy_with_logits_loss(logits.with_empty_tape(), observed_probabilities_tensor.clone());
-        let (entropy_tensor, tape) = entropy_tensor.split_tape();
-        let entropy = entropy_tensor.array();
-        // do the same for L2 loss on the value function
-        let values = value_model.forward(predictions.put_tape(tape));
-        let mse_tensor = mse_loss(values.with_empty_tape(), observed_values_tensor.clone());
-        let mse = mse_tensor.array();
-        grads = mse_tensor.backward();
+        let traced_predictions = core_model.forward(root_tensor.trace(grads));
+        let predicted_logits = logits_model.forward(traced_predictions);
+        let cross_entropy =
+            cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
+        entropy = cross_entropy.array();
+        grads = cross_entropy.backward();
+
+        let mse: f32;
+        let root_tensor = dev.tensor(v_0.clone());
+        let traced_predictions = core_model.forward(root_tensor.trace(grads));
+        let predicted_values = value_model.forward(traced_predictions);
+        let square_error = mse_loss(predicted_values, observed_values_tensor.clone());
+        mse = square_error.array();
+        grads = square_error.backward();
+
+
+
         all_losses.push((entropy, mse));
         println!("{all_losses:?}");
         opt.update(&mut core_model, &grads).expect("optimizer failed");
@@ -147,6 +168,8 @@ fn main() {
         par_update_vecs(&mut v_0, &s_0);
         par_set_costs(&mut c_t, &s_0);
         par_reset_logs(&mut logs, &c_t);
+        // todo!("update probs before replanting");
+        // par_replant_forest(&mut trees, &probs, &c_t, &s_0);
     });
 }
 
@@ -274,4 +297,20 @@ fn par_plant_forest<const BATCH: usize>(
         tree.write(INTMinTree::new(prediction, *cost, root));
     });
     unsafe { MaybeUninit::array_assume_init(trees) }
+}
+
+fn par_replant_forest<const BATCH: usize>(
+    trees: &mut [Tree; BATCH],
+    root_predictions: &[ActionVec; BATCH],
+    costs: &[f32; BATCH],
+    roots: &[State; BATCH],
+) {
+    // trees[0].replant(root_predictions, cost, root);
+    let trees = trees.par_iter_mut();
+    let predictions = root_predictions.par_iter();
+    let costs = costs.par_iter();
+    let roots = roots.par_iter();
+    trees.zip_eq(costs).zip_eq(predictions).zip_eq(roots).for_each(|(((t, c), p), s)| {
+        t.replant(p, *c, s);
+    });
 }

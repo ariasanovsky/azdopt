@@ -112,7 +112,7 @@ impl<const N: usize> Neighborhoods<N> {
             self.neighborhoods.iter().for_each(|n| println!("{n}"));
             println!("explored_vertices = {explored_vertices}");
             println!("ALL_VERTICES = {}", Self::ALL_VERTICES);
-            forest.cut_edges().into_iter().for_each(|(u, v)| panic!("cut-edge: ({}, {})", u, v));
+            forest.cut_edges().into_iter().for_each(|(u, v)| println!("cut-edge: ({}, {})", u, v));
             for block in forest.blocks() {
                 println!("block = {}", block);
             }
@@ -322,5 +322,9 @@ impl<const N: usize> DistanceMatrix<N> {
     pub fn proximity(&self) -> f64 {
         self.distances.iter().map(|row| row.iter().sum::<f64>()).min_by(|a, b| a.total_cmp(b)).unwrap()
         / (N - 1) as f64
+    }
+
+    pub fn diameter(&self) -> f64 {
+        *self.distances.iter().map(|row| row.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap()
     }
 }

@@ -286,8 +286,23 @@ impl<const N: usize, const E: usize> Cost for AHState<N, E> {
     fn cost(&self) -> f32 {
         let distance_matrix = self.neighborhoods.distance_matrix(self.blocks.forget_state());
         let eigs = distance_matrix.eigenvalues();
-        let k = (2 * N) / 3 - 1;
+        let diam = distance_matrix.diameter();
+        let k = (2 * diam as usize) / 3 - 1;
         let proximity = distance_matrix.proximity();
-        (eigs[k] + proximity) as f32
+        let cost = eigs[k] + proximity;
+        if cost < -1.0 {
+            let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
+            print!("[\n\t");
+            edge_iterator
+                .zip_eq(self.edges.iter())
+                .for_each(|((u, v), e)| {
+                    if *e {
+                        print!("{{{u}, {v}}}, ");
+                    }
+                });
+            println!("\n]");
+            panic!()
+        }
+        cost as f32
     }
 }
