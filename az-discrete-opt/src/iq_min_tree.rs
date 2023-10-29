@@ -12,6 +12,10 @@ impl ActionsTaken {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.actions_taken.clear();
+    }
+
     pub fn new(a_1: usize) -> Self {
         Self {
             actions_taken: vec![a_1],
@@ -29,6 +33,10 @@ impl ActionsTaken {
 
     pub fn is_empty(&self) -> bool {
         self.actions_taken.is_empty()
+    }
+
+    pub fn actions(&self) -> &[usize] {
+        &self.actions_taken
     }
 }
 

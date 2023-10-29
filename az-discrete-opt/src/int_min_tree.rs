@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Cost};
+use crate::{iq_min_tree::ActionsTaken, state::Cost};
 
 pub struct INTMinTree {
     root_data: INTStateData,
@@ -30,7 +30,7 @@ impl INTMinTree {
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S: INTState + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S, state_vec: &mut [f32]) -> INTTransitions {
+    pub fn simulate_once<S: INTState + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S) -> INTTransitions {
         let Self { root_data, data } = self;
         let __root_data_actions = root_data.__actions();
         let __state_actions = s_i.__actions();
@@ -99,9 +99,9 @@ impl INTMinTree {
             transitions,
             p_t,
         } = transitions;
-        let (h_star_theta_s_t, p_t) = match p_t {
-            INTSearchEnd::Terminal { state_path, .. } => (0.0, state_path),
-            INTSearchEnd::Unvisited { state_path, .. } => (g_star_theta_s_t[0], state_path),
+        let h_star_theta_s_t = match p_t {
+            INTSearchEnd::Terminal { .. } => 0.0,
+            INTSearchEnd::Unvisited { .. } => g_star_theta_s_t[0],
         };
         // we run from i = t to i = 0
         let mut c_star_theta_i = c_t - h_star_theta_s_t.max(0.0);
@@ -114,6 +114,13 @@ impl INTMinTree {
             c_star_theta_i = c_star_theta_i.min(*c_i);
         });
         root_data.update(*a_1, &mut c_star_theta_i);
+    }
+
+    pub fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
+        probs.fill(0.0);
+        assert_eq!(values.len(), 1);
+        let Self { root_data, data: _ } = self;
+        root_data.observe(probs, values);
     }
 }
 
@@ -165,6 +172,25 @@ struct INTStateData {
 }
 
 impl INTStateData {
+    fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
+        probs.fill(0.0);
+        assert_eq!(values.len(), 1);
+        let Self {
+            n_s,
+            c_s: _,
+            actions,
+        } = self;
+        let n_s = *n_s as f32;
+        let mut value = 0.0;
+        actions.iter().for_each(|a| {
+            let n_sa = a.n_sa as f32;
+            let q_sa = a.g_sa_sum / n_sa;
+            probs[a.a] = n_sa / n_s;
+            value += q_sa;
+        });
+        values[0] = value;
+    }
+    
     fn __actions(&self) -> Vec<usize> {
         let mut actions = self.actions.iter().map(|a| a.a).collect::<Vec<_>>();
         actions.sort();
@@ -202,7 +228,7 @@ impl INTStateData {
         let g_star_theta_i = *c_s - *c_star_theta_i_plus_one;
         *n_s += 1;
         let action_data = actions.iter_mut().find(|a| a.a == a_i_plus_one).unwrap();
-        action_data.update(g_star_theta_i, *n_s);
+        action_data.update(g_star_theta_i);
         self.update_upper_estimates();
         self.sort_actions();
     }
@@ -249,7 +275,7 @@ impl INTActionData {
         }
     }
 
-    pub(crate) fn update(&mut self, g_star_theta_i: f32, n_s: usize) {
+    pub(crate) fn update(&mut self, g_star_theta_i: f32) {
         let Self {
             a: _,
             p_sa: _,

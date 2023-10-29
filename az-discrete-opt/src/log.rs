@@ -19,6 +19,11 @@ impl CostLog {
         }
     }
 
+    pub fn reset(&mut self, c_star: f32) {
+        self.p_star.clear();
+        self.c_star = c_star;
+    }
+
     pub fn path(&self) -> &ActionsTaken {
         &self.p_star
     }

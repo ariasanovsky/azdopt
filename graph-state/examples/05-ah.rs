@@ -4,8 +4,8 @@
 
 use core::mem::MaybeUninit;
 
-use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::Cost};
-use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ModuleMut, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
+use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions, INTState}, arr_map::par_set_costs, state::Cost};
+use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace, WithEmptyTape, SplitTape, PutTape}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::achiche_hansen::AHState;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
@@ -91,14 +91,17 @@ fn main() {
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
-            println!("==== EPISODE {episode} ====");
+            if episode % 500 == 0 {
+                println!("==== EPISODE {episode} ====");
+            }
             // states change during episodes
             let mut s_t: [State; BATCH] = s_0.clone();
             let mut v_t: [StateVec; BATCH] = v_0.clone();
             /* for a single tree, the transitions are built by selection actions from states
             * 1. from state s, we select action a only if
             */
-            let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut s_t, &mut v_t);
+            let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut s_t);
+            par_update_vecs(&mut v_t, &s_t);
             par_update_last_cost(&mut c_t, &s_t);
             par_update_logs(&mut logs, &transitions, &c_t);
             v_0_tensor.copy_from(&v_t.flatten());
@@ -140,12 +143,40 @@ fn main() {
         // is this correct management of the tape?
         core_model.zero_grads(&mut grads);
         
-        par_use_logged_roots(&mut s_0, &mut v_0, &mut logs, 5 * epoch);
+        par_update_roots(&mut s_0, &logs, 5 * epoch);
+        par_update_vecs(&mut v_0, &s_0);
         par_set_costs(&mut c_t, &s_0);
+        par_reset_logs(&mut logs, &c_t);
     });
 }
 
 type Trans = INTTransitions;
+
+fn par_update_roots<const BATCH: usize>(roots: &mut [State; BATCH], logs: &[CostLog; BATCH], time: usize) {
+    let roots = roots.par_iter_mut();
+    let logs = logs.par_iter();
+    roots.zip_eq(logs).for_each(|(r, l)| {
+        r.follow_path(l.path());
+        r.reset(time);
+    });
+}
+
+fn par_reset_logs<const BATCH: usize>(logs: &mut [CostLog; BATCH], costs: &[f32; BATCH]) {
+    let logs = logs.par_iter_mut();
+    let costs = costs.par_iter();
+    logs.zip_eq(costs).for_each(|(l, c)| l.reset(*c));
+}
+
+fn par_update_vecs<const BATCH: usize>(
+    vecs: &mut [StateVec; BATCH],
+    states: &[State; BATCH],
+) {
+    let vecs = vecs.par_iter_mut();
+    let states = states.par_iter();
+    vecs.zip_eq(states).for_each(|(v, s)| {
+        s.update_vec(v);
+    });
+}
 
 fn par_update_last_cost<const BATCH: usize>(
     costs: &mut [f32; BATCH],
@@ -153,18 +184,9 @@ fn par_update_last_cost<const BATCH: usize>(
 ) {
     let old_c_t = costs.par_iter_mut();
     let new_s_t = states.par_iter();
-    old_c_t.zip_eq(states).for_each(|(c, s)| {
+    old_c_t.zip_eq(new_s_t).for_each(|(c, s)| {
         *c = s.cost()
     });
-}
-
-fn par_use_logged_roots<const BATCH: usize>(
-    roots: &mut [State; BATCH],
-    root_vecs: &mut [StateVec; BATCH],
-    logs: &mut [CostLog; BATCH],
-    epoch: usize,
-) {
-    todo!()
 }
 
 fn par_set_observations<const BATCH: usize>(
@@ -172,7 +194,12 @@ fn par_set_observations<const BATCH: usize>(
     probs: &mut [ActionVec; BATCH],
     values: &mut [[f32; 1]; BATCH],
 ) {
-    todo!()
+    let trees = trees.par_iter();
+    let probs = probs.par_iter_mut();
+    let values = values.par_iter_mut();
+    trees.zip_eq(probs).zip_eq(values).for_each(|((t, p), v)| {
+        t.observe(p, v)
+    });
 }
 
 fn par_insert_new_states<const BATCH: usize>(
@@ -224,14 +251,12 @@ fn par_update_logs<const BATCH: usize>(
 fn par_simulate_forest_once<const BATCH: usize>(
     trees: &[Tree; BATCH],
     states: &mut [State; BATCH],
-    vecs: &mut [StateVec; BATCH],
 ) -> [Trans; BATCH] {
     let trees = trees.par_iter();
     let states = states.par_iter_mut();
-    let vecs = vecs.par_iter_mut();
     let mut trans: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
-    trees.zip_eq(states).zip_eq(vecs).zip_eq(trans.par_iter_mut()).for_each(|(((tree, s), v), trans)| {
-        trans.write(tree.simulate_once(s, v));
+    trees.zip_eq(states).zip_eq(trans.par_iter_mut()).for_each(|((tree, s), trans)| {
+        trans.write(tree.simulate_once(s));
     });
     unsafe { MaybeUninit::array_assume_init(trans) }
 }

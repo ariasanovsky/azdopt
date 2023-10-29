@@ -1,6 +1,6 @@
 use std::{mem::MaybeUninit, collections::BTreeSet};
 
-use az_discrete_opt::{state::Cost, int_min_tree::{INTState, __INTStateDiagnostic}};
+use az_discrete_opt::{state::Cost, int_min_tree::{INTState, __INTStateDiagnostic}, iq_min_tree::ActionsTaken};
 use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
@@ -263,6 +263,22 @@ impl<const N: usize, const E: usize> AHState<N, E> {
             time,
             modified_edges: BTreeSet::new(),
         }
+    }
+
+    pub fn follow_path(&mut self, actions: &ActionsTaken) {
+        actions.actions().iter().for_each(|a| self.act(*a));
+    }
+
+    pub fn reset(&mut self, t: usize) {
+        let Self {
+            neighborhoods: _,
+            edges: _,
+            blocks: _,
+            time,
+            modified_edges,
+        } = self;
+        *time = t;
+        modified_edges.clear();
     }
 }
 
