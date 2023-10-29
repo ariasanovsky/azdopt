@@ -31,7 +31,7 @@ pub struct BlockForest<const N: usize, State = PartiallyExplored> {
     pub(crate) state: PhantomData<State>,
 }
 
-impl<const N: usize> BlockForest<N, Tree> {
+impl<const N: usize> BlockForest<N> {
     pub(crate) fn blocks(&self) -> Vec<B32> {
         self.active_hosts.iter().map(|h| self.hosted_vertices[h].clone()).collect()
     }
@@ -41,7 +41,7 @@ impl<const N: usize> BlockForest<N, Tree> {
             match self.insertion[u] {
                 Some(Insertion::NewHost { previous_host }) => Some((previous_host, u)),
                 Some(Insertion::Root) => None,
-                _ => unreachable!("all active hosts except roots should be new inserted as new hosts")
+                _ => unreachable!("all active hosts except roots are inserted as new hosts")
             }
         }).collect()
     }
@@ -127,7 +127,6 @@ impl<const N: usize> BlockForest<N, PartiallyExplored> {
             state: _,
         } = self;
         let Neighborhoods { neighborhoods } = neighborhoods;
-        // println!("{:?}", neighborhoods.iter().map(|n| n.to_string()).collect::<Vec<_>>());
         explored_vertices.insert_unchecked(root);
         let mut seen_vertices = explored_vertices.clone();
         let n_root = neighborhoods[root].minus(&seen_vertices);
@@ -137,11 +136,6 @@ impl<const N: usize> BlockForest<N, PartiallyExplored> {
         seen_vertices.union_assign(&n_root);
         let mut new_neighborhoods = VecDeque::from([(root, n_root)]);
         while let Some((u, n_u)) = new_neighborhoods.pop_front() {
-            // println!("u = {u}\nn_{u} = {n_u}");
-            // println!("seen = {seen_vertices}\nexplored = {explored_vertices}");
-            // active_hosts.iter().for_each(|w| {
-            //     println!("\tblock {w} = {}", hosted_vertices[w]);
-            // });
             // elements of `n_u` with a neighbor with in `n_u`
             let mut t_u = B32::empty();
             // explored vertices whose blocks merge with `u`'s

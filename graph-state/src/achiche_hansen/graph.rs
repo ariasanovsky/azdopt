@@ -9,6 +9,18 @@ pub struct Neighborhoods<const N: usize> {
     pub(crate) neighborhoods: [B32; N],
 }
 
+impl<const N: usize> core::fmt::Display for Neighborhoods<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { neighborhoods } = self;
+        writeln!(f, "[")?;
+        neighborhoods.iter().enumerate().try_for_each(|(u, n_u)| {
+            writeln!(f, "\tn_{{{u}}}: {n_u}, ")
+        })?;
+        writeln!(f, "]")
+    
+    }
+}
+
 #[test]
 fn block_decomposition_of_bowtie() {
     impl Neighborhoods<6> {
@@ -24,7 +36,7 @@ fn block_decomposition_of_bowtie() {
     }
     let neighborhoods = Neighborhoods::bowtie([0, 4, 5, 1, 2, 3]);
     let block_tree = neighborhoods.block_tree().unwrap();
-    assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 4, 5, ]", "[1, 2, 3, ]"]);
+    assert_eq!(block_tree.forget_state().blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 4, 5, ]", "[1, 2, 3, ]"]);
 }
 
 
@@ -43,7 +55,7 @@ fn block_decomposition_of_c4() {
     }
     let neighborhoods = Neighborhoods::c4([0, 1, 2, 3]);
     let block_tree = neighborhoods.block_tree().unwrap();
-    assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, ]"]);
+    assert_eq!(block_tree.forget_state().blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, ]"]);
 }
 
 #[test]
@@ -61,7 +73,7 @@ fn block_decomposition_of_c5() {
     }
     let neighborhoods = Neighborhoods::c5([0, 1, 2, 3, 4]);
     let block_tree = neighborhoods.block_tree().unwrap();
-    assert_eq!(block_tree.blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, 4, ]"]);
+    assert_eq!(block_tree.forget_state().blocks().into_iter().map(|b| b.to_string()).collect::<Vec<_>>(), vec!["[0, 1, 2, 3, 4, ]"]);
 }
 
 #[derive(Clone)]
@@ -97,6 +109,13 @@ impl<const N: usize> Neighborhoods<N> {
         if explored_vertices == Self::ALL_VERTICES {
             return Some(forest.assert_tree())
         } else {
+            self.neighborhoods.iter().for_each(|n| println!("{n}"));
+            println!("explored_vertices = {explored_vertices}");
+            println!("ALL_VERTICES = {}", Self::ALL_VERTICES);
+            forest.cut_edges().into_iter().for_each(|(u, v)| panic!("cut-edge: ({}, {})", u, v));
+            for block in forest.blocks() {
+                println!("block = {}", block);
+            }
             return None
         }
     //     let mut explored_vertices: u32 = 1 << 0;
@@ -293,9 +312,6 @@ pub struct DistanceMatrix<const N: usize> {
 impl<const N: usize> DistanceMatrix<N> {
     pub fn eigenvalues(&self) -> Vec<f64> {
         // todo! clunky use of faer here
-        // self.distances.iter().for_each(|row| {
-        //     println!("{row:?}");
-        // });
         let a: Mat<f64> = Mat::from_fn(N, N, |i, j| self.distances[i][j]);
         let mut eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
         eigs.sort_floats();

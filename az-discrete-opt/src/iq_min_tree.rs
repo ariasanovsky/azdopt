@@ -12,9 +12,9 @@ impl ActionsTaken {
         }
     }
 
-    pub fn new(first_action: usize) -> Self {
+    pub fn new(a_1: usize) -> Self {
         Self {
-            actions_taken: vec![first_action],
+            actions_taken: vec![a_1],
         }
     }
 

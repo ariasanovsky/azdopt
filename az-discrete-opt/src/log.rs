@@ -7,24 +7,24 @@ use rayon::prelude::{
 use crate::{iq_min_tree::{ActionsTaken, Transitions}, int_min_tree::INTTransitions, state::Cost};
 
 pub struct CostLog {
-    path: ActionsTaken,
-    cost: f32,
+    p_star: ActionsTaken,
+    c_star: f32,
 }
 
 impl CostLog {
     pub fn new(cost: f32) -> Self {
         Self {
-            path: ActionsTaken::empty(),
-            cost,
+            p_star: ActionsTaken::empty(),
+            c_star: cost,
         }
     }
 
     pub fn path(&self) -> &ActionsTaken {
-        &self.path
+        &self.p_star
     }
 
-    pub fn par_new_logs<const BATCH: usize, S: Cost + Sync>(states: &[S; BATCH]) -> [Self; BATCH] {
-        let states = states.par_iter();
+    pub fn par_new_logs<const BATCH: usize, S: Cost + Sync>(s_t: &[S; BATCH]) -> [Self; BATCH] {
+        let states = s_t.par_iter();
         let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
         logs.par_iter_mut().zip_eq(states).for_each(|(l, s)| {
             l.write(Self::new(s.cost()));
@@ -32,24 +32,23 @@ impl CostLog {
         unsafe { MaybeUninit::array_assume_init(logs) }
     }
 
-    pub fn update(&mut self, transitions: &INTTransitions, last_cost: f32) {
+    pub fn update(&mut self, transitions: &INTTransitions, c_t: f32) {
         let Self { 
-            path: logged_path,
-            cost: logged_cost,
+            p_star,
+            c_star,
         } = self;
-        let last_cost = transitions.last_cost().unwrap_or(last_cost);
-        let last_path = transitions.last_path();
-        let cost_cmp = last_cost.total_cmp(logged_cost);
-        let length_cmp = last_path.len().cmp(&logged_path.len());
+        let p_t = transitions.last_path();
+        let cost_cmp = c_t.total_cmp(c_star);
+        let length_cmp = p_t.len().cmp(&p_star.len());
         // prioritize cost, then length
         match (cost_cmp, length_cmp) {
             (core::cmp::Ordering::Less, _) => {
-                *logged_cost = last_cost;
-                logged_path.clone_from(last_path);
+                *c_star = c_t;
+                p_star.clone_from(p_t);
             }
             (core::cmp::Ordering::Equal, core::cmp::Ordering::Less) => {
-                *logged_cost = last_cost;
-                logged_path.clone_from(last_path);
+                *c_star = c_t;
+                p_star.clone_from(p_t);
             }
             _ => {}
         }

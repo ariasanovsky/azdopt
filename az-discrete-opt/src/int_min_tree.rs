@@ -1,10 +1,20 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::ActionsTaken, state::Cost};
+use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Cost};
 
 pub struct INTMinTree {
     root_data: INTStateData,
     data: BTreeMap<ActionsTaken, INTStateData>,
+}
+
+pub trait __INTStateDiagnostic {
+    fn __actions(&self) -> Vec<usize>;
+}
+
+struct INTTransition {
+    p_i: ActionsTaken,
+    c_i: f32,
+    a_i_plus_one: usize,
 }
 
 impl INTMinTree {
@@ -20,47 +30,90 @@ impl INTMinTree {
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S: INTState>(&self, state: &mut S, state_vec: &mut [f32]) -> INTTransitions {
+    pub fn simulate_once<S: INTState + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S, state_vec: &mut [f32]) -> INTTransitions {
         let Self { root_data, data } = self;
-        let first_action = root_data.best_action();
-        state.act(first_action);
-        let mut state_path = ActionsTaken::new(first_action);
-        let mut transitions: Vec<(ActionsTaken, f32, usize)> = vec![];
-        let mut cost = root_data.cost;
-        while !state.is_terminal() {
-            if let Some(data) = data.get(&state_path) {
-                let action = data.best_action();
-                state.act(action);
-                state_path.push(action);
-                cost = data.cost;
-                transitions.push((state_path.clone(), cost, action));
+        let __root_data_actions = root_data.__actions();
+        let __state_actions = s_i.__actions();
+        // dbg!();
+        assert_eq!(s_i.actions(), __state_actions);
+        assert_eq!(s_i.cost(), root_data.c_s);
+        let a_1 = root_data.best_action();
+        s_i.act(a_1);
+        let mut p_i = ActionsTaken::new(a_1);
+        let mut transitions: Vec<INTTransition> = vec![];
+        while !s_i.is_terminal() {
+            if let Some(data) = data.get(&p_i) {
+                assert_eq!(s_i.cost(), data.c_s);
+                let __data_actions = data.__actions();
+                assert_eq!(s_i.actions(), __data_actions);
+                let a_i_plus_one = data.best_action();
+                transitions.push(INTTransition {
+                    p_i: p_i.clone(),
+                    c_i: data.c_s,
+                    a_i_plus_one,
+                });
+                s_i.act(a_i_plus_one);
+                p_i.push(a_i_plus_one);
             } else {
-                state.update_vec(state_vec);
                 return INTTransitions {
-                    first_action,
+                    a_1,
                     transitions,
-                    end: INTSearchEnd::Unvisited { state_path },
+                    p_t: INTSearchEnd::Unvisited { state_path: p_i },
                 }
             }
         }
         INTTransitions {
-            first_action,
+            a_1,
             transitions,
-            end: INTSearchEnd::Terminal { state_path, cost },
+            p_t: INTSearchEnd::Terminal { state_path: p_i },
         }
+        // INTTransitions {
+        //     first_action,
+        //     transitions,
+        //     end: INTSearchEnd::Unvisited { state_path },
+        // }
     }
 
-    pub fn insert<S: INTState>(
+    pub fn insert<S: INTState + core::fmt::Display>(
         &mut self,
         transitions: &INTTransitions,
-        state: &S,
-        cost: f32,
-        probabilities: &[f32],
+        s_t: &S,
+        c_t: f32,
+        prob_s_t: &[f32],
     ) {
         let Self { root_data: _, data } = self;
-        let end_state_path = transitions.last_path();
-        let state_data = INTStateData::new(probabilities, cost, state);
-        data.insert(end_state_path.clone(), state_data);
+        let p_t = transitions.last_path();
+        let state_data = INTStateData::new(prob_s_t, c_t, s_t);
+        data.insert(p_t.clone(), state_data);
+    }
+
+    pub fn update(
+        &mut self,
+        transitions: &INTTransitions,
+        c_t: f32,
+        g_star_theta_s_t: &[f32],
+    ) {
+        assert_eq!(g_star_theta_s_t.len(), 1);
+        let INTTransitions {
+            a_1,
+            transitions,
+            p_t,
+        } = transitions;
+        let (h_star_theta_s_t, p_t) = match p_t {
+            INTSearchEnd::Terminal { state_path, .. } => (0.0, state_path),
+            INTSearchEnd::Unvisited { state_path, .. } => (g_star_theta_s_t[0], state_path),
+        };
+        // we run from i = t to i = 0
+        let mut c_star_theta_i = c_t - h_star_theta_s_t.max(0.0);
+        let Self { root_data, data } = self;
+        transitions.into_iter().rev().for_each(|t_i| {
+            let INTTransition { p_i, c_i, a_i_plus_one } = t_i;
+            // let g_star_theta_i = c_i - c_star_theta_i;
+            let data_i = data.get_mut(p_i).unwrap();
+            data_i.update(*a_i_plus_one, &mut c_star_theta_i);
+            c_star_theta_i = c_star_theta_i.min(*c_i);
+        });
+        root_data.update(*a_1, &mut c_star_theta_i);
     }
 }
 
@@ -72,21 +125,18 @@ pub trait INTState {
 }
 
 pub struct INTTransitions {
-    pub(crate) first_action: usize,
-    pub(crate) transitions: Vec<(ActionsTaken, f32, usize)>,
-    pub(crate) end: INTSearchEnd,
+    a_1: usize,
+    transitions: Vec<INTTransition>,
+    p_t: INTSearchEnd,
 }
 
 impl INTTransitions {
-    pub fn last_cost(&self) -> Option<f32> {
-        match &self.end {
-            INTSearchEnd::Terminal { cost, .. } => Some(*cost),
-            INTSearchEnd::Unvisited { .. } => None,
-        }
-    }
+//     pub fn last_cost(&self) -> Option<f32> {
+//         todo!()
+//     }
 
     pub fn last_path(&self) -> &ActionsTaken {
-        match &self.end {
+        match &self.p_t {
             INTSearchEnd::Terminal { state_path, .. } => state_path,
             INTSearchEnd::Unvisited { state_path, .. } => state_path,
         }
@@ -94,7 +144,7 @@ impl INTTransitions {
 }
 
 pub(crate) enum INTSearchEnd {
-    Terminal { state_path: ActionsTaken, cost: f32 },
+    Terminal { state_path: ActionsTaken, },
     Unvisited { state_path: ActionsTaken },
 }
 
@@ -107,55 +157,122 @@ pub(crate) enum INTSearchEnd {
         when selecting the next action, we compare the best visited action to the best unvisited action
         unvisited actions use the same upper estimate formula, but it depends only on the probability
 */
+#[derive(Debug)]
 struct INTStateData {
-    frequency: usize,
-    cost: f32,
+    n_s: usize,
+    c_s: f32,
     actions: Vec<INTActionData>,
 }
 
 impl INTStateData {
+    fn __actions(&self) -> Vec<usize> {
+        let mut actions = self.actions.iter().map(|a| a.a).collect::<Vec<_>>();
+        actions.sort();
+        actions
+    }
+    
     pub fn new<S: INTState>(predctions: &[f32], cost: f32, state: &S) -> Self {
         let mut actions = state.actions().into_iter().map(|a| {
             let p = predctions[a];
             INTActionData::new(a, p)
         }).collect::<Vec<_>>();
-        actions.sort_by(|a, b| b.upper_estimate.total_cmp(&a.upper_estimate));
+        actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
         Self {
-            frequency: 0,
-            cost,
+            n_s: 0,
+            c_s: cost,
             actions,
         }
     }
 
     pub fn best_action(&self) -> usize {
         let Self {
-            frequency: _,
-            cost: _,
+            n_s: _,
+            c_s: _,
             actions,
         } = self;
-        actions[0].action
+        actions[0].a
+    }
+
+    pub fn update(&mut self, a_i_plus_one: usize, c_star_theta_i_plus_one: &mut f32) {
+        let Self {
+            n_s,
+            c_s,
+            actions,
+        } = self;
+        let g_star_theta_i = *c_s - *c_star_theta_i_plus_one;
+        *n_s += 1;
+        let action_data = actions.iter_mut().find(|a| a.a == a_i_plus_one).unwrap();
+        action_data.update(g_star_theta_i, *n_s);
+        self.update_upper_estimates();
+        self.sort_actions();
+    }
+
+    fn update_upper_estimates(&mut self) {
+        let Self {
+            n_s,
+            c_s: _,
+            actions,
+        } = self;
+        actions.iter_mut().for_each(|a| a.update_upper_estimate(*n_s));
+    }
+
+    fn sort_actions(&mut self) {
+        let Self {
+            n_s: _,
+            c_s: _,
+            actions,
+        } = self;
+        actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
     }
 }
 
+#[derive(Debug)]
 struct INTActionData {
-    action: usize,
-    probability: f32,
-    frequency: usize,
-    q_sum: f32,
-    upper_estimate: f32,    
+    a: usize,
+    p_sa: f32,
+    n_sa: usize,
+    g_sa_sum: f32,
+    u_sa: f32,    
 }
 
 const C_PUCT_0: f32 = 1.0;
 const C_PUCT: f32 = 1.0;
 
 impl INTActionData {
-    pub fn new(action: usize, probability: f32) -> Self {
+    pub(crate) fn new(a: usize, p_a: f32) -> Self {
         Self {
-            action,
-            probability,
-            frequency: 0,
-            q_sum: 0.0,
-            upper_estimate: C_PUCT_0 * probability,
+            a,
+            p_sa: p_a,
+            n_sa: 0,
+            g_sa_sum: 0.0,
+            u_sa: C_PUCT_0 * p_a,
         }
+    }
+
+    pub(crate) fn update(&mut self, g_star_theta_i: f32, n_s: usize) {
+        let Self {
+            a: _,
+            p_sa: _,
+            n_sa,
+            g_sa_sum,
+            u_sa: _,
+        } = self;
+        *n_sa += 1;
+        *g_sa_sum += g_star_theta_i;
+    }
+
+    pub(crate) fn update_upper_estimate(&mut self, n_s: usize) {
+        let Self {
+            a: _,
+            p_sa,
+            n_sa,
+            g_sa_sum,
+            u_sa,
+        } = self;
+        let n_sa = *n_sa as f32;
+        let q_sa = *g_sa_sum / n_sa;
+        let n_s = n_s as f32;
+        let p_sa = *p_sa;
+        *u_sa = q_sa / n_sa + C_PUCT * p_sa * (n_s.sqrt() / n_sa);
     }
 }

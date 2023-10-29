@@ -59,7 +59,7 @@ fn main() {
     );
     
     // we initialize tensors to 0 and fill them as needed, minimizing allocations
-    let mut state_tensor: Tensor<Rank2<BATCH, STATE>, _, _> = dev.zeros();
+    let mut v_0_tensor: Tensor<Rank2<BATCH, STATE>, _, _> = dev.zeros();
     let mut prediction_tensor: Tensor<Rank2<BATCH, HIDDEN_2>, _, _> = dev.zeros();
     let mut probs_tensor: Tensor<Rank2<BATCH, ACTION>, _, _> = dev.zeros();
     let mut observed_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, _, _> = dev.zeros();
@@ -72,37 +72,37 @@ fn main() {
     // let predictions: [ActionVec; BATCH] = probs_tensor.array();
     
     // roots change across epochs
-    let (mut root_states, mut root_vecs): ([State; BATCH], [StateVec; BATCH])
-        = AHState::par_generate_batch(5, 0.12);
+    let (mut s_0, mut v_0): ([State; BATCH], [StateVec; BATCH])
+        = AHState::par_generate_batch(5, 1.0);
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
     
     (1..=EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
         // todo! refactor without outparam
-        let mut last_calculated_costs: [f32; BATCH] = [0.0f32; BATCH];
-        par_set_costs(&mut last_calculated_costs, &root_states);
-        state_tensor.copy_from(&root_vecs.flatten());
-        prediction_tensor = core_model.forward(state_tensor.clone());
+        let mut c_t: [f32; BATCH] = [0.0f32; BATCH];
+        par_set_costs(&mut c_t, &s_0);
+        v_0_tensor.copy_from(&v_0.flatten());
+        prediction_tensor = core_model.forward(v_0_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
-        let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &last_calculated_costs, &root_states);
-        let mut logs: [CostLog; BATCH] = CostLog::par_new_logs(&root_states);
+        let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &c_t, &s_0);
+        let mut logs: [CostLog; BATCH] = CostLog::par_new_logs(&s_0);
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
             println!("==== EPISODE {episode} ====");
             // states change during episodes
-            let mut states: [State; BATCH] = root_states.clone();
-            let mut vecs: [StateVec; BATCH] = root_vecs.clone();
+            let mut s_t: [State; BATCH] = s_0.clone();
+            let mut v_t: [StateVec; BATCH] = v_0.clone();
             /* for a single tree, the transitions are built by selection actions from states
             * 1. from state s, we select action a only if
             */
-            let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut states, &mut vecs);
-            par_update_last_cost(&mut last_calculated_costs, &transitions, &states);
-            par_update_logs(&mut logs, &transitions, &last_calculated_costs);
-            state_tensor.copy_from(&vecs.flatten());
-            let prediction_tensor = core_model.forward(state_tensor.clone());
+            let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut s_t, &mut v_t);
+            par_update_last_cost(&mut c_t, &s_t);
+            par_update_logs(&mut logs, &transitions, &c_t);
+            v_0_tensor.copy_from(&v_t.flatten());
+            let prediction_tensor = core_model.forward(v_0_tensor.clone());
             let probs = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>().array();
             let values = value_model.forward(prediction_tensor.clone()).array();
             /* the end state is either:
@@ -111,8 +111,8 @@ fn main() {
             *  - we avoid encountering the same ex
             
             */
-            par_insert_new_states(&mut trees, &transitions, &states, &last_calculated_costs, &probs);
-            par_update_state_data(&mut trees, &transitions, &values);
+            par_insert_new_states(&mut trees, &transitions, &s_t, &c_t, &probs);
+            par_update_state_data(&mut trees, &transitions, &c_t, &values);
         });
         let mut probs: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
         let mut values: [[f32; 1]; BATCH] = [[0.0f32; 1]; BATCH];
@@ -121,7 +121,7 @@ fn main() {
         observed_values_tensor.copy_from(&values.flatten());
         
         // pass the root state vector into the core model
-        let root_tensor = dev.tensor(root_vecs.clone());
+        let root_tensor = dev.tensor(v_0.clone());
         let predictions = core_model.forward(root_tensor.trace(grads));
         let (predictions, tape) = predictions.split_tape();
         // calculated cross entropy loss
@@ -140,8 +140,8 @@ fn main() {
         // is this correct management of the tape?
         core_model.zero_grads(&mut grads);
         
-        par_use_logged_roots(&mut root_states, &mut root_vecs, &mut logs, 5 * epoch);
-        par_set_costs(&mut last_calculated_costs, &root_states);
+        par_use_logged_roots(&mut s_0, &mut v_0, &mut logs, 5 * epoch);
+        par_set_costs(&mut c_t, &s_0);
     });
 }
 
@@ -149,14 +149,12 @@ type Trans = INTTransitions;
 
 fn par_update_last_cost<const BATCH: usize>(
     costs: &mut [f32; BATCH],
-    transitions: &[Trans; BATCH],
     states: &[State; BATCH],
 ) {
-    let costs = costs.par_iter_mut();
-    let transitions = transitions.par_iter();
-    let states = states.par_iter();
-    costs.zip_eq(transitions).zip_eq(states).for_each(|((c, t), s)| {
-        *c = t.last_cost().unwrap_or_else(|| s.cost());
+    let old_c_t = costs.par_iter_mut();
+    let new_s_t = states.par_iter();
+    old_c_t.zip_eq(states).for_each(|(c, s)| {
+        *c = s.cost()
     });
 }
 
@@ -198,13 +196,15 @@ fn par_insert_new_states<const BATCH: usize>(
 fn par_update_state_data<const BATCH: usize>(
     trees: &mut [Tree; BATCH],
     trans: &[Trans; BATCH],
+    last_calculated_costs: &[f32; BATCH],
     values: &[[f32; 1]; BATCH],
 ) {
     let trees = trees.par_iter_mut();
     let trans = trans.par_iter();
+    let costs = last_calculated_costs.par_iter();
     let values = values.par_iter();
-    trees.zip_eq(trans).zip_eq(values).for_each(|((t, trans), v)| {
-        todo!()
+    trees.zip_eq(trans).zip_eq(costs).zip_eq(values).for_each(|(((t, trans), c), v)| {
+        t.update(trans, *c, v)
     });
 }
 

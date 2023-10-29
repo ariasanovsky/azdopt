@@ -1,6 +1,6 @@
 use std::{mem::MaybeUninit, collections::BTreeSet};
 
-use az_discrete_opt::{state::Cost, int_min_tree::INTState};
+use az_discrete_opt::{state::Cost, int_min_tree::{INTState, __INTStateDiagnostic}};
 use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
@@ -25,8 +25,8 @@ pub struct AHState<const N: usize, const E: usize> {
     modified_edges: BTreeSet<usize>,
 }
 
-impl<const N: usize, const E: usize> INTState for AHState<N, E> {
-    fn act(&mut self, action: usize) {
+impl<const N: usize, const E: usize> core::fmt::Display for AHState<N, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
             neighborhoods,
             edges,
@@ -34,6 +34,37 @@ impl<const N: usize, const E: usize> INTState for AHState<N, E> {
             time,
             modified_edges,
         } = self;
+        writeln!(f, "time: {}", time)?;
+        writeln!(f, "edges: {:?}", edges)?;
+        writeln!(f, "modified edges: {:?}", modified_edges)?;
+        blocks.forget_state().blocks().iter().try_for_each(|b| {
+            writeln!(f, "block: {b}")
+        })?;
+        writeln!(f, "neighborhoods: {neighborhoods}")?;
+        Ok(())
+    }
+}
+
+impl<const N: usize, const E: usize> __INTStateDiagnostic for AHState<N, E> {
+    fn __actions(&self) -> Vec<usize> {
+        let mut actions = self.actions();
+        actions.sort();
+        actions
+    }
+}
+
+impl<const N: usize, const E: usize> INTState for AHState<N, E> {
+    fn act(&mut self, action: usize) {
+        // println!("action {action} on {}", self.neighborhoods);
+        let Self {
+            neighborhoods,
+            edges,
+            blocks,
+            time,
+            modified_edges,
+        } = self;
+        // blocks.forget_state().blocks().iter().for_each(|b| println!("block: {b}"));
+        // blocks.forget_state().cut_edges().iter().for_each(|(u, v)| println!("cut edge: ({u}, {v})"));
         if action < E {
             // action is an add
             let (u, v) = edge_from_position(action);
@@ -50,6 +81,7 @@ impl<const N: usize, const E: usize> INTState for AHState<N, E> {
         // todo! lazy approach: recompute the whole thing
         *blocks = neighborhoods.block_tree().unwrap();
         *time -= 1;
+        // println!("produces {}", self.neighborhoods)
     }
 
     fn is_terminal(&self) -> bool {
@@ -98,26 +130,39 @@ impl<const N: usize, const E: usize> INTState for AHState<N, E> {
             vec_delete_actions[*i] = 0.0;
         });
         // prohibit delete actions corresponding to cut-edges
-        blocks.cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| vec_delete_actions[i] = 0.0);
+        blocks.forget_state().cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| vec_delete_actions[i] = 0.0);
         // set time
         vec_time[0] = *time as f32;
     }
 
     fn actions(&self) -> Vec<usize> {
         let Self {
-            neighborhoods,
+            neighborhoods: _,
             edges,
             blocks,
-            time,
+            time: _,
             modified_edges,
         } = self;
+        // println!("neighborhoods {neighborhoods} has");
+        // blocks.forget_state().blocks().iter().for_each(|b| println!("block: {b}"));
+        // blocks.forget_state().cut_edges().iter().for_each(|(u, v)| println!("cut edge: ({u}, {v})"));
+
         // each missing edge not previous modified is an add action
-        let cut_edges = blocks.cut_edges();
+        let cut_edges = blocks.forget_state().cut_edges();
+        assert_eq!(
+            cut_edges.len() + 1,
+            blocks.forget_state().blocks().len(),
+            "cut edges: {cut_edges:?}"
+        );
+        // if !cut_edges.is_empty() {
+        //     dbg!(&cut_edges);
+        // }
         edges.into_iter().enumerate().filter(|(pos, _)| {
             !modified_edges.contains(pos)
         }).filter_map(|(pos, e)| {
             if *e {
-                if cut_edges.contains(&edge_from_position(pos)) {
+                let (u, v) = edge_from_position(pos);
+                if cut_edges.contains(&(u, v)) || cut_edges.contains(&(v, u)) {
                     None
                 } else {
                     Some(pos + E)
@@ -188,7 +233,7 @@ impl<const N: usize, const E: usize> AHState<N, E> {
             let neighborhoods = Neighborhoods::new(neighborhoods);
             if let Some(blocks) = neighborhoods.block_tree() {
                 // delete the cut-edges from the set of delete actions
-                blocks.cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| delete_actions[i] = false);
+                blocks.forget_state().cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| delete_actions[i] = false);
                 break (neighborhoods, blocks)
             }
         };
