@@ -1,8 +1,8 @@
 use az_discrete_opt::arr_map::{
     par_forest_observations, par_insert_into_forest, par_plant_forest, par_simulate_forest_once,
-    par_state_batch_to_vecs, par_update_costs, par_update_forest, par_update_roots,
+    par_state_batch_to_vecs, par_set_costs, par_update_forest, par_use_logged_roots,
 };
-use az_discrete_opt::ir_min_tree::{IQMinTree, Transitions};
+use az_discrete_opt::iq_min_tree::{IQMinTree, Transitions};
 use az_discrete_opt::log::{par_update_logs, BasicLog};
 use dfdx::optim::Adam;
 use dfdx::prelude::{
@@ -16,7 +16,7 @@ use graph_state::ramsey_state::{ActionVec, RamseyState, StateVec, ValueVec, STAT
 use graph_state::{C, E};
 
 const ACTION: usize = C * E;
-const BATCH: usize = 64;
+const BATCH: usize = 1;
 
 type Tree = IQMinTree;
 type Trans = Transitions;
@@ -65,7 +65,7 @@ fn main() {
     let mut roots: [RamseyState; BATCH] = RamseyState::par_generate_batch(5);
     let mut states: [RamseyState; BATCH] = roots.clone();
     let mut root_costs: [f32; BATCH] = [0.0f32; BATCH];
-    par_update_costs(&mut root_costs, &roots);
+    par_set_costs(&mut root_costs, &roots);
     let mut losses: Vec<(f32, f32)> = vec![];
 
     (1..=EPOCH).for_each(|epoch| {
@@ -89,7 +89,7 @@ fn main() {
             let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &roots, &mut states);
             par_update_logs(&mut logs, &transitions);
             if episode % 500 == 0 {
-                println!("episode {episode}");
+                println!("==== EPISODE {episode} ====");
                 transitions
                     .chunks(4)
                     .into_iter()
@@ -151,7 +151,7 @@ fn main() {
         opt.update(&mut core_model, &grads).unwrap();
         core_model.zero_grads(&mut grads);
 
-        par_update_roots(&mut roots, &logs, 5 * epoch);
-        par_update_costs(&mut root_costs, &roots);
+        par_use_logged_roots(&mut roots, &mut logs, 5 * epoch);
+        par_set_costs(&mut root_costs, &roots);
     });
 }

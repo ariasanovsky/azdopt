@@ -5,8 +5,8 @@ use rayon::prelude::{
 };
 
 use crate::{
-    ir_min_tree::{IQMinTree, IRState, Transitions},
-    log::BasicLog,
+    iq_min_tree::{IQMinTree, IQState, Transitions},
+    log::BasicLog, state::Cost,
 };
 
 // pub const BATCH: usize = 64;
@@ -16,7 +16,7 @@ pub fn par_plant_forest<
     const BATCH: usize,
     const ACTION: usize,
     const STATE: usize,
-    S: IRState<STATE> + Sync,
+    S: IQState<STATE> + Sync,
 >(
     states: &[S; BATCH],
     predictions: &[[f32; ACTION]; BATCH],
@@ -37,7 +37,7 @@ pub fn par_insert_into_forest<
     const BATCH: usize,
     const ACTION: usize,
     const STATE: usize,
-    S: IRState<STATE> + Sync,
+    S: IQState<STATE> + Sync,
 >(
     trees: &mut [IQMinTree; BATCH],
     transitions: &[Transitions; BATCH],
@@ -79,7 +79,7 @@ pub fn par_forest_observations<const BATCH: usize, const ACTION: usize, const VA
     (probabilities, values)
 }
 
-pub fn par_update_costs<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Sync>(
+pub fn par_set_costs<const BATCH: usize, S: Cost + Sync>(
     costs: &mut [f32; BATCH],
     states: &[S; BATCH],
 ) {
@@ -93,7 +93,7 @@ pub fn par_update_costs<const BATCH: usize, const STATE: usize, S: IRState<STATE
 pub fn par_simulate_forest_once<
     const BATCH: usize,
     const STATE: usize,
-    S: IRState<STATE> + Send + Sync + Clone,
+    S: IQState<STATE> + Send + Sync + Clone,
 >(
     trees: &[IQMinTree; BATCH],
     roots: &[S; BATCH],
@@ -129,20 +129,20 @@ pub fn par_update_forest<const BATCH: usize>(
         });
 }
 
-pub fn par_update_roots<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Send>(
+pub fn par_use_logged_roots<const BATCH: usize, const STATE: usize, S: IQState<STATE> + Send>(
     roots: &mut [S; BATCH],
-    logs: &[BasicLog; BATCH],
+    logs: &mut [BasicLog; BATCH],
     time: usize,
 ) {
     let roots = roots.par_iter_mut();
-    let logs = logs.par_iter();
+    let logs = logs.par_iter_mut();
     roots.zip_eq(logs).for_each(|(root, log)| {
-        root.apply(&log.path);
+        root.apply(&log.path());
         root.reset(time);
     });
 }
 
-pub fn par_state_batch_to_vecs<const BATCH: usize, const STATE: usize, S: IRState<STATE> + Sync>(
+pub fn par_state_batch_to_vecs<const BATCH: usize, const STATE: usize, S: IQState<STATE> + Sync>(
     states: &[S; BATCH],
 ) -> [[f32; STATE]; BATCH] {
     let mut state_vecs: [MaybeUninit<[f32; STATE]>; BATCH] = MaybeUninit::uninit_array();

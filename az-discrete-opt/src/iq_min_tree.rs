@@ -12,9 +12,13 @@ impl ActionsTaken {
         }
     }
 
-    pub fn new(first_action: usize) -> Self {
+    pub(crate) fn clear(&mut self) {
+        self.actions_taken.clear();
+    }
+
+    pub fn new(a_1: usize) -> Self {
         Self {
-            actions_taken: vec![first_action],
+            actions_taken: vec![a_1],
         }
     }
 
@@ -30,12 +34,16 @@ impl ActionsTaken {
     pub fn is_empty(&self) -> bool {
         self.actions_taken.is_empty()
     }
+
+    pub fn actions(&self) -> &[usize] {
+        &self.actions_taken
+    }
 }
 
 // todo! move the root & root_cost outside the tree to batch-sized arrays
 pub struct IQMinTree {
-    root_data: IRStateData,
-    data: BTreeMap<ActionsTaken, IRStateData>,
+    root_data: IQStateData,
+    data: BTreeMap<ActionsTaken, IQStateData>,
 }
 
 // todo! refactor with
@@ -43,9 +51,9 @@ pub struct IQMinTree {
 //     Active { frequency: usize, Vec<IRActionData> },
 //     FullyExplored { best_final_value: f32 }
 // }
-pub struct IRStateData {
+pub struct IQStateData {
     frequency: usize,
-    actions: Vec<IRActionData>,
+    actions: Vec<IQActionData>,
 }
 
 /* todo! make family of trees:
@@ -85,7 +93,7 @@ pub struct IRStateData {
 */
 
 // todo! refactor into a pair of values
-pub struct IRActionData {
+pub struct IQActionData {
     // not mut
     action: usize,
     probability: f32,
@@ -100,7 +108,7 @@ pub struct IRActionData {
 const C_PUCT: f32 = 5.0;
 const C_PUCT_0: f32 = 5.0;
 
-impl IRActionData {
+impl IQActionData {
     fn new(action: usize, reward: f32, probability: f32) -> Self {
         let q = reward;
         // const C_PUCT_0: f32 = 30.0;
@@ -146,13 +154,13 @@ impl IRActionData {
     }
 }
 
-impl IRStateData {
+impl IQStateData {
     fn new(predicted_probs: &[f32], action_rewards: &[(usize, f32)]) -> Self {
         let actions = action_rewards
             .iter()
             .map(|(a, r)| {
                 let p = predicted_probs.get(*a).unwrap();
-                IRActionData::new(*a, *r, *p)
+                IQActionData::new(*a, *r, *p)
             })
             .collect();
         Self {
@@ -183,9 +191,10 @@ impl IQMinTree {
             .iter()
             .map(|(i, r)| {
                 let p = *probability_predictions.get(*i).unwrap();
+                // todo? use a method here instead
                 // const C_PUCT: f32 = 30.0;
                 let u = r + C_PUCT * p;
-                IRActionData {
+                IQActionData {
                     action: *i,
                     probability: p,
                     reward: *r,
@@ -196,7 +205,7 @@ impl IQMinTree {
             })
             .collect();
         actions.sort_unstable_by(|a, b| b.upper_estimate.total_cmp(&a.upper_estimate));
-        let root_data = IRStateData {
+        let root_data = IQStateData {
             frequency: 0,
             actions,
         };
@@ -209,7 +218,7 @@ impl IQMinTree {
     // todo! refactor so that transitions instead hold &mut's to the values
     pub fn simulate_once<const STATE: usize, S>(&self, root: &mut S) -> Transitions
     where
-        S: IRState<STATE>,
+        S: IQState<STATE>,
     {
         let Self { root_data, data } = self;
         let state = root;
@@ -280,7 +289,7 @@ impl IQMinTree {
         &mut self,
         transitions: &Transitions,
         end_state_rewards: &[(usize, f32)],
-        probability_predictions: &[f32],
+        probs: &[f32],
     ) {
         let Self { root_data: _, data } = self;
         let Transitions {
@@ -290,7 +299,7 @@ impl IQMinTree {
             end: new_path,
         } = transitions;
         if let SearchEnd::New { end: new_path, .. } = new_path {
-            let state_data = IRStateData::new(probability_predictions, end_state_rewards);
+            let state_data = IQStateData::new(probs, end_state_rewards);
             data.insert(new_path.clone(), state_data);
         }
     }
@@ -298,11 +307,11 @@ impl IQMinTree {
     // todo! this is only a method on `root_data`
     pub fn observations<const ACTION: usize>(&self) -> Vec<f32> {
         let Self { root_data, data: _ } = self;
-        let IRStateData { frequency, actions } = root_data;
+        let IQStateData { frequency, actions } = root_data;
         let mut gain_sum = 0.0;
         let mut observations = vec![0.0; ACTION + 1];
         actions.iter().for_each(|a| {
-            let IRActionData {
+            let IQActionData {
                 action,
                 probability: _,
                 reward,
@@ -320,9 +329,8 @@ impl IQMinTree {
     }
 }
 
-pub trait IRState<const STATE: usize> {
+pub trait IQState<const STATE: usize> {
     const ACTION: usize;
-    fn cost(&self) -> f32;
     fn action_rewards(&self) -> Vec<(usize, f32)>;
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
