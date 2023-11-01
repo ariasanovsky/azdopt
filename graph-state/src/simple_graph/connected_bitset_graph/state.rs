@@ -1,4 +1,5 @@
-use az_discrete_opt::state::State;
+use az_discrete_opt::state::{State, StateVec};
+use itertools::Itertools;
 
 use crate::simple_graph::{bitset_graph::state::Action, edge::Edge};
 
@@ -40,6 +41,34 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
                 neighborhoods[v].add_or_remove_unchecked(u);
             },
         }
+    }
+}
+
+impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
+    const STATE_DIM: usize = N * (N - 1) / 2;
+
+    const AVAILABLE_ACTIONS_BOOL_DIM: usize = N * (N - 1);
+
+    fn write_vec_state_dims(&self, state_vec: &mut [f32]) {
+        self.edge_bools().zip_eq(state_vec).for_each(|(b, f)| {
+            if b {
+                *f = 1.;
+            } else {
+                *f = 0.;
+            }
+        });
+    }
+
+    fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
+        let (adds, deletes) = action_vec.split_at_mut(N * (N - 1) / 2);
+        self.action_types().zip_eq(adds).zip_eq(deletes).for_each(|((b, add), delete)| {
+            use crate::simple_graph::connected_bitset_graph::ActionKind;
+            (*add, *delete) = match b {
+                Some(ActionKind::Add) => (1., 0.),
+                Some(ActionKind::Delete) => (0., 1.),
+                None => (0., 0.),
+            }
+        });
     }
 }
 

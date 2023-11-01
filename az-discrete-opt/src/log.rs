@@ -46,29 +46,21 @@ impl<S> CostLog<S> {
         unsafe { MaybeUninit::array_assume_init(logs) }
     }
 
-    pub fn update(&mut self, s_t: S, c_t: f32) {
+    pub fn update(&mut self, s_t: &S, c_t: f32)
+    where
+        S: Clone,
+    {
         let Self {
             best_state,
             c_star,
         } = self;
-        todo!()
-        // let p_t = transitions.last_path();
-        // let cost_cmp = c_t.total_cmp(c_star);
-        // let length_cmp = p_t.len().cmp(&p_star.len());
-        // // prioritize cost, then length
-        // match (cost_cmp, length_cmp) {
-        //     (core::cmp::Ordering::Less, _) => {
-        //         *c_star = c_t;
-        //         p_star.clone_from(p_t);
-        //         println!("c_star = {}", c_star);
-        //     }
-        //     (core::cmp::Ordering::Equal, core::cmp::Ordering::Less) => {
-        //         *c_star = c_t;
-        //         p_star.clone_from(p_t);
-        //         println!("c_star = {}", c_star);
-        //     }
-        //     _ => {}
-        // }
+        // todo! tiebreakers
+        dbg!(c_t);
+        if c_t < *c_star {
+            *c_star = c_t;
+            best_state.clone_from(s_t);
+            println!("new best state: {c_star}");
+        }
     }
 }
 

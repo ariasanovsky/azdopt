@@ -15,6 +15,11 @@ pub struct ConnectedBitsetGraph<const N: usize, B = B32> {
     pub(crate) neighborhoods: [B; N],
 }
 
+pub enum ActionKind {
+    Add,
+    Delete,
+}
+
 impl<const N: usize> ConnectedBitsetGraph<N> {
     pub fn is_cut_edge(&self, e: &Edge) -> bool {
         let Self { neighborhoods } = self;
@@ -70,6 +75,31 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                     Some(e)
                 } else {
                     None
+                }
+            })
+        })
+    }
+
+    pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
+        let Self { neighborhoods } = self;
+        neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
+            (0..v).map(move |u| n.contains(u))
+        })
+    }
+
+    pub fn action_types(&self) -> impl Iterator<Item = Option<ActionKind>> + '_ {
+        let Self { neighborhoods } = self;
+        neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
+            (0..v).map(move |u| {
+                if n.contains(u) {
+                    let e = unsafe { Edge::new_unchecked(v, u) };
+                    if self.is_cut_edge(&e) {
+                        None
+                    } else {
+                        Some(ActionKind::Delete)
+                    }
+                } else {
+                    Some(ActionKind::Add)
                 }
             })
         })

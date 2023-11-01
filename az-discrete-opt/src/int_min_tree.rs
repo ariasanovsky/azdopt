@@ -30,31 +30,34 @@ impl INTMinTree {
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S: State + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S) -> INTTransitions {
+    pub fn simulate_once<S>(&self, s_0: &mut S) -> INTTransitions
+    where
+        S: State //+ Cost + core::fmt::Display + __INTStateDiagnostic
+    {
         let Self { root_data, data } = self;
-        let mut __state_actions = s_i.__actions();
-        __state_actions.sort();
+        // let mut __state_actions = s_0.__actions();
+        // __state_actions.sort();
         // dbg!();
-        assert_eq!(__state_actions, root_data.__actions());
-        assert_eq!(s_i.cost(), root_data.c_s);
+        // assert_eq!(__state_actions, root_data.__actions());
+        // assert_eq!(s_0.cost(), root_data.c_s);
         let a_1 = root_data.best_action();
-        todo!();
+        // todo!();
         // unsafe { s_i.act_unchecked(a_1) };
         let mut p_i = ActionsTaken::new(a_1);
         let mut transitions: Vec<INTTransition> = vec![];
-        while !s_i.is_terminal() {
+        while !s_0.is_terminal() {
             if let Some(data) = data.get(&p_i) {
-                assert_eq!(s_i.cost(), data.c_s);
-                let mut __state_actions = s_i.__actions();
-                __state_actions.sort();
-                assert_eq!(__state_actions, data.__actions());
+                // assert_eq!(s_0.cost(), data.c_s);
+                // let mut __state_actions = s_0.__actions();
+                // __state_actions.sort();
+                // assert_eq!(__state_actions, data.__actions());
                 let a_i_plus_one = data.best_action();
                 transitions.push(INTTransition {
                     p_i: p_i.clone(),
                     c_i: data.c_s,
                     a_i_plus_one,
                 });
-                todo!();
+                // todo!();
                 // s_i.act(a_i_plus_one);
                 p_i.push(a_i_plus_one);
             } else {
@@ -77,13 +80,16 @@ impl INTMinTree {
         // }
     }
 
-    pub fn insert<S: State + core::fmt::Display>(
+    pub fn insert<S>(
         &mut self,
         transitions: &INTTransitions,
         s_t: &S,
         c_t: f32,
         prob_s_t: &[f32],
-    ) {
+    )
+    where
+        S: State, // + core::fmt::Display,
+    {
         let Self { root_data: _, data } = self;
         let p_t = transitions.last_path();
         let state_data = INTStateData::new(prob_s_t, c_t, s_t);
