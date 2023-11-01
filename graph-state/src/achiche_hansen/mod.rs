@@ -5,13 +5,12 @@ use itertools::Itertools;
 use rand::Rng;
 use rayon::prelude::{IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-use crate::{achiche_hansen::my_bitsets_to_refactor_later::B32, ramsey_state::{edge_to_position, edge_from_position}};
+use crate::{ramsey_state::{edge_to_position, edge_from_position}, bitset::B32, simple_graph::neighborhoods::Neighborhoods};
 
-use self::{graph::{Neighborhoods, Tree}, block_forest::BlockForest};
+use self::{graph::Tree, block_forest::BlockForest};
 
 mod block_forest;
 mod graph;
-pub(crate) mod my_bitsets_to_refactor_later;
 mod valid;
 
 #[derive(Clone)]
@@ -88,52 +87,52 @@ impl<const N: usize, const E: usize> INTState for AHState<N, E> {
         self.time == 0
     }
 
-    fn update_vec(&self, state_vec: &mut [f32]) {
-        let Self {
-            neighborhoods: _,
-            edges,
-            blocks,
-            time,
-            modified_edges,
-        } = self;
-        let (vec_edges, vec) = state_vec.split_at_mut(E);
-        let (vec_add_actions, vec) = vec.split_at_mut(E);
-        let (vec_delete_actions, vec_time) = vec.split_at_mut(E);
-        assert_eq!(vec_time.len(), 1);
-        // initialize edges
-        edges.into_iter().zip_eq(vec_edges).for_each(|(e, vec_e)| {
-            if *e {
-                *vec_e = 1.0;
-            } else {
-                *vec_e = 0.0;
-            }
-        });
-        // initialize add actions
-        vec_add_actions.iter_mut().zip_eq(edges.iter()).for_each(|(vec_a, e)| {
-            if *e {
-                *vec_a = 0.0;
-            } else {
-                *vec_a = 1.0;
-            }
-        });
-        // initialize delete actions
-        vec_delete_actions.iter_mut().zip_eq(edges.iter()).for_each(|(vec_d, e)| {
-            if *e {
-                *vec_d = 1.0;
-            } else {
-                *vec_d = 0.0;
-            }
-        });
-        // prohibit actions on previously modified edges
-        modified_edges.iter().for_each(|i| {
-            vec_add_actions[*i] = 0.0;
-            vec_delete_actions[*i] = 0.0;
-        });
-        // prohibit delete actions corresponding to cut-edges
-        blocks.forget_state().cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| vec_delete_actions[i] = 0.0);
-        // set time
-        vec_time[0] = *time as f32;
-    }
+    // fn update_vec(&self, state_vec: &mut [f32]) {
+    //     let Self {
+    //         neighborhoods: _,
+    //         edges,
+    //         blocks,
+    //         time,
+    //         modified_edges,
+    //     } = self;
+    //     let (vec_edges, vec) = state_vec.split_at_mut(E);
+    //     let (vec_add_actions, vec) = vec.split_at_mut(E);
+    //     let (vec_delete_actions, vec_time) = vec.split_at_mut(E);
+    //     assert_eq!(vec_time.len(), 1);
+    //     // initialize edges
+    //     edges.into_iter().zip_eq(vec_edges).for_each(|(e, vec_e)| {
+    //         if *e {
+    //             *vec_e = 1.0;
+    //         } else {
+    //             *vec_e = 0.0;
+    //         }
+    //     });
+    //     // initialize add actions
+    //     vec_add_actions.iter_mut().zip_eq(edges.iter()).for_each(|(vec_a, e)| {
+    //         if *e {
+    //             *vec_a = 0.0;
+    //         } else {
+    //             *vec_a = 1.0;
+    //         }
+    //     });
+    //     // initialize delete actions
+    //     vec_delete_actions.iter_mut().zip_eq(edges.iter()).for_each(|(vec_d, e)| {
+    //         if *e {
+    //             *vec_d = 1.0;
+    //         } else {
+    //             *vec_d = 0.0;
+    //         }
+    //     });
+    //     // prohibit actions on previously modified edges
+    //     modified_edges.iter().for_each(|i| {
+    //         vec_add_actions[*i] = 0.0;
+    //         vec_delete_actions[*i] = 0.0;
+    //     });
+    //     // prohibit delete actions corresponding to cut-edges
+    //     blocks.forget_state().cut_edges().into_iter().map(|(u, v)| edge_to_position(u, v)).for_each(|i| vec_delete_actions[i] = 0.0);
+    //     // set time
+    //     vec_time[0] = *time as f32;
+    // }
 
     fn actions(&self) -> Vec<usize> {
         let Self {

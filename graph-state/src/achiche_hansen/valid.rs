@@ -1,4 +1,4 @@
-use super::graph::Neighborhoods;
+use crate::simple_graph::neighborhoods::Neighborhoods;
 
 pub(crate) trait GenericsAreValid {
     const VALID: ();

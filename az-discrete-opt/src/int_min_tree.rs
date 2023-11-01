@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::ActionsTaken, state::Cost};
+use crate::{iq_min_tree::ActionsTaken, state::{Cost, State, Action}};
 
 pub struct INTMinTree {
     root_data: INTStateData,
@@ -18,44 +18,70 @@ struct INTTransition {
 }
 
 impl INTMinTree {
-    pub fn new<S: INTState>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
+    pub fn new<S: State>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
         Self {
             root_data: INTStateData::new(root_predictions, cost, root),
             data: BTreeMap::new(),
         }
     }
 
-    pub fn replant<S: INTState>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
+    pub fn replant<S: State>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
         self.data.clear();
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S: INTState + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S) -> INTTransitions {
+    pub fn simulate_once<S>(&self, s_0: &mut S) -> INTTransitions
+    where
+        S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
+        S::Actions: Eq + core::fmt::Display,
+    {
         let Self { root_data, data } = self;
-        let mut __state_actions = s_i.__actions();
-        __state_actions.sort();
+        // let mut __state_actions = s_0.__actions();
+        // __state_actions.sort();
         // dbg!();
-        assert_eq!(__state_actions, root_data.__actions());
-        assert_eq!(s_i.cost(), root_data.c_s);
+        // assert_eq!(__state_actions, root_data.__actions());
+        // assert_eq!(s_0.cost(), root_data.c_s);
+        // dbg!();
+        // println!("root = \n{s_0}");
+        // s_0.actions().for_each(|a| {
+        //     println!("a = {a}");
+        // });
         let a_1 = root_data.best_action();
-        s_i.act(a_1);
+        let action_1 = unsafe { S::Actions::from_index_unchecked(a_1) };
+        // println!("a1, action_1 = {a_1}, {action_1}");
+        // todo!();
+        let s_i = s_0;
+        unsafe { s_i.act_unchecked(&action_1) };
         let mut p_i = ActionsTaken::new(a_1);
         let mut transitions: Vec<INTTransition> = vec![];
         while !s_i.is_terminal() {
+            // dbg!();
+            // println!("s_i = {s_i}");
+            // s_i.actions().for_each(|a| {
+            //     println!("a = {a}");
+            // });
             if let Some(data) = data.get(&p_i) {
-                assert_eq!(s_i.cost(), data.c_s);
-                let mut __state_actions = s_i.__actions();
-                __state_actions.sort();
-                assert_eq!(__state_actions, data.__actions());
+                // assert_eq!(s_0.cost(), data.c_s);
+                // let mut __state_actions = s_0.__actions();
+                // __state_actions.sort();
+                // assert_eq!(__state_actions, data.__actions());
                 let a_i_plus_one = data.best_action();
+                // dbg!(a_i_plus_one);
                 transitions.push(INTTransition {
                     p_i: p_i.clone(),
                     c_i: data.c_s,
                     a_i_plus_one,
                 });
-                s_i.act(a_i_plus_one);
+                let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
+                // println!("a_i_plus_one, action_i = {a_i_plus_one}, {action_i_plus_1}");
+                // dbg!();
+                s_i.act(&action_i_plus_1);
+                // dbg!();
+                // dbg!();
                 p_i.push(a_i_plus_one);
+                // dbg!();
             } else {
+                // dbg!();
                 return INTTransitions {
                     a_1,
                     transitions,
@@ -63,6 +89,7 @@ impl INTMinTree {
                 }
             }
         }
+        // dbg!();
         INTTransitions {
             a_1,
             transitions,
@@ -75,17 +102,28 @@ impl INTMinTree {
         // }
     }
 
-    pub fn insert<S: INTState + core::fmt::Display>(
+    pub fn insert<S>(
         &mut self,
         transitions: &INTTransitions,
         s_t: &S,
         c_t: f32,
         prob_s_t: &[f32],
-    ) {
+    )
+    where
+        S: State + core::fmt::Display,
+        S::Actions: core::fmt::Display,
+    {
+        // dbg!();
+        // println!("inserting s_t = {s_t}\nwhich has actions:");
+        // s_t.actions().for_each(|a| {
+        //     println!("a = {a}");
+        // });
         let Self { root_data: _, data } = self;
         let p_t = transitions.last_path();
         let state_data = INTStateData::new(prob_s_t, c_t, s_t);
+        // dbg!(&state_data);
         data.insert(p_t.clone(), state_data);
+        // panic!();
     }
 
     pub fn update(
@@ -128,7 +166,7 @@ impl INTMinTree {
 pub trait INTState {
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
-    fn update_vec(&self, state_vec: &mut [f32]);
+    // fn update_vec(&self, state_vec: &mut [f32]);
     fn actions(&self) -> Vec<usize>;
 }
 
@@ -198,10 +236,10 @@ impl INTStateData {
         actions
     }
     
-    pub fn new<S: INTState>(predctions: &[f32], cost: f32, state: &S) -> Self {
+    pub fn new<S: State>(predctions: &[f32], cost: f32, state: &S) -> Self {
         let mut actions = state.actions().into_iter().map(|a| {
-            let p = predctions[a];
-            INTActionData::new(a, p)
+            let p = predctions[a.index()];
+            INTActionData::new(a.index(), p)
         }).collect::<Vec<_>>();
         actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
         Self {
