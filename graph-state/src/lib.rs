@@ -6,7 +6,7 @@
 pub mod bitset;
 pub mod simple_graph;
 pub mod ramsey_state;
-pub mod achiche_hansen;
+// pub mod achiche_hansen;
 
 // todo! we are hard-coding N = 17 to get the R(4, 4) example working
 

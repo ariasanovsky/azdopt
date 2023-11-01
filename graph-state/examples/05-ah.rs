@@ -19,7 +19,7 @@ const ACTION: usize = 2 * E;
 const STATE: usize = E + ACTION + 1;
 type StateVector = [f32; STATE];
 
-const BATCH: usize = 1;
+const BATCH: usize = 32;
 
 const HIDDEN_1: usize = 1280;
 const HIDDEN_2: usize = 1024;
@@ -44,7 +44,7 @@ type Tree = INTMinTree;
 
 fn main() {
     const EPOCH: usize = 30;
-    const EPISODES: usize = 4_000;
+    const EPISODES: usize = 1_000;
 
     let dev = AutoDevice::default();
     let mut core_model = dev.build_module::<Core, f32>();
