@@ -1,7 +1,7 @@
 use bit_iter::BitIter;
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct B32 {
+pub struct B32 {
     bits: u32,
 }
 
@@ -35,6 +35,14 @@ impl B32 {
 
     pub const fn empty() -> Self {
         Self::new(0)
+    }
+
+    pub const fn contains(&self, n: usize) -> bool {
+        self.bits & (1 << n) != 0
+    }
+
+    pub const fn cardinality(&self) -> u32 {
+        self.bits.count_ones()
     }
 
     pub const fn range_to(n: usize) -> Self {

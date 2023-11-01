@@ -3,6 +3,8 @@
 #![feature(slice_flatten)]
 #![feature(sort_floats)]
 
+pub mod bitset;
+pub mod simple_graph;
 pub mod ramsey_state;
 pub mod achiche_hansen;
 

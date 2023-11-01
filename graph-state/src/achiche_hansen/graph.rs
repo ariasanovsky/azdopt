@@ -2,12 +2,8 @@ use faer::{Mat, Faer};
 
 use crate::achiche_hansen::{valid::GenericsAreValid, block_forest::BlockForest};
 
-use super::my_bitsets_to_refactor_later::B32;
-
-#[derive(Clone)]
-pub struct Neighborhoods<const N: usize> {
-    pub(crate) neighborhoods: [B32; N],
-}
+use crate::bitset::B32;
+use crate::simple_graph::neighborhoods::Neighborhoods;
 
 impl<const N: usize> core::fmt::Display for Neighborhoods<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -280,7 +276,7 @@ impl<const N: usize> Neighborhoods<N> {
 impl<const N: usize> Neighborhoods<N> {
     pub fn distance_matrix(&self, blocks: &BlockForest<N>) -> DistanceMatrix<N> {
         // todo! refactor with blocks
-        let mut distances = [[0.0; N]; N];
+        let mut distances = [[0; N]; N];
         for u in 0..N {
             let mut explored = B32::empty();
             explored.insert_unchecked(u);
@@ -294,7 +290,7 @@ impl<const N: usize> Neighborhoods<N> {
                 let recently_seen_vertices = newly_seen_vertices;
                 newly_seen_vertices = B32::empty();
                 recently_seen_vertices.iter().for_each(|v| {
-                    distances[u][v] = d as f64;
+                    distances[u][v] = d;
                     newly_seen_vertices.union_assign(&self.neighborhoods[v]);
                 });
                 newly_seen_vertices.minus_assign(&explored);
@@ -306,13 +302,13 @@ impl<const N: usize> Neighborhoods<N> {
 
 #[derive(Clone)]
 pub struct DistanceMatrix<const N: usize> {
-    distances: [[f64; N]; N]
+    distances: [[usize; N]; N]
 }
 
 impl<const N: usize> DistanceMatrix<N> {
     pub fn eigenvalues(&self) -> Vec<f64> {
         // todo! clunky use of faer here
-        let a: Mat<f64> = Mat::from_fn(N, N, |i, j| self.distances[i][j]);
+        let a: Mat<f64> = Mat::from_fn(N, N, |i, j| self.distances[i][j] as f64);
         let mut eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
         eigs.sort_floats();
         eigs.reverse();
@@ -320,11 +316,11 @@ impl<const N: usize> DistanceMatrix<N> {
     }
 
     pub fn proximity(&self) -> f64 {
-        self.distances.iter().map(|row| row.iter().sum::<f64>()).min_by(|a, b| a.total_cmp(b)).unwrap()
-        / (N - 1) as f64
+        self.distances.iter().map(|row| row.iter().sum::<usize>()).min().unwrap()
+        as f64 / (N - 1) as f64
     }
 
-    pub fn diameter(&self) -> f64 {
+    pub fn diameter(&self) -> usize {
         *self.distances.iter().map(|row| row.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap()).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap()
     }
 }

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::ActionsTaken, state::Cost};
+use crate::{iq_min_tree::ActionsTaken, state::{Cost, State, Action}};
 
 pub struct INTMinTree {
     root_data: INTStateData,
@@ -18,19 +18,19 @@ struct INTTransition {
 }
 
 impl INTMinTree {
-    pub fn new<S: INTState>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
+    pub fn new<S: State>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
         Self {
             root_data: INTStateData::new(root_predictions, cost, root),
             data: BTreeMap::new(),
         }
     }
 
-    pub fn replant<S: INTState>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
+    pub fn replant<S: State>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
         self.data.clear();
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S: INTState + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S) -> INTTransitions {
+    pub fn simulate_once<S: State + Cost + core::fmt::Display + __INTStateDiagnostic>(&self, s_i: &mut S) -> INTTransitions {
         let Self { root_data, data } = self;
         let mut __state_actions = s_i.__actions();
         __state_actions.sort();
@@ -38,7 +38,8 @@ impl INTMinTree {
         assert_eq!(__state_actions, root_data.__actions());
         assert_eq!(s_i.cost(), root_data.c_s);
         let a_1 = root_data.best_action();
-        s_i.act(a_1);
+        todo!();
+        // unsafe { s_i.act_unchecked(a_1) };
         let mut p_i = ActionsTaken::new(a_1);
         let mut transitions: Vec<INTTransition> = vec![];
         while !s_i.is_terminal() {
@@ -53,7 +54,8 @@ impl INTMinTree {
                     c_i: data.c_s,
                     a_i_plus_one,
                 });
-                s_i.act(a_i_plus_one);
+                todo!();
+                // s_i.act(a_i_plus_one);
                 p_i.push(a_i_plus_one);
             } else {
                 return INTTransitions {
@@ -75,7 +77,7 @@ impl INTMinTree {
         // }
     }
 
-    pub fn insert<S: INTState + core::fmt::Display>(
+    pub fn insert<S: State + core::fmt::Display>(
         &mut self,
         transitions: &INTTransitions,
         s_t: &S,
@@ -128,7 +130,7 @@ impl INTMinTree {
 pub trait INTState {
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
-    fn update_vec(&self, state_vec: &mut [f32]);
+    // fn update_vec(&self, state_vec: &mut [f32]);
     fn actions(&self) -> Vec<usize>;
 }
 
@@ -198,10 +200,10 @@ impl INTStateData {
         actions
     }
     
-    pub fn new<S: INTState>(predctions: &[f32], cost: f32, state: &S) -> Self {
+    pub fn new<S: State>(predctions: &[f32], cost: f32, state: &S) -> Self {
         let mut actions = state.actions().into_iter().map(|a| {
-            let p = predctions[a];
-            INTActionData::new(a, p)
+            let p = predctions[a.index()];
+            INTActionData::new(a.index(), p)
         }).collect::<Vec<_>>();
         actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
         Self {

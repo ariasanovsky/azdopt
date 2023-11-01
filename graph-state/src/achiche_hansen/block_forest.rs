@@ -1,7 +1,8 @@
 use core::marker::PhantomData;
 use std::{array::from_fn, collections::VecDeque};
 
-use super::{my_bitsets_to_refactor_later::B32, graph::{Neighborhoods, Tree}};
+use super::graph::Tree;
+use crate::{bitset::B32, simple_graph::neighborhoods::Neighborhoods};
 
 #[derive(Clone, Debug)]
 pub(crate) enum PartiallyExplored {}

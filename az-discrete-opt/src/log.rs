@@ -4,61 +4,71 @@ use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 
-use crate::{iq_min_tree::{ActionsTaken, Transitions}, int_min_tree::INTTransitions, state::Cost};
+use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Reset};
 
-pub struct CostLog {
-    p_star: ActionsTaken,
+pub struct CostLog<S> {
+    best_state: S,
     c_star: f32,
 }
 
-impl CostLog {
-    pub fn new(cost: f32) -> Self {
+impl<S> CostLog<S> {
+    pub fn new(cost: f32, s: &S) -> Self
+    where
+        S: Clone,
+    {
         Self {
-            p_star: ActionsTaken::empty(),
+            best_state: s.clone(),
             c_star: cost,
         }
     }
 
-    pub fn reset(&mut self, c_star: f32) {
-        self.p_star.clear();
-        self.c_star = c_star;
+    pub fn reset(&mut self, time: usize)
+    where
+        S: Reset,
+    {
+        self.best_state.reset(time);
     }
 
-    pub fn path(&self) -> &ActionsTaken {
-        &self.p_star
-    }
-
-    pub fn par_new_logs<const BATCH: usize, S: Cost + Sync>(s_t: &[S; BATCH]) -> [Self; BATCH] {
+    pub fn par_new_logs<const BATCH: usize>(
+        s_t: &[S; BATCH],
+        costs: &[f32; BATCH],
+    ) -> [Self; BATCH]
+    where
+        S: Sync + Clone,
+        Self: Send,
+    {
         let states = s_t.par_iter();
+        let costs = costs.par_iter();
         let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        logs.par_iter_mut().zip_eq(states).for_each(|(l, s)| {
-            l.write(Self::new(s.cost()));
+        logs.par_iter_mut().zip_eq(states.zip_eq(costs)).for_each(|(l, (s, cost))| {
+            l.write(Self::new(*cost, s));
         });
         unsafe { MaybeUninit::array_assume_init(logs) }
     }
 
-    pub fn update(&mut self, transitions: &INTTransitions, c_t: f32) {
-        let Self { 
-            p_star,
+    pub fn update(&mut self, s_t: S, c_t: f32) {
+        let Self {
+            best_state,
             c_star,
         } = self;
-        let p_t = transitions.last_path();
-        let cost_cmp = c_t.total_cmp(c_star);
-        let length_cmp = p_t.len().cmp(&p_star.len());
-        // prioritize cost, then length
-        match (cost_cmp, length_cmp) {
-            (core::cmp::Ordering::Less, _) => {
-                *c_star = c_t;
-                p_star.clone_from(p_t);
-                println!("c_star = {}", c_star);
-            }
-            (core::cmp::Ordering::Equal, core::cmp::Ordering::Less) => {
-                *c_star = c_t;
-                p_star.clone_from(p_t);
-                println!("c_star = {}", c_star);
-            }
-            _ => {}
-        }
+        todo!()
+        // let p_t = transitions.last_path();
+        // let cost_cmp = c_t.total_cmp(c_star);
+        // let length_cmp = p_t.len().cmp(&p_star.len());
+        // // prioritize cost, then length
+        // match (cost_cmp, length_cmp) {
+        //     (core::cmp::Ordering::Less, _) => {
+        //         *c_star = c_t;
+        //         p_star.clone_from(p_t);
+        //         println!("c_star = {}", c_star);
+        //     }
+        //     (core::cmp::Ordering::Equal, core::cmp::Ordering::Less) => {
+        //         *c_star = c_t;
+        //         p_star.clone_from(p_t);
+        //         println!("c_star = {}", c_star);
+        //     }
+        //     _ => {}
+        // }
     }
 }
 
