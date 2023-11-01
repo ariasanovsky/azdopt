@@ -8,9 +8,10 @@ use crate::bitset::B32;
 
 use super::{bitset_graph::BitsetGraph, edge::Edge};
 
+mod display;
 mod state;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConnectedBitsetGraph<const N: usize, B = B32> {
     pub(crate) neighborhoods: [B; N],
 }
@@ -87,7 +88,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         })
     }
 
-    pub fn action_types(&self) -> impl Iterator<Item = Option<ActionKind>> + '_ {
+    pub fn action_kinds(&self) -> impl Iterator<Item = Option<ActionKind>> + '_ {
         let Self { neighborhoods } = self;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).map(move |u| {

@@ -55,12 +55,16 @@ impl<S> CostLog<S> {
             c_star,
         } = self;
         // todo! tiebreakers
-        dbg!(c_t);
+        // dbg!(c_t);
         if c_t < *c_star {
             *c_star = c_t;
             best_state.clone_from(s_t);
             println!("new best state: {c_star}");
         }
+    }
+
+    pub fn best_state(&self) -> &S {
+        &self.best_state
     }
 }
 

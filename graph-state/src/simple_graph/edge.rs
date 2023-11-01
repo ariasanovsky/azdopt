@@ -1,13 +1,19 @@
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Edge {
     pub max: usize,
     pub min: usize,
 }
 
 impl Edge {
-    pub fn new(u: usize, v: usize) -> Self {
-        assert_ne!(u, v);
-        Self { max: u.max(v), min: u.min(v) }
+    pub const fn new(u: usize, v: usize) -> Self {
+        assert!(u != v);
+        // todo! stuck behind #![feature(const_trait_impl)]
+        // Self { max: u.max(v), min: u.min(v) }
+        if u > v {
+            Self { max: u, min: v }
+        } else {
+            Self { max: v, min: u }
+        }
     }
 
     pub const unsafe fn new_unchecked(max: usize, min: usize) -> Self {
@@ -32,6 +38,18 @@ impl Edge {
         let diff = max - min;
         last_pos - diff
     }
+
+    pub const fn from_colex_position(pos: usize) -> Self {
+        let mut v = 1;
+        loop {
+            let last_position = v * (v + 1) / 2;
+            if pos < last_position {
+                let diff = last_position - pos;
+                return Self::new(v, v - diff);
+            }
+            v += 1;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -43,6 +61,7 @@ mod test {
         let edges = (0..10).flat_map(|v| (0..v).map(move |u| Edge::new(v, u)));
         edges.enumerate().for_each(|(i, e)| {
             assert_eq!(e.colex_position(), i);
+            assert_eq!(Edge::from_colex_position(i), e);
         });
     }
 }

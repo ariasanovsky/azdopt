@@ -1,4 +1,4 @@
-use az_discrete_opt::state::{State, StateVec};
+use az_discrete_opt::state::{State, StateVec, ProhibitsActions};
 use itertools::Itertools;
 
 use crate::simple_graph::{bitset_graph::state::Action, edge::Edge};
@@ -8,6 +8,15 @@ use super::ConnectedBitsetGraph;
 impl<const N: usize> az_discrete_opt::state::Action<ConnectedBitsetGraph<N>> for Action {
     fn index(&self) -> usize {
         <Self as az_discrete_opt::state::Action<crate::simple_graph::bitset_graph::BitsetGraph<N>>>::index(self)
+    }
+
+    unsafe fn from_index_unchecked(index: usize) -> Self {
+        let e = N * (N - 1) / 2;
+        if index < e {
+            Self::Add(Edge::from_colex_position(index))
+        } else {
+            Self::Delete(Edge::from_colex_position(index - e))
+        }
     }
 }
 
@@ -21,9 +30,9 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
                 let e = unsafe { Edge::new_unchecked(v, u) };
                 if n.contains(u) {
                     if self.is_cut_edge(&e) {
-                        Some(Action::Delete(e))
-                    } else {
                         None
+                    } else {
+                        Some(Action::Delete(e))
                     }
                 }  else {
                     Some(Action::Add(e))
@@ -61,7 +70,7 @@ impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
 
     fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
         let (adds, deletes) = action_vec.split_at_mut(N * (N - 1) / 2);
-        self.action_types().zip_eq(adds).zip_eq(deletes).for_each(|((b, add), delete)| {
+        self.action_kinds().zip_eq(adds).zip_eq(deletes).for_each(|((b, add), delete)| {
             use crate::simple_graph::connected_bitset_graph::ActionKind;
             (*add, *delete) = match b {
                 Some(ActionKind::Add) => (1., 0.),
@@ -72,9 +81,27 @@ impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
     }
 }
 
+impl<const N: usize> ProhibitsActions for ConnectedBitsetGraph<N> {
+    type Action = Action;
+
+    unsafe fn update_prohibited_actions_unchecked(
+        &self,
+        actions: &mut std::collections::BTreeSet<usize>,
+        action: &Self::Action,
+    ) {
+        match action {
+            Action::Add(e) | Action::Delete(e) => {
+                actions.insert(e.colex_position());
+                actions.insert(e.colex_position() + N * (N - 1) / 2);
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::simple_graph::bitset_graph::BitsetGraph;
+    use super::*;
 
     #[test]
     fn c4_is_connected_and_has_no_cut_edges() {
@@ -109,5 +136,23 @@ mod test {
             i
         }).last().unwrap() + 1;
         assert_eq!(len, 4);
+    }
+
+    #[test]
+    fn complete_graph_on_four_vertices_has_all_possible_delete_actions() {
+        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)].as_ref().try_into().unwrap();
+        let graph = graph.to_connected().unwrap();
+        let actions = graph.actions().collect::<Vec<_>>();
+        assert_eq!(
+            actions,
+            vec![
+                Action::Delete(Edge::new(0, 1)),
+                Action::Delete(Edge::new(0, 2)),
+                Action::Delete(Edge::new(1, 2)),
+                Action::Delete(Edge::new(0, 3)),
+                Action::Delete(Edge::new(1, 3)),
+                Action::Delete(Edge::new(2, 3)),
+            ]
+        );
     }
 }

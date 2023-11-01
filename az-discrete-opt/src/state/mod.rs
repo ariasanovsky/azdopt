@@ -1,10 +1,12 @@
 use std::collections::BTreeSet;
 
+mod display;
+
 pub trait Cost {
     fn cost(&self) -> f32;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateNode<S, A = usize> {
     pub(crate) state: S,
     pub(crate) time: usize,
@@ -36,6 +38,7 @@ impl<S, A> StateNode<S, A> {
 
 pub trait Action<S> {
     fn index(&self) -> usize;
+    unsafe fn from_index_unchecked(index: usize) -> Self;
 }
 
 pub trait State: Sized {
@@ -47,9 +50,17 @@ pub trait State: Sized {
     unsafe fn act_unchecked(&mut self, action: &Self::Actions);
     fn act(&mut self, action: &Self::Actions)
     where
-        Self::Actions: Eq,
+        Self::Actions: Eq + core::fmt::Display,
+        Self: core::fmt::Display,
     {
-        assert!(self.has_action(action));
+        dbg!();
+        assert!(
+            self.has_action(action),
+            "action {} is not available in state {}",
+            action,
+            self,
+        );
+        dbg!();
         unsafe { self.act_unchecked(action) }
     }
     fn has_action(&self, action: &Self::Actions) -> bool
@@ -64,30 +75,90 @@ impl<T: State> Action<StateNode<T>> for T::Actions {
     fn index(&self) -> usize {
         <Self as Action<T>>::index(self)
     }
+
+    unsafe fn from_index_unchecked(index: usize) -> Self {
+        <Self as Action<T>>::from_index_unchecked(index)
+    }
 }
 
-impl<T: State> State for StateNode<T>
+pub trait ProhibitsActions {
+    type Action;
+    unsafe fn update_prohibited_actions_unchecked(
+        &self,
+        prohibited_actions: &mut BTreeSet<usize>,
+        action: &Self::Action,
+    );
+}
+
+impl<T> State for StateNode<T>
 where
+    T: State + ProhibitsActions<Action = <T as State>::Actions>,
     <T as State>::Actions: Action<T>,
 {
     type Actions = T::Actions;
 
     fn actions(&self) -> impl Iterator<Item = Self::Actions> {
-        self.state.actions().filter(|a| !self.prohibited_actions.contains(&a.index()))
+        if self.time == 0 {
+            None
+        } else {
+            Some(self.state.actions().filter(|a| !self.prohibited_actions.contains(&a.index())))
+        }.into_iter().flatten()
     }
 
     unsafe fn act_unchecked(&mut self, action: &Self::Actions) {
+        // dbg!();
         let Self {
             state,
             time,
             prohibited_actions,
         } = self;
-        todo!()
+        // dbg!();
+        state.act_unchecked(action);
+        state.update_prohibited_actions_unchecked(prohibited_actions, action);
+        *time -= 1;
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.actions().next().is_none()
+    }
+
+    fn act(&mut self, action: &Self::Actions)
+    where
+        Self::Actions: Eq + core::fmt::Display,
+        Self: core::fmt::Display,
+    {
+        // dbg!();
+        assert!(
+            self.has_action(action),
+            "action {} is not available in state {}",
+            action,
+            self,
+        );
+        // dbg!();
+        unsafe { self.act_unchecked(action) }
+    }
+
+    fn has_action(&self, action: &Self::Actions) -> bool
+    where
+        Self::Actions: Eq,
+    {
+        self.actions().any(|a| a.eq(action))
     }
 }
 
 pub trait Reset {
     fn reset(&mut self, time: usize);
+}
+
+impl<T> Reset for StateNode<T>
+where
+    T: State, // + Reset,
+{
+    fn reset(&mut self, time: usize) {
+        // self.state.reset(time);
+        self.time = time;
+        self.prohibited_actions.clear();
+    }
 }
 
 pub trait StateVec {

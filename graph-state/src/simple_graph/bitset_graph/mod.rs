@@ -7,9 +7,10 @@ use crate::bitset::B32;
 use super::edge::Edge;
 
 pub(crate) mod state;
+mod display;
 mod try_from;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BitsetGraph<const N: usize, B = B32> {
     pub(crate) neighborhoods: [B; N],
 }

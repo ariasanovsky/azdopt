@@ -4,7 +4,7 @@ use crate::simple_graph::edge::Edge;
 
 use super::BitsetGraph;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Action {
     Add(Edge),
     Delete(Edge),
@@ -22,6 +22,10 @@ impl<const N: usize> az_discrete_opt::state::Action<BitsetGraph<N>> for Action {
                 pos + (N * (N - 1) / 2)
             },
         }
+    }
+
+    unsafe fn from_index_unchecked(index: usize) -> Self {
+        todo!()
     }
 }
 

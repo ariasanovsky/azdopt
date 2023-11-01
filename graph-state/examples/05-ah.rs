@@ -5,12 +5,12 @@
 use core::mem::MaybeUninit;
 use std::array::from_fn;
 
-use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::{StateNode, StateVec}};
+use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::{StateNode, StateVec, Reset}};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::simple_graph::connected_bitset_graph::ConnectedBitsetGraph;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-const N: usize = 5;
+const N: usize = 31;
 const E: usize = N * (N - 1) / 2;
 type State = ConnectedBitsetGraph<N>;
 type Node = StateNode<State>;
@@ -109,9 +109,9 @@ fn main() {
             */
             let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut s_t);
             // todo! why is c_t unchanged? is s_t unchanged?
-            dbg!(&c_t);
+            // dbg!(&c_t);
             par_set_costs(&mut c_t, &s_t, &cost);
-            dbg!(&c_t);
+            // dbg!(&c_t);
             par_set_vecs(&mut v_t, &s_t);
             // panic!("{c_t:?}");
             par_update_logs(&mut logs, &s_t, &c_t);
@@ -175,10 +175,10 @@ fn main() {
         // is this correct management of the tape?
         core_model.zero_grads(&mut grads);
         
-        par_update_roots(&mut s_0, &logs, 5 * epoch);
+        par_reset_logs(&mut logs, &c_t, 5 * epoch);
+        par_update_roots(&mut s_0, &logs);
         par_set_vecs(&mut v_0, &s_0);
         par_set_costs(&mut c_t, &s_0, &cost);
-        par_reset_logs(&mut logs, &c_t);
         // todo!("update probs before replanting");
         // par_replant_forest(&mut trees, &probs, &c_t, &s_0);
     });
@@ -186,27 +186,29 @@ fn main() {
 
 type Trans = INTTransitions;
 
-fn par_update_roots<const BATCH: usize, S: Send + Sync>(
-    roots: &mut [Node; BATCH],
-    logs: &[CostLog<S>; BATCH],
-    time: usize,
+fn par_update_roots(
+    roots: &mut [Node],
+    logs: &[CostLog<Node>],
 ) {
-    todo!();
-    // let roots = roots.par_iter_mut();
-    // let logs = logs.par_iter();
-    // roots.zip_eq(logs).for_each(|(r, l)| {
-    //     todo!()
-    // });
+    // dbg!();
+    // todo!();
+    let roots = roots.par_iter_mut();
+    let logs = logs.par_iter();
+    roots.zip_eq(logs).for_each(|(r, l)| {
+        r.clone_from(l.best_state());
+        // r.reset(time);
+    });
 }
 
-fn par_reset_logs<const BATCH: usize, S: Send + Sync>(
-    logs: &mut [CostLog<S>; BATCH],
-    costs: &[f32; BATCH],
+fn par_reset_logs(
+    logs: &mut [CostLog<Node>],
+    costs: &[f32],
+    time: usize,
 ) {
-    todo!();
-    // let logs = logs.par_iter_mut();
-    // let costs = costs.par_iter();
-    // logs.zip_eq(costs).for_each(|(l, c)| l.reset(*c));
+    // todo!();
+    let logs = logs.par_iter_mut();
+    let costs = costs.par_iter();
+    logs.zip_eq(costs).for_each(|(l, c)| l.reset(time));
 }
 
 fn par_set_vecs(

@@ -32,7 +32,8 @@ impl INTMinTree {
 
     pub fn simulate_once<S>(&self, s_0: &mut S) -> INTTransitions
     where
-        S: State //+ Cost + core::fmt::Display + __INTStateDiagnostic
+        S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
+        S::Actions: Eq + core::fmt::Display,
     {
         let Self { root_data, data } = self;
         // let mut __state_actions = s_0.__actions();
@@ -40,27 +41,47 @@ impl INTMinTree {
         // dbg!();
         // assert_eq!(__state_actions, root_data.__actions());
         // assert_eq!(s_0.cost(), root_data.c_s);
+        // dbg!();
+        // println!("root = \n{s_0}");
+        // s_0.actions().for_each(|a| {
+        //     println!("a = {a}");
+        // });
         let a_1 = root_data.best_action();
+        let action_1 = unsafe { S::Actions::from_index_unchecked(a_1) };
+        // println!("a1, action_1 = {a_1}, {action_1}");
         // todo!();
-        // unsafe { s_i.act_unchecked(a_1) };
+        let s_i = s_0;
+        unsafe { s_i.act_unchecked(&action_1) };
         let mut p_i = ActionsTaken::new(a_1);
         let mut transitions: Vec<INTTransition> = vec![];
-        while !s_0.is_terminal() {
+        while !s_i.is_terminal() {
+            // dbg!();
+            // println!("s_i = {s_i}");
+            // s_i.actions().for_each(|a| {
+            //     println!("a = {a}");
+            // });
             if let Some(data) = data.get(&p_i) {
                 // assert_eq!(s_0.cost(), data.c_s);
                 // let mut __state_actions = s_0.__actions();
                 // __state_actions.sort();
                 // assert_eq!(__state_actions, data.__actions());
                 let a_i_plus_one = data.best_action();
+                // dbg!(a_i_plus_one);
                 transitions.push(INTTransition {
                     p_i: p_i.clone(),
                     c_i: data.c_s,
                     a_i_plus_one,
                 });
-                // todo!();
-                // s_i.act(a_i_plus_one);
+                let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
+                // println!("a_i_plus_one, action_i = {a_i_plus_one}, {action_i_plus_1}");
+                // dbg!();
+                s_i.act(&action_i_plus_1);
+                // dbg!();
+                // dbg!();
                 p_i.push(a_i_plus_one);
+                // dbg!();
             } else {
+                // dbg!();
                 return INTTransitions {
                     a_1,
                     transitions,
@@ -68,6 +89,7 @@ impl INTMinTree {
                 }
             }
         }
+        // dbg!();
         INTTransitions {
             a_1,
             transitions,
@@ -88,12 +110,20 @@ impl INTMinTree {
         prob_s_t: &[f32],
     )
     where
-        S: State, // + core::fmt::Display,
+        S: State + core::fmt::Display,
+        S::Actions: core::fmt::Display,
     {
+        // dbg!();
+        // println!("inserting s_t = {s_t}\nwhich has actions:");
+        // s_t.actions().for_each(|a| {
+        //     println!("a = {a}");
+        // });
         let Self { root_data: _, data } = self;
         let p_t = transitions.last_path();
         let state_data = INTStateData::new(prob_s_t, c_t, s_t);
+        // dbg!(&state_data);
         data.insert(p_t.clone(), state_data);
+        // panic!();
     }
 
     pub fn update(

@@ -1,6 +1,8 @@
 use bit_iter::BitIter;
 
-#[derive(Clone, PartialEq, Eq)]
+mod display;
+
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct B32 {
     bits: u32,
 }
@@ -17,14 +19,6 @@ impl TryFrom<&[usize]> for B32 {
             bits |= 1 << n;
         }
         Ok(Self::new(bits))
-    }
-}
-
-impl core::fmt::Display for B32 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[")?;
-        self.iter().try_for_each(|n| write!(f, "{}, ", n))?;
-        write!(f, "]")
     }
 }
 
@@ -94,7 +88,7 @@ impl B32 {
         self.bits |= 1 << n;
     }
 
-    pub fn iter(&self) -> BitIter<u32> {
+    pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         BitIter::from(self.bits)
     }
 }
