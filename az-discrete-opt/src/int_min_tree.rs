@@ -227,7 +227,7 @@ impl INTStateData {
             probs[a.a] = n_sa / n_s;
             value += q_sa;
         });
-        values[0] = value;
+        values[0] = value / n_s;
     }
     
     fn __actions(&self) -> Vec<usize> {
@@ -237,8 +237,9 @@ impl INTStateData {
     }
     
     pub fn new<S: State>(predctions: &[f32], cost: f32, state: &S) -> Self {
+        let p_sum = state.actions().map(|a| predctions[a.index()]).sum::<f32>();
         let mut actions = state.actions().into_iter().map(|a| {
-            let p = predctions[a.index()];
+            let p = predctions[a.index()] / p_sum;
             INTActionData::new(a.index(), p)
         }).collect::<Vec<_>>();
         actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
@@ -255,6 +256,10 @@ impl INTStateData {
             c_s: _,
             actions,
         } = self;
+        // if self.n_s > 4 {
+        //     dbg!(actions);
+        //     panic!();
+        // }
         actions[0].a
     }
 
@@ -300,8 +305,8 @@ struct INTActionData {
     u_sa: f32,    
 }
 
-const C_PUCT_0: f32 = 1.0;
-const C_PUCT: f32 = 1.0;
+const C_PUCT_0: f32 = 10.0;
+const C_PUCT: f32 = 10.0;
 
 impl INTActionData {
     pub(crate) fn new(a: usize, p_a: f32) -> Self {
@@ -334,7 +339,7 @@ impl INTActionData {
             g_sa_sum,
             u_sa,
         } = self;
-        let n_sa = *n_sa as f32;
+        let n_sa = (*n_sa).max(1) as f32;
         let q_sa = *g_sa_sum / n_sa;
         let n_s = n_s as f32;
         let p_sa = *p_sa;

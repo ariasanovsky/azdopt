@@ -10,7 +10,7 @@ use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace}
 use graph_state::simple_graph::connected_bitset_graph::ConnectedBitsetGraph;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-const N: usize = 31;
+const N: usize = 25;
 const E: usize = N * (N - 1) / 2;
 type State = ConnectedBitsetGraph<N>;
 type Node = StateNode<State>;
@@ -19,10 +19,10 @@ const ACTION: usize = 2 * E;
 const STATE: usize = E + ACTION + 1;
 type StateVector = [f32; STATE];
 
-const BATCH: usize = 32;
+const BATCH: usize = 1;
 
-const HIDDEN_1: usize = 1280;
-const HIDDEN_2: usize = 1024;
+const HIDDEN_1: usize = 256;
+const HIDDEN_2: usize = 128;
 
 type Core = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -44,7 +44,7 @@ type Tree = INTMinTree;
 
 fn main() {
     const EPOCH: usize = 30;
-    const EPISODES: usize = 1_000;
+    const EPISODES: usize = 4_000;
 
     let dev = AutoDevice::default();
     let mut core_model = dev.build_module::<Core, f32>();
@@ -76,10 +76,11 @@ fn main() {
     // roots change across epochs
     let mut s_0 = from_fn(|_| {
         let mut rng = rand::thread_rng();
-        StateNode::new(ConnectedBitsetGraph::generate(0.5, &mut rng), 5)
+        StateNode::new(ConnectedBitsetGraph::generate(0.1, &mut rng), 10)
     });
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
+    // let cost = |s: &Node| s.state().num_edges() as f32;
     let cost = |s: &Node| s.state().ah_cost();
     (1..=EPOCH).for_each(|epoch| {
         println!("==== EPOCH {epoch} ====");
@@ -98,7 +99,7 @@ fn main() {
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
-            if episode % 500 == 0 {
+            if episode % 100 == 0 {
                 println!("==== EPISODE {episode} ====");
             }
             // states change during episodes
@@ -175,7 +176,7 @@ fn main() {
         // is this correct management of the tape?
         core_model.zero_grads(&mut grads);
         
-        par_reset_logs(&mut logs, &c_t, 5 * epoch);
+        par_reset_logs(&mut logs, &c_t, 5 * (epoch + 1));
         par_update_roots(&mut s_0, &logs);
         par_set_vecs(&mut v_0, &s_0);
         par_set_costs(&mut c_t, &s_0, &cost);

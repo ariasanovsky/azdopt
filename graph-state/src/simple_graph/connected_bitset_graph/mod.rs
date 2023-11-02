@@ -81,6 +81,13 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         })
     }
 
+    pub fn num_edges(&self) -> u32 {
+        let Self {
+            neighborhoods,
+        } = self;
+        neighborhoods.iter().map(|n| n.cardinality()).sum::<u32>() / 2
+    }
+
     pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
         let Self { neighborhoods } = self;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
