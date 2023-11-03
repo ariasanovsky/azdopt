@@ -10,7 +10,7 @@ use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace}
 use graph_state::simple_graph::connected_bitset_graph::ConnectedBitsetGraph;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
 
-const N: usize = 25;
+const N: usize = 31;
 const E: usize = N * (N - 1) / 2;
 type State = ConnectedBitsetGraph<N>;
 type Node = StateNode<State>;
@@ -43,8 +43,8 @@ type Valuation = (
 type Tree = INTMinTree;
 
 fn main() {
-    const EPOCH: usize = 30;
-    const EPISODES: usize = 4_000;
+    const EPOCH: usize = 100;
+    const EPISODES: usize = 1_000;
 
     let dev = AutoDevice::default();
     let mut core_model = dev.build_module::<Core, f32>();
@@ -76,14 +76,14 @@ fn main() {
     // roots change across epochs
     let mut s_0 = from_fn(|_| {
         let mut rng = rand::thread_rng();
-        StateNode::new(ConnectedBitsetGraph::generate(0.1, &mut rng), 10)
+        StateNode::new(ConnectedBitsetGraph::generate(0.4, &mut rng), 30)
     });
     let mut all_losses: Vec<(f32, f32)> = vec![];
 
     // let cost = |s: &Node| s.state().num_edges() as f32;
     let cost = |s: &Node| s.state().ah_cost();
     (1..=EPOCH).for_each(|epoch| {
-        println!("==== EPOCH {epoch} ====");
+        // println!("==== EPOCH {epoch} ====");
         // todo! refactor without outparam
         let mut c_t: [f32; BATCH] = [0.0f32; BATCH];
         par_set_costs(&mut c_t, &s_0, &cost);
@@ -97,10 +97,12 @@ fn main() {
         let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &c_t, &s_0);
         let mut logs: [CostLog<Node>; BATCH] = CostLog::par_new_logs(&s_0, &c_t);
         
+        println!("{}", logs[0].best_state().state().to_graph6().iter().map(|&b| b as char).collect::<String>());
+        
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
             if episode % 100 == 0 {
-                println!("==== EPISODE {episode} ====");
+                // println!("==== EPISODE {episode} ====");
             }
             // states change during episodes
             let mut s_t: [Node; BATCH] = s_0.clone();
@@ -171,12 +173,12 @@ fn main() {
 
 
         all_losses.push((entropy, mse));
-        println!("{all_losses:?}");
+        // println!("{all_losses:?}");
         opt.update(&mut core_model, &grads).expect("optimizer failed");
         // is this correct management of the tape?
         core_model.zero_grads(&mut grads);
         
-        par_reset_logs(&mut logs, &c_t, 5 * (epoch + 1));
+        par_reset_logs(&mut logs, &c_t, 30);
         par_update_roots(&mut s_0, &logs);
         par_set_vecs(&mut v_0, &s_0);
         par_set_costs(&mut c_t, &s_0, &cost);

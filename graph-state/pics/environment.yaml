@@ -1,0 +1,8 @@
+name: graphenv
+channels:
+  - defaults
+dependencies:
+  - python
+  - networkx
+  - matplotlib
+  - imageio

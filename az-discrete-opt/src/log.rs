@@ -59,7 +59,7 @@ impl<S> CostLog<S> {
         if c_t < *c_star {
             *c_star = c_t;
             best_state.clone_from(s_t);
-            println!("new best state: {c_star}");
+            // println!("new best state: {c_star}");
         }
     }
 

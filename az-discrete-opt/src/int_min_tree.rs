@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::ActionsTaken, state::{Cost, State, Action}};
+use crate::{iq_min_tree::ActionsTaken, state::{State, Action}};
 
 pub struct INTMinTree {
     root_data: INTStateData,

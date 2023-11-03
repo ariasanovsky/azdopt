@@ -8,6 +8,7 @@ use super::edge::Edge;
 
 pub(crate) mod state;
 mod display;
+mod graph6;
 mod try_from;
 
 #[derive(Clone, Debug)]
@@ -82,6 +83,13 @@ impl<const N: usize> BitsetGraph<N> {
                     None
                 }
             })
+        })
+    }
+
+    pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
+        let Self { neighborhoods } = self;
+        neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
+            (0..v).map(move |u| n.contains(u))
         })
     }
 }

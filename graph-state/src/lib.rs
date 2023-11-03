@@ -6,7 +6,7 @@
 pub mod bitset;
 pub mod simple_graph;
 pub mod ramsey_state;
-// pub mod achiche_hansen;
+pub mod achiche_hansen;
 
 // todo! we are hard-coding N = 17 to get the R(4, 4) example working
 
@@ -110,34 +110,32 @@ pub struct CliqueCounts(pub [[i32; E]; 2]);
 // }
 
 // borrorwed from faer: https://github.com/sarah-ek/pulp/blob/17902ba463667a02e21a509b1b94ccbf62c4e75f/src/lib.rs#L1297-L1346
-#[doc(hidden)]
-pub struct CheckFirstChooseTwoEqualsSecond<const N: usize, const E: usize>(core::marker::PhantomData<([(); N], [(); E])>);
-impl<const N: usize, const E: usize> CheckFirstChooseTwoEqualsSecond<N, E> {
-    pub const VALID: () = {
-        assert!(N * (N - 1) / 2 == E);
-        ()
-    };
-}
+// #[doc(hidden)]
+// pub struct CheckFirstChooseTwoEqualsSecond<const N: usize, const E: usize>(core::marker::PhantomData<([(); N], [(); E])>);
+// impl<const N: usize, const E: usize> CheckFirstChooseTwoEqualsSecond<N, E> {
+//     pub const VALID: () = {
+//         assert!(N * (N - 1) / 2 == E);
+//     };
+// }
 
-#[macro_export]
-macro_rules! static_assert_first_choose_two_equals_second {
-    ($n: expr, $e: expr) => {
-        const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $e>::VALID;
-    };
-}
+// #[macro_export]
+// macro_rules! static_assert_first_choose_two_equals_second {
+//     ($n: expr, $e: expr) => {
+//         const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $e>::VALID;
+//     };
+// }
 
-#[doc(hidden)]
-pub struct CheckFirstTimesThreePlusOneEqualsSecond<const E: usize, const STATE: usize>(core::marker::PhantomData<([(); E], [(); STATE])>);
-impl<const E: usize, const STATE: usize> CheckFirstTimesThreePlusOneEqualsSecond<E, STATE> {
-    pub const VALID: () = {
-        assert!(3 * E + 1 == STATE);
-        ()
-    };
-}
+// #[doc(hidden)]
+// pub struct CheckFirstTimesThreePlusOneEqualsSecond<const E: usize, const STATE: usize>(core::marker::PhantomData<([(); E], [(); STATE])>);
+// impl<const E: usize, const STATE: usize> CheckFirstTimesThreePlusOneEqualsSecond<E, STATE> {
+//     pub const VALID: () = {
+//         assert!(3 * E + 1 == STATE);
+//     };
+// }
 
-#[macro_export]
-macro_rules! static_assert_first_times_three_plus_one_equals_second {
-    ($n: expr, $s: expr) => {
-        const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $s>::VALID;
-    };
-}
+// #[macro_export]
+// macro_rules! static_assert_first_times_three_plus_one_equals_second {
+//     ($n: expr, $s: expr) => {
+//         const _: () = $crate::CheckFirstChooseTwoEqualsSecond::<$n, $s>::VALID;
+//     };
+// }

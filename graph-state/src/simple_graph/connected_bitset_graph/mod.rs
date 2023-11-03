@@ -9,6 +9,7 @@ use crate::bitset::B32;
 use super::{bitset_graph::BitsetGraph, edge::Edge};
 
 mod display;
+mod graph6;
 mod state;
 
 #[derive(Clone, Debug)]

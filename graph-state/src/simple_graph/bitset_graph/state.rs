@@ -25,7 +25,12 @@ impl<const N: usize> az_discrete_opt::state::Action<BitsetGraph<N>> for Action {
     }
 
     unsafe fn from_index_unchecked(index: usize) -> Self {
-        todo!()
+        let e = N * (N - 1) / 2;
+        if index < e {
+            Self::Add(Edge::from_colex_position(index))
+        } else {
+            Self::Delete(Edge::from_colex_position(index - e))
+        }
     }
 }
 
