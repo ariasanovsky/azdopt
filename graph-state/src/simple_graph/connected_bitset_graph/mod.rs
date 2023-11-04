@@ -147,4 +147,8 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         eigs.reverse();
         (proximity + eigs[k]) as f32
     }
+
+    pub fn conjecture_2_1_cost(&self) -> f32 {
+        todo!()
+    }
 }

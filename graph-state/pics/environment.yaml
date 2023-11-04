@@ -6,3 +6,4 @@ dependencies:
   - networkx
   - matplotlib
   - imageio
+  - msgpack-python

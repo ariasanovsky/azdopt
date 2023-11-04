@@ -1,4 +1,6 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, mem::MaybeUninit};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator};
+
 // use core::num::NonZeroUsize;
 use crate::{iq_min_tree::ActionsTaken, state::{State, Action}};
 
@@ -23,6 +25,22 @@ impl INTMinTree {
             root_data: INTStateData::new(root_predictions, cost, root),
             data: BTreeMap::new(),
         }
+    }
+
+    pub fn par_new_trees<S: State, const N: usize, const A: usize>(
+        root_predictions: &[[f32; A]; N],
+        costs: &[f32; N],
+        roots: &[S; N],
+    ) -> [Self; N]
+    where
+        S: Send + Sync + Clone,
+        Self: Send,
+    {
+        let mut trees: [MaybeUninit<Self>; N] = MaybeUninit::uninit_array();
+        (&mut trees, root_predictions, costs, roots).into_par_iter().for_each(|(t, root_predictions, costs, root)| {
+            t.write(Self::new(root_predictions, *costs, root));
+        });
+        unsafe { MaybeUninit::array_assume_init(trees) }
     }
 
     pub fn replant<S: State>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
@@ -100,6 +118,25 @@ impl INTMinTree {
         //     transitions,
         //     end: INTSearchEnd::Unvisited { state_path },
         // }
+    }
+
+    pub fn par_simulate_once<S, const N: usize>(
+        trees: &[Self; N],
+        s_0: &mut [S; N],
+    ) -> [INTTransitions; N]
+    where
+        S: Send + core::fmt::Display + core::fmt::Debug + State,
+        S::Actions: Eq + core::fmt::Display,
+        // S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
+        // S::Actions: Eq + core::fmt::Display,
+    {
+        let mut trans: [MaybeUninit<INTTransitions>; N] = MaybeUninit::uninit_array();
+        // let foo = trees.par_iter();
+        // let bar = s_0.par_iter_mut();
+        (&mut trans, trees, s_0).into_par_iter().for_each(|(trans, t, s)| {
+            trans.write(t.simulate_once(s));
+        });
+        todo!()
     }
 
     pub fn insert<S>(

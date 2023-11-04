@@ -8,7 +8,7 @@ use std::array::from_fn;
 use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::{StateNode, StateVec, Reset}};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::simple_graph::connected_bitset_graph::ConnectedBitsetGraph;
-use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator, IntoParallelIterator};
 
 const N: usize = 31;
 const E: usize = N * (N - 1) / 2;
@@ -61,7 +61,7 @@ fn main() {
     );
     
     // we initialize tensors to 0 and fill them as needed, minimizing allocations
-    let mut v_0_tensor: Tensor<Rank2<BATCH, STATE>, _, _> = dev.zeros();
+    let mut v_t_tensor: Tensor<Rank2<BATCH, STATE>, _, _> = dev.zeros();
     let mut prediction_tensor: Tensor<Rank2<BATCH, HIDDEN_2>, _, _> = dev.zeros();
     let mut probs_tensor: Tensor<Rank2<BATCH, ACTION>, _, _> = dev.zeros();
     let mut observed_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, _, _> = dev.zeros();
@@ -90,8 +90,8 @@ fn main() {
         let mut v_0 = from_fn(|_| [0.0f32; STATE]);
         par_set_vecs(&mut v_0, &s_0);
         
-        v_0_tensor.copy_from(&v_0.flatten());
-        prediction_tensor = core_model.forward(v_0_tensor.clone());
+        v_t_tensor.copy_from(&v_0.flatten());
+        prediction_tensor = core_model.forward(v_t_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &c_t, &s_0);
@@ -118,8 +118,8 @@ fn main() {
             par_set_vecs(&mut v_t, &s_t);
             // panic!("{c_t:?}");
             par_update_logs(&mut logs, &s_t, &c_t);
-            v_0_tensor.copy_from(&v_t.flatten());
-            let prediction_tensor = core_model.forward(v_0_tensor.clone());
+            v_t_tensor.copy_from(v_t.flatten());
+            let prediction_tensor = core_model.forward(v_t_tensor.clone());
             let probs = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>().array();
             let values = value_model.forward(prediction_tensor.clone()).array();
             /* the end state is either:
@@ -135,8 +135,8 @@ fn main() {
         let mut values: [[f32; 1]; BATCH] = [[0.0f32; 1]; BATCH];
         par_set_observations(&trees, &mut probs, &mut values);
         // dbg!(&values);
-        observed_probabilities_tensor.copy_from(&probs.flatten());
-        observed_values_tensor.copy_from(&values.flatten());
+        observed_probabilities_tensor.copy_from(probs.flatten());
+        observed_values_tensor.copy_from(values.flatten());
         
         // todo! retry this `optimizer failed: UnusedParams(UnusedTensors { ids: [UniqueId(0), UniqueId(1), UniqueId(2), UniqueId(3)] })`
         // // pass the root state vector into the core model
@@ -260,15 +260,9 @@ fn par_insert_new_states<const BATCH: usize>(
     probs_t: &[ActionVec; BATCH],
     
 ) {
-    let trees = tree.par_iter_mut();
-    let trans = trans.par_iter();
-    let s_t = s_t.par_iter();
-    let c_t = c_t.par_iter();
-    let probs = probs_t.par_iter();
-    trees.zip_eq(trans).zip_eq(s_t).zip_eq(c_t).zip_eq(probs).for_each(|((((t, trans), s), c), p)| {
-        // todo!();
+    (tree, trans, s_t, c_t, probs_t).into_par_iter().for_each(|(t, trans, s, c, p)| {
         t.insert(trans, s, *c, p)
-    });
+    })
 }
 
 fn par_update_state_data<const BATCH: usize>(
@@ -277,13 +271,9 @@ fn par_update_state_data<const BATCH: usize>(
     last_calculated_costs: &[f32; BATCH],
     values: &[[f32; 1]; BATCH],
 ) {
-    let trees = trees.par_iter_mut();
-    let trans = trans.par_iter();
-    let costs = last_calculated_costs.par_iter();
-    let values = values.par_iter();
-    trees.zip_eq(trans).zip_eq(costs).zip_eq(values).for_each(|(((t, trans), c), v)| {
+    (trees, trans, last_calculated_costs, values).into_par_iter().for_each(|(t, trans, c, v)| {
         t.update(trans, *c, v)
-    });
+    })
 }
 
 type ActionVec = [f32; ACTION];
@@ -293,25 +283,18 @@ fn par_update_logs(
     s_t: &[Node],
     c_t: &[f32],
 ) {
-    let logs = logs.par_iter_mut();
-    let s_t = s_t.par_iter();
-    let c_t = c_t.par_iter();
-    logs.zip_eq(s_t).zip_eq(c_t).for_each(|((l, t), c)| {
-        // todo!();
-        l.update(t, *c)
-    });
+    (logs, s_t, c_t).into_par_iter().for_each(|(l, s, c)| {
+        l.update(s, *c)
+    })
 }
 
 fn par_simulate_forest_once<const BATCH: usize>(
     trees: &[Tree; BATCH],
     s_0: &mut [Node; BATCH],
 ) -> [Trans; BATCH] {
-    let trees = trees.par_iter();
-    let states = s_0.par_iter_mut();
     let mut trans: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
-    trees.zip_eq(states).zip_eq(trans.par_iter_mut()).for_each(|((tree, s), trans)| {
-        // todo!();
-        trans.write(tree.simulate_once(s));
+    (&mut trans, trees, s_0).into_par_iter().for_each(|(t, tree, s)| {
+        t.write(tree.simulate_once(s));
     });
     unsafe { MaybeUninit::array_assume_init(trans) }
 }
@@ -322,12 +305,8 @@ fn par_plant_forest<const BATCH: usize>(
     roots: &[Node; BATCH],
 ) -> [Tree; BATCH] {
     let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-    let predictions = root_predictions.par_iter();
-    let costs = costs.par_iter();
-    let roots = roots.par_iter();
-    trees.par_iter_mut().zip_eq(costs).zip_eq(predictions).zip_eq(roots).for_each(|(((tree, cost), prediction), root)| {
-        // todo!();
-        tree.write(INTMinTree::new(prediction, *cost, root));
+    (&mut trees, root_predictions, costs, roots).into_par_iter().for_each(|(t, p, c, r)| {
+        t.write(INTMinTree::new(p, *c, r));
     });
     unsafe { MaybeUninit::array_assume_init(trees) }
 }

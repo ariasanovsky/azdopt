@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 
 use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator, IntoParallelIterator,
 };
 
 use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Reset};
@@ -37,10 +37,8 @@ impl<S> CostLog<S> {
         S: Sync + Clone,
         Self: Send,
     {
-        let states = s_t.par_iter();
-        let costs = costs.par_iter();
         let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        logs.par_iter_mut().zip_eq(states.zip_eq(costs)).for_each(|(l, (s, cost))| {
+        (&mut logs, s_t, costs).into_par_iter().for_each(|(l, s, cost)| {
             l.write(Self::new(*cost, s));
         });
         unsafe { MaybeUninit::array_assume_init(logs) }
