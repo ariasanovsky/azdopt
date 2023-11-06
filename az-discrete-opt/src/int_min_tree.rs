@@ -136,7 +136,7 @@ impl INTMinTree {
         (&mut trans, trees, s_0).into_par_iter().for_each(|(trans, t, s)| {
             trans.write(t.simulate_once(s));
         });
-        todo!()
+        unsafe { MaybeUninit::array_assume_init(trans) }
     }
 
     pub fn insert<S>(

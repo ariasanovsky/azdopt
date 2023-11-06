@@ -1,4 +1,5 @@
 use core::mem::MaybeUninit;
+use std::collections::VecDeque;
 
 use az_discrete_opt::state::StateNode;
 use faer::{Mat, Faer};
@@ -148,7 +149,94 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         (proximity + eigs[k]) as f32
     }
 
+    pub fn adjacency_matrix(&self) -> Mat<f64> {
+        let mut a = Mat::zeros(N, N);
+        for (v, n) in self.neighborhoods.iter().enumerate() {
+            for u in n.iter() {
+                a[(v, u)] = 1.0;
+            }
+        }
+        a
+    }
+
+    pub fn matching_number(&self) -> usize {
+        struct MatchingSearch {
+            edges: Vec<Edge>,
+            unvisited_vertices: B32,
+        }
+        if N == 0 {
+            return 0;
+        }
+        let first_matching = MatchingSearch {
+            edges: Vec::new(),
+            unvisited_vertices: B32::range_to_unchecked(N),
+        };
+        let mut matching_queue = VecDeque::new();
+        matching_queue.push_back(first_matching);
+        let mut best_matching = 0;
+        while let Some(matching) = matching_queue.pop_back() {
+            let MatchingSearch {
+                edges,
+                mut unvisited_vertices,
+            } = matching;
+
+            // exponential without this check
+            let max_future_increase = unvisited_vertices.cardinality() / 2;
+            if edges.len() + max_future_increase as usize <= best_matching {
+                continue;
+            }
+            
+            let next_v = unvisited_vertices.max_unchecked();
+            unvisited_vertices.add_or_remove_unchecked(next_v);
+            for next_u in self.neighborhoods[next_v].intersection(&unvisited_vertices).iter() {
+                let mut new_edges = edges.clone();
+                let new_edge = unsafe { Edge::new_unchecked(next_u, next_u) };
+                new_edges.push(new_edge);
+                best_matching = best_matching.max(new_edges.len());
+                let mut new_unvisited_vertices = unvisited_vertices.clone();
+                new_unvisited_vertices.add_or_remove_unchecked(next_u);
+                if !new_unvisited_vertices.is_empty() {
+                    matching_queue.push_back(MatchingSearch {
+                        edges: new_edges,
+                        unvisited_vertices: new_unvisited_vertices,
+                    });
+                }
+            }
+            if !unvisited_vertices.is_empty() {
+                matching_queue.push_back(MatchingSearch {
+                    edges,
+                    unvisited_vertices,
+                });
+            }
+        }
+        best_matching
+    }
+
     pub fn conjecture_2_1_cost(&self) -> f32 {
-        todo!()
+        let eigs = self.adjacency_matrix().selfadjoint_eigenvalues(faer::Side::Lower);
+        let lambda_1 = eigs.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        let mu = self.matching_number();
+        let cost = lambda_1 + mu as f64;
+        cost as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn complete_graph_on_four_vertices_has_matching_number_two() {
+        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)].as_ref().try_into().unwrap();
+        let graph = graph.to_connected().unwrap();
+        assert_eq!(graph.matching_number(), 2);
+    }
+
+    #[test]
+    fn cycle_graph_on_five_vertices_has_matching_number_two() {
+        let graph: BitsetGraph<5> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)].as_ref().try_into().unwrap();
+        let graph = graph.to_connected().unwrap();
+        assert_eq!(graph.matching_number(), 2);
     }
 }

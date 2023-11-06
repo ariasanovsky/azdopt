@@ -39,7 +39,7 @@ impl B32 {
         self.bits.count_ones()
     }
 
-    pub const fn range_to(n: usize) -> Self {
+    pub const fn range_to_unchecked(n: usize) -> Self {
         let _: () = assert!(n <= 31);
         Self::new((1 << n) - 1)
     }
@@ -64,7 +64,7 @@ impl B32 {
         Self::new(self.bits ^ other.bits)
     }
 
-    pub fn max_unchecked(&self) -> usize {
+    pub const fn max_unchecked(&self) -> usize {
         31 - self.bits.leading_zeros() as usize
     }
 

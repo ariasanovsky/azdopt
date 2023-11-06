@@ -4,29 +4,45 @@ use rayon::prelude::{
     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator, IntoParallelIterator,
 };
 
-use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::Reset};
+use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::StateNode};
 
-pub struct CostLog<S> {
-    best_state: S,
-    c_star: f32,
+pub struct SimpleRootLog<S> {
+    next_root: S,
+    root_cost: f32,
+    duration: usize,
+    stagnation: Option<usize>,
+    short_data: Vec<ShortRootData>,
 }
 
-impl<S> CostLog<S> {
+impl<S> SimpleRootLog<S> {
     pub fn new(cost: f32, s: &S) -> Self
     where
         S: Clone,
     {
         Self {
-            best_state: s.clone(),
-            c_star: cost,
+            next_root: s.clone(),
+            root_cost: cost,
+            duration: 0,
+            stagnation: Some(0),
+            short_data: vec![],
         }
     }
 
-    pub fn reset(&mut self, time: usize)
-    where
-        S: Reset,
-    {
-        self.best_state.reset(time);
+    pub fn stagnation(&self) -> Option<usize> {
+        self.stagnation
+    }
+
+    pub fn increment_stagnation(&mut self) {
+        self.stagnation.as_mut().map(|s| *s += 1);
+    }
+
+    // todo! make private
+    pub fn zero_stagnation(&mut self) {
+        self.stagnation = Some(0);
+    }
+
+    pub fn empty_stagnation(&mut self) {
+        self.stagnation = None;
     }
 
     pub fn par_new_logs<const BATCH: usize>(
@@ -46,23 +62,108 @@ impl<S> CostLog<S> {
 
     pub fn update(&mut self, s_t: &S, c_t: f32)
     where
-        S: Clone,
+        S: Clone + ShortForm,
     {
         let Self {
-            best_state,
-            c_star,
+            next_root,
+            root_cost,
+            duration,
+            stagnation,
+            short_data,
         } = self;
+        // todo!("what to do with stagnation?");
         // todo! tiebreakers
         // dbg!(c_t);
-        if c_t < *c_star {
-            *c_star = c_t;
-            best_state.clone_from(s_t);
+        if c_t < *root_cost {
+            let old_short_data = ShortRootData {
+                short_form: next_root.short_form(),
+                cost: *root_cost,
+                duration: *duration,
+            };
+            short_data.push(old_short_data);
+            *root_cost = c_t;
+            next_root.clone_from(s_t);
+            *duration = 1;
+            *stagnation = None;
             // println!("new best state: {c_star}");
+        } else {
+            *duration += 1;
         }
     }
 
-    pub fn best_state(&self) -> &S {
-        &self.best_state
+    pub fn reset_root(&mut self, s: &S, cost: f32)
+    where
+        S: Clone,
+    {
+        self.next_root.clone_from(s);
+        self.root_cost = cost;
+        self.zero_stagnation();
+        todo!("what to do with the logged data?")
+    }
+    
+    pub fn next_root(&self) -> &S {
+        &self.next_root
+    }
+
+    pub fn next_root_mut(&mut self) -> &mut S {
+        &mut self.next_root
+    }
+
+    pub fn root_cost(&self) -> f32 {
+        self.root_cost
+    }
+
+    pub fn zero_duration(&mut self) {
+        self.duration = 0;
+    }
+
+    pub fn empty_root_data(&mut self, other: &mut Vec<ShortRootData>)
+    where
+        S: ShortForm,
+    {
+        let short_data = ShortRootData {
+            short_form: self.next_root.short_form(),
+            cost: self.root_cost,
+            duration: self.duration,
+        };
+        other.extend(self.short_data.drain(..).chain(core::iter::once(short_data)));
+    }
+}
+
+pub trait ShortForm {
+    fn short_form(&self) -> String;
+}
+
+impl<T: ShortForm> ShortForm for StateNode<T> {
+    fn short_form(&self) -> String {
+        let Self {
+            state,
+            time: _,
+            prohibited_actions: _,
+        } = &self;
+        state.short_form()
+    }
+}
+
+// #[derive(Debug)]
+pub struct ShortRootData {
+    short_form: String,
+    cost: f32,
+    duration: usize,
+}
+
+impl core::fmt::Debug for ShortRootData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            short_form,
+            cost,
+            duration,
+        } = self;
+        f.debug_struct("")
+            .field("\"short_form\"", &short_form)
+            .field("\"cost\"", &cost)
+            .field("\"duration\"", &duration)
+            .finish()
     }
 }
 

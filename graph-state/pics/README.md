@@ -8,13 +8,21 @@ conda env create -f environment.yaml
 # source ~/.bashrc
 ```
 
-## Activate environment environment
+## Activate environment
 
 ```bash
 conda activate graphenv
 ```
 
-## Run program
-```bash
+## Reinstall after updating environment
 
+```bash
+conda deactivate
+conda env update --file environment.yaml --prune
+```
+
+## Run program
+
+```bash
+python plot_graphs.py [DIR_NAME]
 ```

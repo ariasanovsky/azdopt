@@ -5,7 +5,7 @@
 use core::mem::MaybeUninit;
 use std::array::from_fn;
 
-use az_discrete_opt::{log::CostLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::{StateNode, StateVec, Reset}};
+use az_discrete_opt::{log::SimpleRootLog, int_min_tree::{INTMinTree, INTTransitions}, arr_map::par_set_costs, state::{StateNode, StateVec, Reset}};
 use dfdx::{tensor::{AutoDevice, TensorFrom, ZerosTensor, Tensor, AsArray, Trace}, prelude::{DeviceBuildExt, Linear, ReLU, Module, ZeroGrads, cross_entropy_with_logits_loss, mse_loss, Optimizer}, optim::Adam, tensor_ops::{AdamConfig, WeightDecay, Backward}, shapes::{Rank2, Axis}};
 use graph_state::simple_graph::connected_bitset_graph::ConnectedBitsetGraph;
 use rayon::prelude::{IntoParallelRefIterator, IntoParallelRefMutIterator, IndexedParallelIterator, ParallelIterator, IntoParallelIterator};
@@ -95,9 +95,9 @@ fn main() {
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let predictions: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = par_plant_forest(&predictions, &c_t, &s_0);
-        let mut logs: [CostLog<Node>; BATCH] = CostLog::par_new_logs(&s_0, &c_t);
+        let mut logs: [SimpleRootLog<Node>; BATCH] = SimpleRootLog::par_new_logs(&s_0, &c_t);
         
-        println!("{}", logs[0].best_state().state().to_graph6().iter().map(|&b| b as char).collect::<String>());
+        println!("{}", logs[0].next_root().state().to_graph6().iter().map(|&b| b as char).collect::<String>());
         
         let mut grads = core_model.alloc_grads();
         (1..=EPISODES).for_each(|episode| {
@@ -191,27 +191,27 @@ type Trans = INTTransitions;
 
 fn par_update_roots(
     roots: &mut [Node],
-    logs: &[CostLog<Node>],
+    logs: &[SimpleRootLog<Node>],
 ) {
     // dbg!();
     // todo!();
     let roots = roots.par_iter_mut();
     let logs = logs.par_iter();
     roots.zip_eq(logs).for_each(|(r, l)| {
-        r.clone_from(l.best_state());
+        r.clone_from(l.next_root());
         // r.reset(time);
     });
 }
 
 fn par_reset_logs(
-    logs: &mut [CostLog<Node>],
+    logs: &mut [SimpleRootLog<Node>],
     costs: &[f32],
     time: usize,
 ) {
     // todo!();
     let logs = logs.par_iter_mut();
     let costs = costs.par_iter();
-    logs.zip_eq(costs).for_each(|(l, c)| l.reset(time));
+    logs.zip_eq(costs).for_each(|(l, c)| l.next_root_mut().reset(time));
 }
 
 fn par_set_vecs(
@@ -279,7 +279,7 @@ fn par_update_state_data<const BATCH: usize>(
 type ActionVec = [f32; ACTION];
 
 fn par_update_logs(
-    logs: &mut [CostLog<Node>],
+    logs: &mut [SimpleRootLog<Node>],
     s_t: &[Node],
     c_t: &[f32],
 ) {

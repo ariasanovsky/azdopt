@@ -1,4 +1,13 @@
+use az_discrete_opt::log::ShortForm;
+
 use super::ConnectedBitsetGraph;
+
+impl<const N: usize> ShortForm for ConnectedBitsetGraph<N> {
+    fn short_form(&self) -> String {
+        let graph6 = self.to_graph6();
+        String::from_utf8(graph6).unwrap()
+    }
+}
 
 impl<const N: usize> ConnectedBitsetGraph<N> {
     pub fn to_graph6(&self) -> Vec<u8> {

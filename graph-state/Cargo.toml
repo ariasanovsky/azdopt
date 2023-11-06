@@ -13,13 +13,16 @@ rayon = "1.8.0"
 az-discrete-opt = { version = "0.1.0", path = "../az-discrete-opt" }
 itertools = "0.11.0"
 faer = "0.14.1"
+eyre = "0.6.8"
 
 [dev-dependencies]
+chrono = "0.4.31"
 criterion = "0.5.1"
 dfdx = { version = "0.13.0", default-features = false, features = ["std", "fast-alloc", "cuda", "cudnn"]}
 priority-queue = "1.3.2"
 rand = "0.8.5"
 rayon = "1.7.0"
+eyre = "0.6.8"
 
 [[bench]]
 name = "r44_17_search_tree_with_trivial_predictions"
