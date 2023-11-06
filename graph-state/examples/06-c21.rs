@@ -17,7 +17,7 @@ use chrono::prelude::*;
 
 use eyre::WrapErr;
 
-const N: usize = 31;
+const N: usize = 20;
 const E: usize = N * (N - 1) / 2;
 type State = ConnectedBitsetGraph<N>;
 type Node = StateNode<State>;
@@ -27,7 +27,7 @@ const STATE: usize = E + ACTION + 1;
 type StateVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 4;
+const BATCH: usize = 64;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
@@ -62,13 +62,13 @@ fn main() -> eyre::Result<()> {
                 .map(|manifest_dir| Path::new(&manifest_dir).join("target"))
         },
         |out_dir| Ok(PathBuf::from(out_dir)),
-    )?.join("06-c21").join(Utc::now().to_rfc3339());
+    ).unwrap_or_else(|_| "/home/azdopt/graph-state/target".into()).join("06-c21").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
 
-    let epochs: usize = 100;
-    let episodes: usize = 1_000;
+    let epochs: usize = 25;
+    let episodes: usize = 800;
     let max_tolerated_stagnation = 5;
 
     let dev = AutoDevice::default();
@@ -113,7 +113,7 @@ fn main() -> eyre::Result<()> {
         random_connected_graph_state_node,
     );
 
-    let cost = |s: &Node| s.state().conjecture_2_1_cost();
+    let cost = |s: &Node| s.state().conjecture_2_1_cost(); // .conjecture_2_1_cost();
     let mut all_losses: Vec<(f32, f32)> = vec![];
     // set logs
     let mut c_t: [f32; BATCH] = [0.0; BATCH];
@@ -123,6 +123,7 @@ fn main() -> eyre::Result<()> {
     let mut logs: [SimpleRootLog<Node>; BATCH] = SimpleRootLog::<Node>::par_new_logs(&s_0, &c_t);
     
     for epoch in 0..epochs {
+        println!("==== EPOCH: {epoch} ====");
         // set costs
         // set state vectors
         let mut v_t: [StateVector; BATCH] = [[0.0; STATE]; BATCH];
@@ -141,6 +142,10 @@ fn main() -> eyre::Result<()> {
                 println!("==== EPISODE: {episode} ====");
             }
             let mut s_t = s_0.clone();
+            // let transitions: [Trans; BATCH] = (&trees, &mut s_t).into_par_iter().map(|(t, s)| {
+            //     let trans = t.simulate_once(s);
+            //     trans
+            // }).collect::<Vec<_>>().try_into().map_err(|_| ()).unwrap();
             let transitions: [Trans; BATCH] = Tree::par_simulate_once(&trees, &mut s_t);
             (&s_t, &mut c_t).into_par_iter().for_each(|(s, c)| {
                 *c = s.state().conjecture_2_1_cost();
@@ -263,7 +268,8 @@ fn main() -> eyre::Result<()> {
         // todo! verify we can skip the cost assignments here
         // todo!("more updates required, also include a checker for stagnation")
     };
-    todo!();
+    dbg!(&out_dir);
+    Ok(())
 }
 
 fn from_init<const N: usize, R, T: Send>(

@@ -98,7 +98,8 @@ impl<S> SimpleRootLog<S> {
         self.next_root.clone_from(s);
         self.root_cost = cost;
         self.zero_stagnation();
-        todo!("what to do with the logged data?")
+        self.zero_duration();
+        // todo!("what to do with the logged data?")
     }
     
     pub fn next_root(&self) -> &S {
