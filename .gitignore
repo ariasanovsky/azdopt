@@ -6,3 +6,4 @@ wandb/
 *.g6
 *.json
 *.pyc
+foo.py

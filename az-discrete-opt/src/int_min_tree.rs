@@ -347,8 +347,8 @@ struct INTActionData {
     u_sa: f32,    
 }
 
-const C_PUCT_0: f32 = 10.0;
-const C_PUCT: f32 = 10.0;
+const C_PUCT_0: f32 = 0.5;
+const C_PUCT: f32 = 0.5;
 
 impl INTActionData {
     pub(crate) fn new(a: usize, p_a: f32) -> Self {
