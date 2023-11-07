@@ -70,9 +70,9 @@ fn main() -> eyre::Result<()> {
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
 
-    let epochs: usize = 100;
+    let epochs: usize = 250;
     let episodes: usize = 800;
-    let max_tolerated_stagnation = 5;
+    let max_tolerated_stagnation = 10;
 
     let dev = AutoDevice::default();
     let mut core_model = dev.build_module::<Core, f32>();
@@ -222,7 +222,7 @@ fn main() -> eyre::Result<()> {
                     * 2. 
                 */
                 match l.stagnation() {
-                    Some(stag) if stag > max_tolerated_stagnation && DEBUG_FALSE => {
+                    Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
                         // todo! s.reset_with(...);
                         // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                         // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges

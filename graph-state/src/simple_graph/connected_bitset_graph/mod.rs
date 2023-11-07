@@ -242,10 +242,10 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 }
             }
         }
-        dbg!(&max_matching);
-        let mut vxs = max_matching.iter().map(|e: &Edge| core::iter::once(e.max()).chain(core::iter::once(e.min()))).flatten().collect::<Vec<_>>();
-        vxs.sort();
-        dbg!(&vxs);
+        // dbg!(&max_matching);
+        // let mut vxs = max_matching.iter().map(|e: &Edge| core::iter::once(e.max()).chain(core::iter::once(e.min()))).flatten().collect::<Vec<_>>();
+        // vxs.sort();
+        // dbg!(&vxs);
         max_matching
     }
 
