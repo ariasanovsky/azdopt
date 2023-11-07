@@ -1,6 +1,8 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, mem::MaybeUninit};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator};
+
 // use core::num::NonZeroUsize;
-use crate::{iq_min_tree::ActionsTaken, state::{State, Action}};
+use crate::{iq_min_tree::ActionsTaken, state::{State, Action, cost::Cost}};
 
 pub struct INTMinTree {
     root_data: INTStateData,
@@ -23,6 +25,23 @@ impl INTMinTree {
             root_data: INTStateData::new(root_predictions, cost, root),
             data: BTreeMap::new(),
         }
+    }
+
+    pub fn par_new_trees<S: State, const N: usize, const A: usize, C>(
+        root_predictions: &[[f32; A]; N],
+        costs: &[C; N],
+        roots: &[S; N],
+    ) -> [Self; N]
+    where
+        S: Send + Sync + Clone,
+        C: Sync + Cost<f32>,
+        Self: Send,
+    {
+        let mut trees: [MaybeUninit<Self>; N] = MaybeUninit::uninit_array();
+        (&mut trees, root_predictions, costs, roots).into_par_iter().for_each(|(t, root_predictions, cost, root)| {
+            t.write(Self::new(root_predictions, cost.cost(), root));
+        });
+        unsafe { MaybeUninit::array_assume_init(trees) }
     }
 
     pub fn replant<S: State>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
@@ -102,16 +121,36 @@ impl INTMinTree {
         // }
     }
 
-    pub fn insert<S>(
+    pub fn par_simulate_once<S, const N: usize>(
+        trees: &[Self; N],
+        s_0: &mut [S; N],
+    ) -> [INTTransitions; N]
+    where
+        S: Send + core::fmt::Display + core::fmt::Debug + State,
+        S::Actions: Eq + core::fmt::Display,
+        // S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
+        // S::Actions: Eq + core::fmt::Display,
+    {
+        let mut trans: [MaybeUninit<INTTransitions>; N] = MaybeUninit::uninit_array();
+        // let foo = trees.par_iter();
+        // let bar = s_0.par_iter_mut();
+        (&mut trans, trees, s_0).into_par_iter().for_each(|(trans, t, s)| {
+            trans.write(t.simulate_once(s));
+        });
+        unsafe { MaybeUninit::array_assume_init(trans) }
+    }
+
+    pub fn insert<S, C>(
         &mut self,
         transitions: &INTTransitions,
         s_t: &S,
-        c_t: f32,
+        c_t: &C,
         prob_s_t: &[f32],
     )
     where
         S: State + core::fmt::Display,
         S::Actions: core::fmt::Display,
+        C: Cost<f32>,
     {
         // dbg!();
         // println!("inserting s_t = {s_t}\nwhich has actions:");
@@ -120,18 +159,21 @@ impl INTMinTree {
         // });
         let Self { root_data: _, data } = self;
         let p_t = transitions.last_path();
-        let state_data = INTStateData::new(prob_s_t, c_t, s_t);
+        let state_data = INTStateData::new(prob_s_t, c_t.cost(), s_t);
         // dbg!(&state_data);
         data.insert(p_t.clone(), state_data);
         // panic!();
     }
 
-    pub fn update(
+    pub fn update<C>(
         &mut self,
         transitions: &INTTransitions,
-        c_t: f32,
+        c_t: &C,
         g_star_theta_s_t: &[f32],
-    ) {
+    )
+    where
+        C: Cost<f32>,
+    {
         assert_eq!(g_star_theta_s_t.len(), 1);
         let INTTransitions {
             a_1,
@@ -143,7 +185,7 @@ impl INTMinTree {
             INTSearchEnd::Unvisited { .. } => g_star_theta_s_t[0],
         };
         // we run from i = t to i = 0
-        let mut c_star_theta_i = c_t - h_star_theta_s_t.max(0.0);
+        let mut c_star_theta_i = c_t.cost() - h_star_theta_s_t.max(0.0);
         let Self { root_data, data } = self;
         transitions.into_iter().rev().for_each(|t_i| {
             let INTTransition { p_i, c_i, a_i_plus_one } = t_i;

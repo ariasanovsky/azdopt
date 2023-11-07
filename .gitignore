@@ -4,3 +4,5 @@ wandb/
 *.gif
 *.png
 *.g6
+*.json
+*.pyc

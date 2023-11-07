@@ -1,6 +1,6 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::{arr_map::VALUE, iq_min_tree::IQState, state::Cost};
+use az_discrete_opt::{arr_map::VALUE, iq_min_tree::IQState};
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
@@ -28,6 +28,10 @@ pub const STATE: usize = 6 * E + 1;
 pub type StateVec = [f32; STATE];
 pub type ActionVec = [f32; ACTION];
 pub type ValueVec = [f32; VALUE];
+
+pub trait Cost {
+    fn cost(&self) -> f32;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RamseyState {

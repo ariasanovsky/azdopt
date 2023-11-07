@@ -8,13 +8,27 @@ conda env create -f environment.yaml
 # source ~/.bashrc
 ```
 
-## Activate environment environment
+## Activate environment
 
 ```bash
 conda activate graphenv
 ```
 
-## Run program
-```bash
+## Reinstall after updating environment
 
+```bash
+conda deactivate
+conda env update --file environment.yaml --prune
+```
+
+## Replace `(...)` with `[...]`
+
+```bash
+find [DIR] -type f -name "*.json" -exec sed -i 's/(/[/g; s/)/]/g' {} \;
+```
+
+## Run program
+
+```bash
+python main.py [DIR_NAME] [BATCH_SIZE]
 ```

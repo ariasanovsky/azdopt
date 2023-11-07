@@ -1,8 +1,21 @@
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Edge {
     pub max: usize,
     pub min: usize,
 }
+
+impl core::fmt::Debug for Edge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("").field("\"max\"", &self.max).field("\"min\"", &self.min).finish()
+        // let Self {
+        //     max,
+        //     min,
+        // } = self;
+        // (max, min).fmt(f)
+    }
+}
+
+impl az_discrete_opt::state::cost::CostsOneEach for Edge {}
 
 impl Edge {
     pub const fn new(u: usize, v: usize) -> Self {
