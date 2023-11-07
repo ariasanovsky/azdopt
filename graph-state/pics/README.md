@@ -21,8 +21,14 @@ conda deactivate
 conda env update --file environment.yaml --prune
 ```
 
+## Replace `(...)` with `[...]`
+
+```bash
+find [DIR] -type f -name "*.json" -exec sed -i 's/(/[/g; s/)/]/g' {} \;
+```
+
 ## Run program
 
 ```bash
-python plot_graphs.py [DIR_NAME]
+python main.py [DIR_NAME] [BATCH_SIZE]
 ```

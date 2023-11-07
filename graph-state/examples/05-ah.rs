@@ -261,7 +261,7 @@ fn par_insert_new_states<const BATCH: usize>(
     
 ) {
     (tree, trans, s_t, c_t, probs_t).into_par_iter().for_each(|(t, trans, s, c, p)| {
-        t.insert(trans, s, *c, p)
+        t.insert(trans, s, c, p)
     })
 }
 
@@ -272,7 +272,7 @@ fn par_update_state_data<const BATCH: usize>(
     values: &[[f32; 1]; BATCH],
 ) {
     (trees, trans, last_calculated_costs, values).into_par_iter().for_each(|(t, trans, c, v)| {
-        t.update(trans, *c, v)
+        t.update(trans, c, v)
     })
 }
 
@@ -284,7 +284,7 @@ fn par_update_logs(
     c_t: &[f32],
 ) {
     (logs, s_t, c_t).into_par_iter().for_each(|(l, s, c)| {
-        l.update(s, *c)
+        l.update(s, c)
     })
 }
 

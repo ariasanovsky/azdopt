@@ -1,10 +1,7 @@
 use std::collections::BTreeSet;
 
+pub mod cost;
 mod display;
-
-pub trait Cost {
-    fn cost(&self) -> f32;
-}
 
 #[derive(Clone, Debug)]
 pub struct StateNode<S, A = usize> {

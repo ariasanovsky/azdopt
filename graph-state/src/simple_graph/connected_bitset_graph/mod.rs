@@ -160,12 +160,16 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
     }
 
     pub fn matching_number(&self) -> usize {
+        self.maximum_matching().len()
+    }
+
+    pub fn maximum_matching(&self) -> Vec<Edge> {
         struct MatchingSearch {
             edges: Vec<Edge>,
             unvisited_vertices: B32,
         }
         if N == 0 {
-            return 0;
+            return Vec::with_capacity(0);
         }
         let first_matching = MatchingSearch {
             edges: Vec::new(),
@@ -173,51 +177,87 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         };
         let mut matching_queue = VecDeque::new();
         matching_queue.push_back(first_matching);
-        let mut best_matching = 0;
+        let mut matching_number = 0;
+        let mut max_matching = Vec::with_capacity(0);
         while let Some(matching) = matching_queue.pop_back() {
-            let MatchingSearch {
-                edges,
-                mut unvisited_vertices,
-            } = matching;
-
-            // exponential without this check
+            let MatchingSearch { edges, mut unvisited_vertices } = matching;
+            for edge in edges.iter() {
+                assert!(
+                    !unvisited_vertices.contains(edge.min()),
+                    "I think this is impossible, let's see if it ever fails"
+                );
+                assert!(
+                    !unvisited_vertices.contains(edge.max()),
+                    "I think this is impossible, let's see if it ever fails"
+                );
+            }
             let max_future_increase = unvisited_vertices.cardinality() / 2;
-            if edges.len() + max_future_increase as usize <= best_matching {
+            if edges.len() + max_future_increase as usize <= matching_number {
                 continue;
             }
-            
+            assert!(
+                !unvisited_vertices.is_empty(),
+                "I think this is impossible, let's see if it ever fails"
+            );
             let next_v = unvisited_vertices.max_unchecked();
+            assert!(
+                unvisited_vertices.contains(next_v),
+                "I think this is impossible, let's see if it ever fails"
+            );
             unvisited_vertices.add_or_remove_unchecked(next_v);
-            for next_u in self.neighborhoods[next_v].intersection(&unvisited_vertices).iter() {
+            let max_future_increase = unvisited_vertices.cardinality() / 2;
+            // we push this matching first so that our search is a DFS
+            // this will let us get to large matching first
+            // as a consequence, more matchings will be skipped
+            if edges.len() + max_future_increase as usize > matching_number {
+                let new_matching = MatchingSearch {
+                    edges: edges.clone(),
+                    unvisited_vertices: unvisited_vertices.clone(),
+                };
+                matching_queue.push_back(new_matching);
+            }
+            let mut unvisited_v_neighbors = unvisited_vertices.clone();
+            unvisited_v_neighbors.intersection_assign(&self.neighborhoods[next_v]);
+            for next_u in unvisited_v_neighbors.iter() {
                 let mut new_edges = edges.clone();
-                let new_edge = unsafe { Edge::new_unchecked(next_u, next_u) };
-                new_edges.push(new_edge);
-                best_matching = best_matching.max(new_edges.len());
+                new_edges.push(unsafe { Edge::new_unchecked(next_v, next_u) });
                 let mut new_unvisited_vertices = unvisited_vertices.clone();
+                assert!(
+                    new_unvisited_vertices.contains(next_u),
+                    "I think this is impossible, let's see if it ever fails"
+                );
                 new_unvisited_vertices.add_or_remove_unchecked(next_u);
-                if !new_unvisited_vertices.is_empty() {
-                    matching_queue.push_back(MatchingSearch {
+                if new_edges.len() > matching_number {
+                    matching_number = new_edges.len();
+                    max_matching = new_edges.clone();
+                }
+                // new_unvisited_vertices.minus_assign(&self.neighborhoods[next_u]);
+                let max_future_increase = new_unvisited_vertices.cardinality() / 2;
+                if new_edges.len() + max_future_increase as usize > matching_number {
+                    let new_matching = MatchingSearch {
                         edges: new_edges,
                         unvisited_vertices: new_unvisited_vertices,
-                    });
+                    };
+                    matching_queue.push_back(new_matching);
                 }
             }
-            if !unvisited_vertices.is_empty() {
-                matching_queue.push_back(MatchingSearch {
-                    edges,
-                    unvisited_vertices,
-                });
-            }
         }
-        best_matching
+        dbg!(&max_matching);
+        let mut vxs = max_matching.iter().map(|e: &Edge| core::iter::once(e.max()).chain(core::iter::once(e.min()))).flatten().collect::<Vec<_>>();
+        vxs.sort();
+        dbg!(&vxs);
+        max_matching
     }
 
-    pub fn conjecture_2_1_cost(&self) -> f32 {
-        let eigs = self.adjacency_matrix().selfadjoint_eigenvalues(faer::Side::Lower);
-        let lambda_1 = eigs.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        let mu = self.matching_number();
-        let cost = lambda_1 + mu as f64;
-        cost as f32
+    pub fn conjecture_2_1_cost(&self) -> (Vec<Edge>, f64) {
+        let a = self.adjacency_matrix();
+        // println!("{a:?}");
+        // let eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
+        // let lambda_1 = eigs.into_iter().max_by(|a, b| a.partial_cmp(&b).unwrap()).unwrap();
+        let eigs: Vec<faer::complex_native::c64> = a.eigenvalues();
+        let lambda_1 = eigs.into_iter().max_by(|a, b| a.re.partial_cmp(&b.re).unwrap()).unwrap().re;
+        let matching = self.maximum_matching();
+        (matching, lambda_1)
     }
 }
 
@@ -238,5 +278,12 @@ mod tests {
         let graph: BitsetGraph<5> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
         assert_eq!(graph.matching_number(), 2);
+    }
+
+    #[test]
+    fn this_one_tree_on_twenty_vertices_has_matching_number_nine() {
+        let graph: BitsetGraph<20> = [(0, 11), (0, 16), (0, 19), (1, 15), (1, 17), (2, 13), (3, 14), (4, 13), (4, 14), (5, 9), (5, 10), (5, 18), (6, 15), (7, 17), (7, 19), (8, 10), (9, 12), (10, 13), (16, 18)].as_ref().try_into().unwrap();
+        let graph = graph.to_connected().unwrap();
+        assert_eq!(graph.matching_number(), 9);
     }
 }

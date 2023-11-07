@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 use az_discrete_opt::{state::{StateNode, StateVec, Reset}, int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}};
 use dfdx::{prelude::*, optim::Adam};
-use graph_state::simple_graph::connected_bitset_graph::ConnectedBitsetGraph;
+use graph_state::simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge};
 use rand::{rngs::ThreadRng, Rng};
 
 use chrono::prelude::*;
@@ -50,9 +50,12 @@ type Valuation = (
 
 type Tree = INTMinTree;
 type Trans = INTTransitions;
+type Cost = (Vec<Edge>, f64);
+type Log = SimpleRootLog<Node, Cost>;
 
 
 const DEBUG_FALSE: bool = false;
+
 
 fn main() -> eyre::Result<()> {
     // `epoch0.json, ...` get written to OUT/{dir_name}
@@ -67,7 +70,7 @@ fn main() -> eyre::Result<()> {
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
 
-    let epochs: usize = 25;
+    let epochs: usize = 100;
     let episodes: usize = 800;
     let max_tolerated_stagnation = 5;
 
@@ -116,11 +119,13 @@ fn main() -> eyre::Result<()> {
     let cost = |s: &Node| s.state().conjecture_2_1_cost(); // .conjecture_2_1_cost();
     let mut all_losses: Vec<(f32, f32)> = vec![];
     // set logs
-    let mut c_t: [f32; BATCH] = [0.0; BATCH];
-    (&s_0, &mut c_t).into_par_iter().for_each(|(s, c)| {
-        *c = cost(s);
+    let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| (Vec::with_capacity(0).into(), 0.));
+    (&s_0, &mut c_t).into_par_iter().for_each(|(s, (m_old, l1_old))| {
+        let (m, l1) = cost(s);
+        *m_old = m;
+        *l1_old = l1;
     });
-    let mut logs: [SimpleRootLog<Node>; BATCH] = SimpleRootLog::<Node>::par_new_logs(&s_0, &c_t);
+    let mut logs: [Log; BATCH] = Log::par_new_logs(&s_0, &c_t);
     
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
@@ -156,7 +161,7 @@ fn main() -> eyre::Result<()> {
             });
 
             (&mut logs, &s_t, &c_t).into_par_iter().for_each(|(l, s, c)| {
-                l.update(s, *c);
+                l.update(s, c);
             });
 
             v_t_tensor.copy_from(v_t.flatten());
@@ -166,11 +171,11 @@ fn main() -> eyre::Result<()> {
             let values = value_model.forward(prediction_tensor.clone()).array();
 
             (&mut trees, &transitions, &c_t, &values).into_par_iter().for_each(|(t, trans, c, v)| {
-                t.update(trans, *c, v);
+                t.update(trans, c, v);
             });
 
             (&mut trees, &transitions, &probs, &c_t, &s_t).into_par_iter().for_each(|(t, trans, p, c, s)| {
-                t.insert(trans, s, *c, p);
+                t.insert(trans, s, c, p);
             });
         };
 
@@ -205,7 +210,7 @@ fn main() -> eyre::Result<()> {
         core_model.zero_grads(&mut grads);
 
         let max_time = epoch + 5;
-        let mut short_data: [Vec<ShortRootData>; BATCH] = core::array::from_fn(|_| vec![]);
+        let mut short_data: [Vec<ShortRootData<Cost>>; BATCH] = core::array::from_fn(|_| vec![]);
 
         (&mut logs, &mut s_0, &mut c_t, &mut short_data).into_par_iter().for_each_init(
             || rand::thread_rng(),
@@ -217,13 +222,13 @@ fn main() -> eyre::Result<()> {
                     * 2. 
                 */
                 match l.stagnation() {
-                    Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
+                    Some(stag) if stag > max_tolerated_stagnation && DEBUG_FALSE => {
                         // todo! s.reset_with(...);
                         // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                         // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
                         let r = random_connected_graph_state_node(rng);
                         s.clone_from(&r);
-                        l.reset_root(s, *c);
+                        l.reset_root(s, c);
                     },
                     Some(_) => {
                         // todo! should `increment_stagnation` be private?
@@ -241,9 +246,8 @@ fn main() -> eyre::Result<()> {
                         s.clone_from(l.next_root());
                     },
                 }
-                *c = l.root_cost();
+                c.clone_from(l.root_cost());
                 l.empty_root_data(d);
-                l.zero_duration();
                 // if DEBUG_FALSE && l.stagnation().is_some_and(|s| s > max_tolerated_stagnation) {
                 //     todo!("randomize root (s_0 and logs), ")
                 //     // logs[i].best_state() equals s_0[i] already, no need to reset it

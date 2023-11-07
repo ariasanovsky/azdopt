@@ -6,22 +6,23 @@ use rayon::prelude::{
 
 use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::StateNode};
 
-pub struct SimpleRootLog<S> {
+pub struct SimpleRootLog<S, C = f32> {
     next_root: S,
-    root_cost: f32,
+    root_cost: C,
     duration: usize,
     stagnation: Option<usize>,
-    short_data: Vec<ShortRootData>,
+    short_data: Vec<ShortRootData<C>>,
 }
 
-impl<S> SimpleRootLog<S> {
-    pub fn new(cost: f32, s: &S) -> Self
+impl<S, C> SimpleRootLog<S, C> {
+    pub fn new(cost: &C, s: &S) -> Self
     where
         S: Clone,
+        C: Clone,
     {
         Self {
             next_root: s.clone(),
-            root_cost: cost,
+            root_cost: cost.clone(),
             duration: 0,
             stagnation: Some(0),
             short_data: vec![],
@@ -47,22 +48,24 @@ impl<S> SimpleRootLog<S> {
 
     pub fn par_new_logs<const BATCH: usize>(
         s_t: &[S; BATCH],
-        costs: &[f32; BATCH],
+        costs: &[C; BATCH],
     ) -> [Self; BATCH]
     where
         S: Sync + Clone,
+        C: Sync + Clone,
         Self: Send,
     {
         let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
         (&mut logs, s_t, costs).into_par_iter().for_each(|(l, s, cost)| {
-            l.write(Self::new(*cost, s));
+            l.write(Self::new(cost, s));
         });
         unsafe { MaybeUninit::array_assume_init(logs) }
     }
 
-    pub fn update(&mut self, s_t: &S, c_t: f32)
+    pub fn update(&mut self, s_t: &S, c_t: &C)
     where
         S: Clone + ShortForm,
+        C: Clone + crate::state::cost::Cost<f32>,
     {
         let Self {
             next_root,
@@ -74,14 +77,14 @@ impl<S> SimpleRootLog<S> {
         // todo!("what to do with stagnation?");
         // todo! tiebreakers
         // dbg!(c_t);
-        if c_t < *root_cost {
+        if c_t.cost().lt(&root_cost.cost()) {
             let old_short_data = ShortRootData {
                 short_form: next_root.short_form(),
-                cost: *root_cost,
+                cost: root_cost.clone(),
                 duration: *duration,
             };
             short_data.push(old_short_data);
-            *root_cost = c_t;
+            root_cost.clone_from(c_t);
             next_root.clone_from(s_t);
             *duration = 1;
             *stagnation = None;
@@ -91,12 +94,19 @@ impl<S> SimpleRootLog<S> {
         }
     }
 
-    pub fn reset_root(&mut self, s: &S, cost: f32)
+    pub fn reset_root(&mut self, s: &S, cost: &C)
     where
-        S: Clone,
+        S: Clone + ShortForm,
+        C: Clone,
     {
+        let short_data = ShortRootData {
+            short_form: self.next_root.short_form(),
+            cost: self.root_cost.clone(),
+            duration: self.duration,
+        };
+        self.short_data.push(short_data);
         self.next_root.clone_from(s);
-        self.root_cost = cost;
+        self.root_cost.clone_from(cost);
         self.zero_stagnation();
         self.zero_duration();
         // todo!("what to do with the logged data?")
@@ -110,23 +120,27 @@ impl<S> SimpleRootLog<S> {
         &mut self.next_root
     }
 
-    pub fn root_cost(&self) -> f32 {
-        self.root_cost
+    pub fn root_cost(&self) -> &C {
+        &self.root_cost
     }
 
-    pub fn zero_duration(&mut self) {
+    fn zero_duration(&mut self) {
         self.duration = 0;
     }
 
-    pub fn empty_root_data(&mut self, other: &mut Vec<ShortRootData>)
+    pub fn empty_root_data(&mut self, other: &mut Vec<ShortRootData<C>>)
     where
         S: ShortForm,
+        C: Clone,
     {
         let short_data = ShortRootData {
             short_form: self.next_root.short_form(),
-            cost: self.root_cost,
+            cost: self.root_cost.clone(),
             duration: self.duration,
         };
+
+        self.zero_duration();
+
         other.extend(self.short_data.drain(..).chain(core::iter::once(short_data)));
     }
 }
@@ -147,13 +161,13 @@ impl<T: ShortForm> ShortForm for StateNode<T> {
 }
 
 // #[derive(Debug)]
-pub struct ShortRootData {
+pub struct ShortRootData<C = f32> {
     short_form: String,
-    cost: f32,
+    cost: C,
     duration: usize,
 }
 
-impl core::fmt::Debug for ShortRootData {
+impl<C: core::fmt::Debug> core::fmt::Debug for ShortRootData<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
             short_form,

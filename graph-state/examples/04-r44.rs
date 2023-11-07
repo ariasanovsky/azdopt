@@ -4,7 +4,6 @@ use az_discrete_opt::arr_map::{
 };
 use az_discrete_opt::iq_min_tree::{IQMinTree, Transitions};
 use az_discrete_opt::log::{par_update_logs, BasicLog};
-use az_discrete_opt::state::Cost;
 use dfdx::optim::Adam;
 use dfdx::prelude::{
     cross_entropy_with_logits_loss, mse_loss, DeviceBuildExt, Linear, Module, Optimizer, ReLU,
@@ -13,7 +12,7 @@ use dfdx::prelude::{
 use dfdx::shapes::Axis;
 use dfdx::tensor::{AsArray, AutoDevice, TensorFrom, Trace};
 use dfdx::tensor_ops::{AdamConfig, Backward, WeightDecay};
-use graph_state::ramsey_state::{ActionVec, RamseyState, StateVec, ValueVec, STATE};
+use graph_state::ramsey_state::{ActionVec, RamseyState, StateVec, ValueVec, STATE, Cost};
 use graph_state::{C, E};
 
 const ACTION: usize = C * E;
