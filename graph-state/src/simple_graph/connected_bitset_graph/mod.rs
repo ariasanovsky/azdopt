@@ -27,7 +27,7 @@ pub enum ActionKind {
 
 impl<const N: usize> ConnectedBitsetGraph<N> {
     pub fn cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
-        self.slow_cut_edges()
+        self.fast_cut_edges()
     }
 
     pub(crate) fn slow_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
