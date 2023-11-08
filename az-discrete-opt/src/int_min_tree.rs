@@ -6,7 +6,7 @@ use crate::{iq_min_tree::ActionsTaken, state::{State, Action, cost::Cost}};
 
 pub struct INTMinTree {
     root_data: INTStateData,
-    data: BTreeMap<ActionsTaken, INTStateData>,
+    data: Vec<BTreeMap<ActionsTaken, INTStateData>>,
 }
 
 pub trait __INTStateDiagnostic {
@@ -23,7 +23,7 @@ impl INTMinTree {
     pub fn new<S: State>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
         Self {
             root_data: INTStateData::new(root_predictions, cost, root),
-            data: BTreeMap::new(),
+            data: Vec::new(),
         }
     }
 
@@ -79,7 +79,7 @@ impl INTMinTree {
             // s_i.actions().for_each(|a| {
             //     println!("a = {a}");
             // });
-            if let Some(data) = data.get(&p_i) {
+            if let Some(data) = data.get(p_i.len() - 1).and_then(|data| data.get(&p_i)) {
                 // assert_eq!(s_0.cost(), data.c_s);
                 // let mut __state_actions = s_0.__actions();
                 // __state_actions.sort();
@@ -161,7 +161,10 @@ impl INTMinTree {
         let p_t = transitions.last_path();
         let state_data = INTStateData::new(prob_s_t, c_t.cost(), s_t);
         // dbg!(&state_data);
-        data.insert(p_t.clone(), state_data);
+        if data.len() < p_t.len() {
+            data.push(BTreeMap::new());
+        }
+        data[p_t.len() - 1].insert(p_t.clone(), state_data);
         // panic!();
     }
 
@@ -190,7 +193,7 @@ impl INTMinTree {
         transitions.into_iter().rev().for_each(|t_i| {
             let INTTransition { p_i, c_i, a_i_plus_one } = t_i;
             // let g_star_theta_i = c_i - c_star_theta_i;
-            let data_i = data.get_mut(p_i).unwrap();
+            let data_i = data[p_i.len() - 1].get_mut(p_i).unwrap();
             data_i.update(*a_i_plus_one, &mut c_star_theta_i);
             c_star_theta_i = c_star_theta_i.min(*c_i);
         });
