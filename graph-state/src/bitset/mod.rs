@@ -23,8 +23,13 @@ impl TryFrom<&[usize]> for B32 {
 }
 
 impl B32 {
+    
     pub const fn new(bits: u32) -> Self {
         Self { bits }
+    }
+
+    pub const fn singleton_unchecked(u: usize) -> Self {
+        Self::new(1 << u)
     }
 
     pub const fn empty() -> Self {
@@ -68,6 +73,20 @@ impl B32 {
         31 - self.bits.leading_zeros() as usize
     }
 
+    pub fn symmetric_difference_assign(&mut self, other: &Self) {
+        self.bits ^= other.bits
+    }
+
+    pub fn pop_max(&mut self) -> Option<usize> {
+        if self.is_empty() {
+            None
+        } else {
+            let max = self.max_unchecked();
+            self.add_or_remove_unchecked(max);
+            Some(max)
+        }
+    }
+    
     pub fn minus_assign(&mut self, other: &Self) {
         self.bits &= !other.bits;
     }
