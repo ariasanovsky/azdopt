@@ -9,9 +9,11 @@ use crate::bitset::B32;
 
 use super::{bitset_graph::BitsetGraph, edge::Edge};
 
+mod block;
 mod display;
 mod graph6;
 mod state;
+mod try_from;
 
 #[derive(Clone, Debug)]
 pub struct ConnectedBitsetGraph<const N: usize, B = B32> {
@@ -24,6 +26,15 @@ pub enum ActionKind {
 }
 
 impl<const N: usize> ConnectedBitsetGraph<N> {
+    pub fn cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
+        self.slow_cut_edges()
+    }
+
+    pub(crate) fn slow_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
+        let Self { neighborhoods } = self;
+        self.edges().filter(move |e| self.is_cut_edge(e))
+    }
+
     pub fn is_cut_edge(&self, e: &Edge) -> bool {
         let Self { neighborhoods } = self;
         let (v, u) = e.vertices();
