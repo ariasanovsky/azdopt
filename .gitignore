@@ -7,3 +7,4 @@ wandb/
 *.json
 *.pyc
 foo.py
+!readme_3d_cost.png
