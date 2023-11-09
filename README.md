@@ -27,13 +27,13 @@ Our first implementation can be summarized:
 
 1. Our agents search trees in parallel.
 2. During episodes, they seek to maximize the expected future improvement in cost function *over the entire search path*.
-   a. They end each episodes when they visit new nodes.
-   b. The neural network evaluates state vectors in batches.
-   c. Each evaluation predicts the gain function and the agent's preference for actions from the new state.
+   1. They end each episodes when they visit new nodes.
+   2. The neural network evaluates state vectors in batches.
+   3. Each evaluation predicts the gain function and the agent's preference for actions from the new state.
 3. Between episodes, we populate new nodes with their predictions and update nodes along the path.
 4. Between epochs, we minimize cross entropy loss (priors' inaccuracy) and $L_2$ loss (gain prediction inaccuracy).
-   a. Additionally, we select new roots from visited nodes.
-   b. When stagnant, we generate new roots.
+   1. Additionally, we select new roots from visited nodes.
+   2. When stagnant, we generate new roots.
 
 ## States and Actions
 
@@ -58,7 +58,7 @@ We consider a few variants based on how the cost function is calculated:
 
 1. **visible reward**: $r(s, a)$ can be calculated quickly from $s$ without high computational cost (e.g., allocations, mutations, etc)
 2. **side-effect reward**: in the computation which replace $s$ with $s'$, the value $r(s, a)$ is cheap to compute, but vector $r(s, \cdot)$ is not cheap.
-  a. **slow cost** (similar to the above): neither $r(s, a)$ nor $c(s')$ is fast to compute, but $c(s')$ can be computed exactly regardless of $s'$.
+   1. **slow cost** (similar to the above): neither $r(s, a)$ nor $c(s')$ is fast to compute, but $c(s')$ can be computed exactly regardless of $s'$.
 3. **terminal cost**: only when $s'$ is terminal, it is reasonable to compute $c(s')$
 
 ## Termination
