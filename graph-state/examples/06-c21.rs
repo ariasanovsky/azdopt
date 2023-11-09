@@ -4,11 +4,11 @@
 
 use core::mem::MaybeUninit;
 use core::ops::RangeInclusive;
-use std::{path::{Path, PathBuf}, io::Write};
+use std::{path::{Path, PathBuf}, io::Write, collections::BTreeMap};
 
 use rayon::prelude::*;
 
-use az_discrete_opt::{state::{StateNode, StateVec, Reset}, int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}};
+use az_discrete_opt::{state::{StateNode, StateVec, Reset}, int_min_tree::{INTMinTree, INTTransitions, StateDataKind}, log::{SimpleRootLog, ShortRootData}, iq_min_tree::ActionsTaken};
 use dfdx::{prelude::*, optim::Adam};
 use graph_state::simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge};
 use rand::{rngs::ThreadRng, Rng};
@@ -49,7 +49,7 @@ type Valuation = (
 );
 
 type Tree = INTMinTree;
-type Trans = INTTransitions;
+type Trans<'a> = INTTransitions<'a>;
 type Cost = (Vec<Edge>, f64);
 type Log = SimpleRootLog<Node, Cost>;
 
@@ -151,9 +151,9 @@ fn main() -> eyre::Result<()> {
             //     let trans = t.simulate_once(s);
             //     trans
             // }).collect::<Vec<_>>().try_into().map_err(|_| ()).unwrap();
-            let transitions: [Trans; BATCH] = Tree::par_simulate_once(&trees, &mut s_t);
+            let transitions: [Trans; BATCH] = Tree::par_simulate_once(&mut trees, &mut s_t);
             (&s_t, &mut c_t).into_par_iter().for_each(|(s, c)| {
-                *c = s.state().conjecture_2_1_cost();
+                *c = cost(s);
             });
 
             (&s_t, &mut v_t).into_par_iter().for_each(|(s, v)| {
@@ -170,12 +170,17 @@ fn main() -> eyre::Result<()> {
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
-            (&mut trees, &transitions, &c_t, &values).into_par_iter().for_each(|(t, trans, c, v)| {
-                t.update(trans, c, v);
+            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode>; BATCH] = core::array::from_fn(|_| None);
+            (&mut nodes, transitions, &c_t, &s_t, &values, &probs).into_par_iter().for_each(|(n, trans, c, s, v, p)| {
+                // let c = m.len() as f32 + *l as f32;
+                *n = trans.update_existing_nodes(c, s, p, v);
             });
 
-            (&mut trees, &transitions, &probs, &c_t, &s_t).into_par_iter().for_each(|(t, trans, p, c, s)| {
-                t.insert(trans, s, c, p);
+            // insert nodes into trees
+            (&mut trees, nodes).into_par_iter().for_each(|(t, n)| {
+                if let Some(n) = n {
+                    t.insert_node_at_next_level(n);
+                }
             });
         };
 

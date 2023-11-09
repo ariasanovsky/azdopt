@@ -193,11 +193,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         while let Some(matching) = matching_queue.pop_back() {
             let MatchingSearch { edges, mut unvisited_vertices } = matching;
             for edge in edges.iter() {
-                assert!(
+                debug_assert!(
                     !unvisited_vertices.contains(edge.min()),
                     "I think this is impossible, let's see if it ever fails"
                 );
-                assert!(
+                debug_assert!(
                     !unvisited_vertices.contains(edge.max()),
                     "I think this is impossible, let's see if it ever fails"
                 );
@@ -206,12 +206,12 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             if edges.len() + max_future_increase as usize <= matching_number {
                 continue;
             }
-            assert!(
+            debug_assert!(
                 !unvisited_vertices.is_empty(),
                 "I think this is impossible, let's see if it ever fails"
             );
             let next_v = unvisited_vertices.max_unchecked();
-            assert!(
+            debug_assert!(
                 unvisited_vertices.contains(next_v),
                 "I think this is impossible, let's see if it ever fails"
             );
@@ -233,7 +233,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 let mut new_edges = edges.clone();
                 new_edges.push(unsafe { Edge::new_unchecked(next_v, next_u) });
                 let mut new_unvisited_vertices = unvisited_vertices.clone();
-                assert!(
+                debug_assert!(
                     new_unvisited_vertices.contains(next_u),
                     "I think this is impossible, let's see if it ever fails"
                 );
@@ -281,20 +281,20 @@ mod tests {
     fn complete_graph_on_four_vertices_has_matching_number_two() {
         let graph: BitsetGraph<4> = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
-        assert_eq!(graph.matching_number(), 2);
+        debug_assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]
     fn cycle_graph_on_five_vertices_has_matching_number_two() {
         let graph: BitsetGraph<5> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
-        assert_eq!(graph.matching_number(), 2);
+        debug_assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]
     fn this_one_tree_on_twenty_vertices_has_matching_number_nine() {
         let graph: BitsetGraph<20> = [(0, 11), (0, 16), (0, 19), (1, 15), (1, 17), (2, 13), (3, 14), (4, 13), (4, 14), (5, 9), (5, 10), (5, 18), (6, 15), (7, 17), (7, 19), (8, 10), (9, 12), (10, 13), (16, 18)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
-        assert_eq!(graph.matching_number(), 9);
+        debug_assert_eq!(graph.matching_number(), 9);
     }
 }

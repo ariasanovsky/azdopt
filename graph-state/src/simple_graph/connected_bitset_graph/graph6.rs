@@ -49,7 +49,7 @@ mod test {
     fn complete_graph_on_two_vertices_has_correct_g6_string() {
         let graph: BitsetGraph<2> = [(0, 1)].as_ref().try_into().unwrap();
         let g6 = graph.to_graph6();
-        assert_eq!(
+        debug_assert_eq!(
             &g6,
             &[b'A', b'_']
         )
@@ -69,6 +69,6 @@ mod test {
         });
         let rhs = graphs.map(|graph| graph.to_graph6());
         let g6 = [b"G?r@`_", b"G?qa`_", b"GCQR@O"];
-        assert_eq!(&rhs, &g6)
+        debug_assert_eq!(&rhs, &g6)
     }
 }

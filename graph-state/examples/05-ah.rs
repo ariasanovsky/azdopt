@@ -110,7 +110,7 @@ fn main() {
             /* for a single tree, the transitions are built by selection actions from states
             * 1. from state s, we select action a only if
             */
-            let transitions: [Trans; BATCH] = par_simulate_forest_once(&trees, &mut s_t);
+            let transitions: [Trans; BATCH] = par_simulate_forest_once(&mut trees, &mut s_t);
             // todo! why is c_t unchanged? is s_t unchanged?
             // dbg!(&c_t);
             par_set_costs(&mut c_t, &s_t, &cost);
@@ -128,8 +128,10 @@ fn main() {
             *  - we avoid encountering the same ex
             
             */
+            todo!("
             par_insert_new_states(&mut trees, &transitions, &s_t, &c_t, &probs);
             par_update_state_data(&mut trees, &transitions, &c_t, &values);
+            ");
         });
         let mut probs: [ActionVec; BATCH] = [[0.0f32; ACTION]; BATCH];
         let mut values: [[f32; 1]; BATCH] = [[0.0f32; 1]; BATCH];
@@ -187,7 +189,7 @@ fn main() {
     });
 }
 
-type Trans = INTTransitions;
+type Trans<'a> = INTTransitions<'a>;
 
 fn par_update_roots(
     roots: &mut [Node],
@@ -261,7 +263,8 @@ fn par_insert_new_states<const BATCH: usize>(
     
 ) {
     (tree, trans, s_t, c_t, probs_t).into_par_iter().for_each(|(t, trans, s, c, p)| {
-        t.insert(trans, s, c, p)
+        let n = todo!();
+        t.insert_node_at_next_level(n)
     })
 }
 
@@ -288,10 +291,10 @@ fn par_update_logs(
     })
 }
 
-fn par_simulate_forest_once<const BATCH: usize>(
-    trees: &[Tree; BATCH],
+fn par_simulate_forest_once<'a, const BATCH: usize>(
+    trees: &'a mut [Tree; BATCH],
     s_0: &mut [Node; BATCH],
-) -> [Trans; BATCH] {
+) -> [Trans<'a>; BATCH] {
     let mut trans: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
     (&mut trans, trees, s_0).into_par_iter().for_each(|(t, tree, s)| {
         t.write(tree.simulate_once(s));

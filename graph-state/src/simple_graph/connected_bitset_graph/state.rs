@@ -108,10 +108,10 @@ mod test {
         let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3), (3, 0)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
         let len = graph.edges().enumerate().map(|(i, e)| {
-            assert!(!graph.is_cut_edge(&e));
+            debug_assert!(!graph.is_cut_edge(&e));
             i
         }).last().unwrap() + 1;
-        assert_eq!(len, 4);
+        debug_assert_eq!(len, 4);
     }
 
     #[test]
@@ -119,10 +119,10 @@ mod test {
         let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
         let len = graph.edges().enumerate().map(|(i, e)| {
-            assert!(graph.is_cut_edge(&e));
+            debug_assert!(graph.is_cut_edge(&e));
             i
         }).last().unwrap() + 1;
-        assert_eq!(len, 3);
+        debug_assert_eq!(len, 3);
     }
 
     #[test]
@@ -131,11 +131,11 @@ mod test {
         let graph = graph.to_connected().unwrap();
         let len = graph.edges().enumerate().map(|(i, e)| {
             if graph.is_cut_edge(&e) {
-                assert_eq!(e.vertices(), (3, 2));
+                debug_assert_eq!(e.vertices(), (3, 2));
             }
             i
         }).last().unwrap() + 1;
-        assert_eq!(len, 4);
+        debug_assert_eq!(len, 4);
     }
 
     #[test]
@@ -143,7 +143,7 @@ mod test {
         let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
         let actions = graph.actions().collect::<Vec<_>>();
-        assert_eq!(
+        debug_assert_eq!(
             actions,
             vec![
                 Action::Delete(Edge::new(0, 1)),

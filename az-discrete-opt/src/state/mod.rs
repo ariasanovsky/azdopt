@@ -51,7 +51,7 @@ pub trait State: Sized {
         Self: core::fmt::Display,
     {
         dbg!();
-        assert!(
+        debug_assert!(
             self.has_action(action),
             "action {} is not available in state {}",
             action,
@@ -125,7 +125,7 @@ where
         Self: core::fmt::Display,
     {
         // dbg!();
-        assert!(
+        debug_assert!(
             self.has_action(action),
             "action {} is not available in state {}",
             action,
@@ -163,7 +163,7 @@ pub trait StateVec {
     const AVAILABLE_ACTIONS_BOOL_DIM: usize;
     fn write_vec(&self, vec: &mut [f32]) {
         let (state, actions) = vec.split_at_mut(Self::STATE_DIM);
-        assert_eq!(actions.len(), Self::AVAILABLE_ACTIONS_BOOL_DIM);
+        debug_assert_eq!(actions.len(), Self::AVAILABLE_ACTIONS_BOOL_DIM);
         self.write_vec_state_dims(state);
         self.write_vec_actions_dims(actions);
     }
@@ -178,7 +178,7 @@ impl<T: StateVec> StateVec for StateNode<T> {
     fn write_vec(&self, vec: &mut [f32]) {
         let (state, vec) = vec.split_at_mut(T::STATE_DIM);
         let (time, actions) = vec.split_at_mut(1);
-        assert_eq!(actions.len(), Self::AVAILABLE_ACTIONS_BOOL_DIM);
+        debug_assert_eq!(actions.len(), Self::AVAILABLE_ACTIONS_BOOL_DIM);
         self.write_vec_state_dims(state);
         time[0] = self.time as f32;
         self.write_vec_actions_dims(actions);
