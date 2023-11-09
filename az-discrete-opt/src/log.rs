@@ -1,10 +1,14 @@
 use core::mem::MaybeUninit;
 
 use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator, IntoParallelIterator,
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
 };
 
-use crate::{iq_min_tree::{ActionsTaken, Transitions}, state::StateNode};
+use crate::{
+    iq_min_tree::{ActionMultiset, Transitions},
+    state::StateNode,
+};
 
 pub struct SimpleRootLog<S, C = f32> {
     next_root: S,
@@ -34,7 +38,10 @@ impl<S, C> SimpleRootLog<S, C> {
     }
 
     pub fn increment_stagnation(&mut self) {
-        self.stagnation.as_mut().map(|s| *s += 1);
+        if let Some(s) = &mut self.stagnation {
+            *s += 1;
+        }
+        // self.stagnation.as_mut().map(|s| *s += 1);
     }
 
     // todo! make private
@@ -46,19 +53,18 @@ impl<S, C> SimpleRootLog<S, C> {
         self.stagnation = None;
     }
 
-    pub fn par_new_logs<const BATCH: usize>(
-        s_t: &[S; BATCH],
-        costs: &[C; BATCH],
-    ) -> [Self; BATCH]
+    pub fn par_new_logs<const BATCH: usize>(s_t: &[S; BATCH], costs: &[C; BATCH]) -> [Self; BATCH]
     where
         S: Sync + Clone,
         C: Sync + Clone,
         Self: Send,
     {
         let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        (&mut logs, s_t, costs).into_par_iter().for_each(|(l, s, cost)| {
-            l.write(Self::new(cost, s));
-        });
+        (&mut logs, s_t, costs)
+            .into_par_iter()
+            .for_each(|(l, s, cost)| {
+                l.write(Self::new(cost, s));
+            });
         unsafe { MaybeUninit::array_assume_init(logs) }
     }
 
@@ -111,7 +117,7 @@ impl<S, C> SimpleRootLog<S, C> {
         self.zero_duration();
         // todo!("what to do with the logged data?")
     }
-    
+
     pub fn next_root(&self) -> &S {
         &self.next_root
     }
@@ -141,7 +147,11 @@ impl<S, C> SimpleRootLog<S, C> {
 
         self.zero_duration();
 
-        other.extend(self.short_data.drain(..).chain(core::iter::once(short_data)));
+        other.extend(
+            self.short_data
+                .drain(..)
+                .chain(core::iter::once(short_data)),
+        );
     }
 }
 
@@ -182,20 +192,21 @@ impl<C: core::fmt::Debug> core::fmt::Debug for ShortRootData<C> {
     }
 }
 
+#[derive(Default)]
 pub struct BasicLog {
-    path: ActionsTaken,
+    path: ActionMultiset,
     gain: f32,
 }
 
 impl BasicLog {
     pub fn new() -> Self {
         Self {
-            path: ActionsTaken::empty(),
+            path: ActionMultiset::empty(),
             gain: 0.0,
         }
     }
 
-    pub fn path(&self) -> &ActionsTaken {
+    pub fn path(&self) -> &ActionMultiset {
         &self.path
     }
 
@@ -208,10 +219,10 @@ impl BasicLog {
     }
 
     pub fn update(&mut self, transitions: &Transitions) {
-        let Self { 
+        let Self {
             path: logged_path,
             gain: logged_gain,
-         } = self;
+        } = self;
         let Transitions {
             first_action: _,
             first_reward,

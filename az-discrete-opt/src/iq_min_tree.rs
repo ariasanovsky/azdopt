@@ -1,19 +1,13 @@
 use std::collections::BTreeMap;
 
-#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub struct ActionsTaken {
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Default)]
+pub struct ActionMultiset {
     actions_taken: Vec<usize>,
 }
 
-impl ActionsTaken {
+impl ActionMultiset {
     pub fn empty() -> Self {
-        Self {
-            actions_taken: vec![],
-        }
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.actions_taken.clear();
+        Default::default()
     }
 
     pub fn new(a_1: usize) -> Self {
@@ -43,7 +37,7 @@ impl ActionsTaken {
 // todo! move the root & root_cost outside the tree to batch-sized arrays
 pub struct IQMinTree {
     root_data: IQStateData,
-    data: BTreeMap<ActionsTaken, IQStateData>,
+    data: BTreeMap<ActionMultiset, IQStateData>,
 }
 
 // todo! refactor with
@@ -224,8 +218,8 @@ impl IQMinTree {
         let state = root;
         let (first_action, first_reward) = root_data.best_action();
         state.act(first_action);
-        let mut state_path = ActionsTaken::new(first_action);
-        let mut transitions: Vec<(ActionsTaken, usize, f32)> = vec![];
+        let mut state_path = ActionMultiset::new(first_action);
+        let mut transitions: Vec<(ActionMultiset, usize, f32)> = vec![];
         let mut gain = first_reward;
         while !state.is_terminal() {
             if let Some(data) = data.get(&state_path) {
@@ -334,7 +328,7 @@ pub trait IQState<const STATE: usize> {
     fn action_rewards(&self) -> Vec<(usize, f32)>;
     fn act(&mut self, action: usize);
     fn is_terminal(&self) -> bool;
-    fn apply(&mut self, actions: &ActionsTaken) {
+    fn apply(&mut self, actions: &ActionMultiset) {
         actions.actions_taken.iter().for_each(|a| self.act(*a));
     }
     fn reset(&mut self, time: usize);
@@ -342,8 +336,8 @@ pub trait IQState<const STATE: usize> {
 }
 
 pub enum SearchEnd {
-    Terminal { end: ActionsTaken, gain: f32 },
-    New { end: ActionsTaken, gain: f32 },
+    Terminal { end: ActionMultiset, gain: f32 },
+    New { end: ActionMultiset, gain: f32 },
 }
 
 impl SearchEnd {
@@ -354,7 +348,7 @@ impl SearchEnd {
         }
     }
 
-    pub fn path(&self) -> &ActionsTaken {
+    pub fn path(&self) -> &ActionMultiset {
         match self {
             Self::Terminal { end, .. } => end,
             Self::New { end, .. } => end,
@@ -366,7 +360,7 @@ impl SearchEnd {
 pub struct Transitions {
     pub(crate) first_action: usize,
     pub(crate) first_reward: f32,
-    pub(crate) transitions: Vec<(ActionsTaken, usize, f32)>,
+    pub(crate) transitions: Vec<(ActionMultiset, usize, f32)>,
     pub(crate) end: SearchEnd,
 }
 

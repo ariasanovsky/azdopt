@@ -25,10 +25,10 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         }
 
         // Add the adjacency matrix to the graph6 string
-        let mut foo = self.edge_bools().collect::<Vec<_>>();
-        let padding = (6 - (foo.len() % 6)) % 6;
-        foo.extend(vec![false; padding]);
-        foo.chunks_exact(6).for_each(|chunk| {
+        let mut bool_edges = self.edge_bools().collect::<Vec<_>>();
+        let padding = (6 - (bool_edges.len() % 6)) % 6;
+        bool_edges.extend(vec![false; padding]);
+        bool_edges.chunks_exact(6).for_each(|chunk| {
             let mut byte = 0;
             chunk.iter().rev().enumerate().for_each(|(i, &b)| {
                 if b {
@@ -49,10 +49,7 @@ mod test {
     fn complete_graph_on_two_vertices_has_correct_g6_string() {
         let graph: BitsetGraph<2> = [(0, 1)].as_ref().try_into().unwrap();
         let g6 = graph.to_graph6();
-        debug_assert_eq!(
-            &g6,
-            &[b'A', b'_']
-        )
+        debug_assert_eq!(&g6, &[b'A', b'_'])
     }
 
     #[test]

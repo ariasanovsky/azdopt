@@ -2,19 +2,20 @@ use core::fmt::Display;
 
 use crate::simple_graph::edge::Edge;
 
-use super::{BitsetGraph, state::Action};
+use super::{state::Action, BitsetGraph};
 
 impl<const N: usize> Display for BitsetGraph<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self {
-            neighborhoods,
-        } = self;
-        neighborhoods.iter().enumerate().try_for_each(|(i, neighborhood)| {
-            writeln!(f, "node {}:", i)?;
-            neighborhood.iter().try_for_each(|edge| {
-                writeln!(f, "  {}", edge)
+        let Self { neighborhoods } = self;
+        neighborhoods
+            .iter()
+            .enumerate()
+            .try_for_each(|(i, neighborhood)| {
+                writeln!(f, "node {}:", i)?;
+                neighborhood
+                    .iter()
+                    .try_for_each(|edge| writeln!(f, "  {}", edge))
             })
-        })
     }
 }
 

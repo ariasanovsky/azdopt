@@ -35,6 +35,9 @@ impl<S, A> StateNode<S, A> {
 
 pub trait Action<S> {
     fn index(&self) -> usize;
+    /// # Safety
+    /// This function should only be called with indices that are available in the state.
+    /// It does not perform checks and assumes the caller has already checked that the index corresponds to an action.
     unsafe fn from_index_unchecked(index: usize) -> Self;
 }
 
@@ -44,20 +47,21 @@ pub trait State: Sized {
     fn is_terminal(&self) -> bool {
         self.actions().next().is_none()
     }
+    /// # Safety
+    /// This function should only be called with actions that are available in the state.
+    /// It is used to generated a default implementation of `act` which does perform a check in debug mode.
     unsafe fn act_unchecked(&mut self, action: &Self::Actions);
     fn act(&mut self, action: &Self::Actions)
     where
         Self::Actions: Eq + core::fmt::Display,
         Self: core::fmt::Display,
     {
-        dbg!();
         debug_assert!(
             self.has_action(action),
             "action {} is not available in state {}",
             action,
             self,
         );
-        dbg!();
         unsafe { self.act_unchecked(action) }
     }
     fn has_action(&self, action: &Self::Actions) -> bool
@@ -80,6 +84,9 @@ impl<T: State> Action<StateNode<T>> for T::Actions {
 
 pub trait ProhibitsActions {
     type Action;
+    /// # Safety
+    /// This function should only be called with actions that are available in the state.
+    /// It does not perform checks and assumes the caller has already checked that the action is available.
     unsafe fn update_prohibited_actions_unchecked(
         &self,
         prohibited_actions: &mut BTreeSet<usize>,
@@ -98,8 +105,14 @@ where
         if self.time == 0 {
             None
         } else {
-            Some(self.state.actions().filter(|a| !self.prohibited_actions.contains(&a.index())))
-        }.into_iter().flatten()
+            Some(
+                self.state
+                    .actions()
+                    .filter(|a| !self.prohibited_actions.contains(&a.index())),
+            )
+        }
+        .into_iter()
+        .flatten()
     }
 
     unsafe fn act_unchecked(&mut self, action: &Self::Actions) {
@@ -124,14 +137,12 @@ where
         Self::Actions: Eq + core::fmt::Display,
         Self: core::fmt::Display,
     {
-        // dbg!();
         debug_assert!(
             self.has_action(action),
             "action {} is not available in state {}",
             action,
             self,
         );
-        // dbg!();
         unsafe { self.act_unchecked(action) }
     }
 
@@ -190,6 +201,8 @@ impl<T: StateVec> StateVec for StateNode<T> {
 
     fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
         self.state.write_vec_actions_dims(action_vec);
-        self.prohibited_actions.iter().for_each(|&a| action_vec[a] = 0.);
+        self.prohibited_actions
+            .iter()
+            .for_each(|&a| action_vec[a] = 0.);
     }
 }

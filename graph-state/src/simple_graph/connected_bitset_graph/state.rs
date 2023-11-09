@@ -1,4 +1,4 @@
-use az_discrete_opt::state::{State, StateVec, ProhibitsActions};
+use az_discrete_opt::state::{ProhibitsActions, State, StateVec};
 use itertools::Itertools;
 
 use crate::simple_graph::{bitset_graph::state::Action, edge::Edge};
@@ -7,7 +7,9 @@ use super::ConnectedBitsetGraph;
 
 impl<const N: usize> az_discrete_opt::state::Action<ConnectedBitsetGraph<N>> for Action {
     fn index(&self) -> usize {
-        <Self as az_discrete_opt::state::Action<crate::simple_graph::bitset_graph::BitsetGraph<N>>>::index(self)
+        <Self as az_discrete_opt::state::Action<
+            crate::simple_graph::bitset_graph::BitsetGraph<N>,
+        >>::index(self)
     }
 
     unsafe fn from_index_unchecked(index: usize) -> Self {
@@ -34,7 +36,7 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
                     } else {
                         Some(Action::Delete(e))
                     }
-                }  else {
+                } else {
                     Some(Action::Add(e))
                 }
             })
@@ -48,7 +50,7 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
                 let (v, u) = e.vertices();
                 neighborhoods[u].add_or_remove_unchecked(v);
                 neighborhoods[v].add_or_remove_unchecked(u);
-            },
+            }
         }
     }
 }
@@ -70,14 +72,17 @@ impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
 
     fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
         let (adds, deletes) = action_vec.split_at_mut(N * (N - 1) / 2);
-        self.action_kinds().zip_eq(adds).zip_eq(deletes).for_each(|((b, add), delete)| {
-            use crate::simple_graph::connected_bitset_graph::ActionKind;
-            (*add, *delete) = match b {
-                Some(ActionKind::Add) => (1., 0.),
-                Some(ActionKind::Delete) => (0., 1.),
-                None => (0., 0.),
-            }
-        });
+        self.action_kinds()
+            .zip_eq(adds)
+            .zip_eq(deletes)
+            .for_each(|((b, add), delete)| {
+                use crate::simple_graph::connected_bitset_graph::ActionKind;
+                (*add, *delete) = match b {
+                    Some(ActionKind::Add) => (1., 0.),
+                    Some(ActionKind::Delete) => (0., 1.),
+                    None => (0., 0.),
+                }
+            });
     }
 }
 
@@ -93,24 +98,33 @@ impl<const N: usize> ProhibitsActions for ConnectedBitsetGraph<N> {
             Action::Add(e) | Action::Delete(e) => {
                 actions.insert(e.colex_position());
                 actions.insert(e.colex_position() + N * (N - 1) / 2);
-            },
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::simple_graph::bitset_graph::BitsetGraph;
     use super::*;
+    use crate::simple_graph::bitset_graph::BitsetGraph;
 
     #[test]
     fn c4_is_connected_and_has_no_cut_edges() {
-        let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3), (3, 0)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3), (3, 0)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         let graph = graph.to_connected().unwrap();
-        let len = graph.edges().enumerate().map(|(i, e)| {
-            debug_assert!(!graph.is_cut_edge(&e));
-            i
-        }).last().unwrap() + 1;
+        let len = graph
+            .edges()
+            .enumerate()
+            .map(|(i, e)| {
+                debug_assert!(!graph.is_cut_edge(&e));
+                i
+            })
+            .last()
+            .unwrap()
+            + 1;
         debug_assert_eq!(len, 4);
     }
 
@@ -118,29 +132,47 @@ mod test {
     fn p4_is_connected_and_all_edges_are_cut_edges() {
         let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
-        let len = graph.edges().enumerate().map(|(i, e)| {
-            debug_assert!(graph.is_cut_edge(&e));
-            i
-        }).last().unwrap() + 1;
+        let len = graph
+            .edges()
+            .enumerate()
+            .map(|(i, e)| {
+                debug_assert!(graph.is_cut_edge(&e));
+                i
+            })
+            .last()
+            .unwrap()
+            + 1;
         debug_assert_eq!(len, 3);
     }
 
     #[test]
     fn paw_is_connected_and_has_one_cut_edge() {
-        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (2, 3)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (2, 3)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         let graph = graph.to_connected().unwrap();
-        let len = graph.edges().enumerate().map(|(i, e)| {
-            if graph.is_cut_edge(&e) {
-                debug_assert_eq!(e.vertices(), (3, 2));
-            }
-            i
-        }).last().unwrap() + 1;
+        let len = graph
+            .edges()
+            .enumerate()
+            .map(|(i, e)| {
+                if graph.is_cut_edge(&e) {
+                    debug_assert_eq!(e.vertices(), (3, 2));
+                }
+                i
+            })
+            .last()
+            .unwrap()
+            + 1;
         debug_assert_eq!(len, 4);
     }
 
     #[test]
     fn complete_graph_on_four_vertices_has_all_possible_delete_actions() {
-        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         let graph = graph.to_connected().unwrap();
         let actions = graph.actions().collect::<Vec<_>>();
         debug_assert_eq!(

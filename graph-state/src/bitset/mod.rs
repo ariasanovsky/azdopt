@@ -23,7 +23,6 @@ impl TryFrom<&[usize]> for B32 {
 }
 
 impl B32 {
-    
     pub const fn new(bits: u32) -> Self {
         Self { bits }
     }
@@ -45,7 +44,7 @@ impl B32 {
     }
 
     pub const fn range_to_unchecked(n: usize) -> Self {
-        let _: () = assert!(n <= 31);
+        assert!(n <= 31);
         Self::new((1 << n) - 1)
     }
 
@@ -86,7 +85,7 @@ impl B32 {
             Some(max)
         }
     }
-    
+
     pub fn minus_assign(&mut self, other: &Self) {
         self.bits &= !other.bits;
     }

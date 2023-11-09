@@ -1,6 +1,6 @@
 use az_discrete_opt::arr_map::{
-    par_forest_observations, par_insert_into_forest, par_plant_forest, par_simulate_forest_once,
-    par_state_batch_to_vecs, par_set_costs, par_update_forest, par_use_logged_roots,
+    par_forest_observations, par_insert_into_forest, par_plant_forest, par_set_costs,
+    par_simulate_forest_once, par_state_batch_to_vecs, par_update_forest, par_use_logged_roots,
 };
 use az_discrete_opt::iq_min_tree::{IQMinTree, Transitions};
 use az_discrete_opt::log::{par_update_logs, BasicLog};
@@ -12,7 +12,7 @@ use dfdx::prelude::{
 use dfdx::shapes::Axis;
 use dfdx::tensor::{AsArray, AutoDevice, TensorFrom, Trace};
 use dfdx::tensor_ops::{AdamConfig, Backward, WeightDecay};
-use graph_state::ramsey_state::{ActionVec, RamseyState, StateVec, ValueVec, STATE, Cost};
+use graph_state::ramsey_state::{ActionVec, Cost, RamseyState, StateVec, ValueVec, STATE};
 use graph_state::{C, E};
 
 const ACTION: usize = C * E;
@@ -39,7 +39,6 @@ type Valuation = (
     Linear<HIDDEN_2, 1>,
     // Linear<HIDDEN_2, 3>,
 );
-
 
 fn main() {
     const EPOCH: usize = 30;

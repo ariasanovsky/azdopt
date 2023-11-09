@@ -9,6 +9,9 @@ impl<S: Display> Display for StateNode<S> {
             time,
             prohibited_actions,
         } = self;
-        write!(f, "state =\n{state}\ntime = {time}\nprohibited_actions = {prohibited_actions:?}")
+        write!(
+            f,
+            "state =\n{state}\ntime = {time}\nprohibited_actions = {prohibited_actions:?}"
+        )
     }
 }

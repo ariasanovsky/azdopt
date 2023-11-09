@@ -333,12 +333,12 @@ impl IQState<STATE> for RamseyState {
 
         let old_neigh_u = neighborhoods[old_uv_color][u];
         let old_neigh_v = neighborhoods[old_uv_color][v];
-        
+
         // we remove v and u so that they are not treated as w or x in the following
         let old_neigh_u = old_neigh_u ^ (1 << v);
         let old_neigh_v = old_neigh_v ^ (1 << u);
         let old_neigh_uv = old_neigh_u & old_neigh_v;
-        
+
         // assert_eq!(old_neigh_u & (1 << u), 0, "u = {u}, v = {v}, old_neigh_u = {old_neigh_u:b}");
         // assert_eq!(old_neigh_v & (1 << v), 0, "u = {u}, v = {v}, old_neigh_v = {old_neigh_v:b}");
 

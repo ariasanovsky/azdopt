@@ -1,4 +1,4 @@
-use crate::{simple_graph::edge::Edge, bitset::B32};
+use crate::{bitset::B32, simple_graph::edge::Edge};
 
 use super::ConnectedBitsetGraph;
 
@@ -8,7 +8,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         #[derive(Debug)]
         struct Block {
             block_positions_below: B32, // nonempty
-            elements: B32, // nonempty
+            elements: B32,              // nonempty
             host: usize,
             kind: BlockKind,
         }
@@ -17,14 +17,12 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             Root,
             Cut { neighbor: usize },
         }
-        let mut blocks: Vec<Block> = vec![
-            Block {
-                block_positions_below: B32::singleton_unchecked(0),
-                elements: B32::singleton_unchecked(0),
-                host: 0,
-                kind: BlockKind::Root,
-            }
-        ];
+        let mut blocks: Vec<Block> = vec![Block {
+            block_positions_below: B32::singleton_unchecked(0),
+            elements: B32::singleton_unchecked(0),
+            host: 0,
+            kind: BlockKind::Root,
+        }];
         let mut active_block_indices = B32::singleton_unchecked(0);
         let mut inserted_into: [usize; N] = [0; N];
         let mut explored_vertices = B32::singleton_unchecked(0);
@@ -35,9 +33,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             let neighbors = &self.neighborhoods[v];
             let unexplored_neighbors = neighbors.minus(&explored_vertices);
             new_vertices.union_assign(&unexplored_neighbors);
-            drop(unexplored_neighbors);
             let explored_neighbors = neighbors.intersection(&explored_vertices);
-
 
             debug_assert!(!explored_neighbors.is_empty());
             if explored_neighbors.is_singleton() {
@@ -49,7 +45,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 block_positions_below.add_or_remove_unchecked(v_i);
                 debug_assert!(!active_block_indices.contains(v_i));
                 active_block_indices.add_or_remove_unchecked(v_i);
-                
+
                 let block = Block {
                     block_positions_below,
                     elements: B32::singleton_unchecked(v),
@@ -59,7 +55,6 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 dbg!(&block);
                 blocks.push(block);
                 inserted_into[v] = v_i;
-
             } else {
                 let mut h_union = B32::empty();
                 let mut h_intersection = active_block_indices.clone();
@@ -73,15 +68,14 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 debug_assert!(!h_intersection.is_empty());
                 let h_i = h_intersection.max_unchecked();
                 let deactivated_blocks = h_union.minus(&h_intersection);
-                println!("h_union = {h_union}");
-                println!("h_intersection = {h_intersection}");
-                println!("deactivated_blocks = {deactivated_blocks}");
+                // println!("h_union = {h_union}");
+                // println!("h_intersection = {h_intersection}");
+                // println!("deactivated_blocks = {deactivated_blocks}");
                 if deactivated_blocks.is_empty() {
                     let b_i = &mut blocks[h_i].elements;
                     debug_assert!(!b_i.contains(v));
                     b_i.add_or_remove_unchecked(v);
                     inserted_into[v] = h_i;
-
                 } else {
                     // dbg!(&blocks, &inserted_into);
                     // println!("h_union = {h_union}");
@@ -94,10 +88,13 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                         blocks[h_i].elements.union_assign(&b_i);
                     }
                     blocks[h_i].elements.add_or_remove_unchecked(v);
-                    println!("now blocks[{h_i}] = {}", &blocks[h_i].elements);
-                    debug_assert_eq!(active_block_indices.intersection(&deactivated_blocks), deactivated_blocks);
+                    // println!("now blocks[{h_i}] = {}", &blocks[h_i].elements);
+                    debug_assert_eq!(
+                        active_block_indices.intersection(&deactivated_blocks),
+                        deactivated_blocks
+                    );
                     active_block_indices.symmetric_difference_assign(&deactivated_blocks);
-                    println!("active blocks: {active_block_indices}");
+                    // println!("active blocks: {active_block_indices}");
                     inserted_into[v] = h_i;
                 }
             }
@@ -105,14 +102,22 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             explored_vertices.add_or_remove_unchecked(v);
         }
 
-        let cuts = active_block_indices.iter().filter_map(|i| {
-            let block = &blocks[i];
-            let Block { block_positions_below, elements, host, kind } = block;
-            match kind {
-                BlockKind::Root => None,
-                BlockKind::Cut { neighbor } => Some(Edge::new(*host, *neighbor)),
-            }
-        }).collect::<Vec<_>>();
+        let cuts = active_block_indices
+            .iter()
+            .filter_map(|i| {
+                let block = &blocks[i];
+                let Block {
+                    block_positions_below: _,
+                    elements: _,
+                    host,
+                    kind,
+                } = block;
+                match kind {
+                    BlockKind::Root => None,
+                    BlockKind::Cut { neighbor } => Some(Edge::new(*host, *neighbor)),
+                }
+            })
+            .collect::<Vec<_>>();
         cuts.into_iter()
     }
 }
@@ -210,33 +215,31 @@ mod tests {
         cut_edges: &[(usize, usize)],
         sigma: &[usize],
     ) {
-        let edges = edges.into_iter().map(|(u, v)| (sigma[*u], sigma[*v])).collect::<Vec<_>>();
+        let edges = edges
+            .into_iter()
+            .map(|(u, v)| (sigma[*u], sigma[*v]))
+            .collect::<Vec<_>>();
         let graph: ConnectedBitsetGraph<N> = edges[..].try_into().unwrap();
-        let cut_edges = cut_edges.into_iter().map(|(u, v)| Edge::new(sigma[*u], sigma[*v])).collect::<Vec<_>>();
-        debug_assert_eq!(
-            &graph.cut_edges().collect::<Vec<_>>(),
-            &cut_edges
-        )
+        let cut_edges = cut_edges
+            .into_iter()
+            .map(|(u, v)| Edge::new(sigma[*u], sigma[*v]))
+            .collect::<Vec<_>>();
+        debug_assert_eq!(&graph.cut_edges().collect::<Vec<_>>(), &cut_edges)
     }
 
     fn old_and_new_cut_edge_methods_are_identical<const N: usize>(graph: &ConnectedBitsetGraph<N>) {
         let mut cut_edges = graph.cut_edges().collect::<Vec<_>>();
         let mut new_cut_edges = graph.fast_cut_edges().collect::<Vec<_>>();
-        cut_edges.sort_by(|a, b| {
-            match a.max.cmp(&b.max) {
-                std::cmp::Ordering::Equal => a.min.cmp(&b.min),
-                s => s
-            }
+        cut_edges.sort_by(|a, b| match a.max.cmp(&b.max) {
+            std::cmp::Ordering::Equal => a.min.cmp(&b.min),
+            s => s,
         });
-        new_cut_edges.sort_by(|a, b| {
-            match a.max.cmp(&b.max) {
-                std::cmp::Ordering::Equal => a.min.cmp(&b.min),
-                s => s
-            }
+        new_cut_edges.sort_by(|a, b| match a.max.cmp(&b.max) {
+            std::cmp::Ordering::Equal => a.min.cmp(&b.min),
+            s => s,
         });
         debug_assert_eq!(
-            cut_edges,
-            new_cut_edges,
+            cut_edges, new_cut_edges,
             "graph:\n{graph}\ncut_edges: {cut_edges:?}\nnew_cut_edges: {new_cut_edges:?}",
         )
     }
@@ -249,25 +252,34 @@ mod tests {
             old_and_new_cut_edge_methods_are_identical(&g);
         }
     }
-    
+
     #[test]
     fn old_and_new_cut_edge_methods_are_identical_for_c4() {
-        let graph: G<4> = [(0, 1), (1, 2), (2, 3), (3, 0)].as_ref().try_into().unwrap();
+        let graph: G<4> = [(0, 1), (1, 2), (2, 3), (3, 0)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         old_and_new_cut_edge_methods_are_identical(&graph);
     }
-    
+
     #[test]
     fn old_and_new_cut_edge_methods_are_identical_for_paw() {
-        let graph: G<4> = [(0, 1), (1, 2), (1, 3), (2, 3)].as_ref().try_into().unwrap();
+        let graph: G<4> = [(0, 1), (1, 2), (1, 3), (2, 3)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         old_and_new_cut_edge_methods_are_identical(&graph);
     }
-    
+
     #[test]
     fn old_and_new_cut_edge_methods_are_identical_for_house() {
-        let graph: G<5> = [(0, 1), (1, 2), (2, 3), (3, 0), (2, 4), (3, 4)].as_ref().try_into().unwrap();
+        let graph: G<5> = [(0, 1), (1, 2), (2, 3), (3, 0), (2, 4), (3, 4)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         old_and_new_cut_edge_methods_are_identical(&graph);
     }
-    
+
     #[test]
     fn cycle_on_four_vertices_has_no_cut_edges() {
         let edges = [(0, 1), (1, 2), (2, 3), (3, 0)];
@@ -275,7 +287,6 @@ mod tests {
         for sigma in S_4 {
             verify_cut_edges_after_permutation::<4>(&edges, &cut_edges, &sigma)
         }
-        
     }
 
     #[test]

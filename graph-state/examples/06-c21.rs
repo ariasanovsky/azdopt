@@ -4,12 +4,19 @@
 
 use core::mem::MaybeUninit;
 use core::ops::RangeInclusive;
-use std::{path::{Path, PathBuf}, io::Write, collections::BTreeMap};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use rayon::prelude::*;
 
-use az_discrete_opt::{state::{StateNode, StateVec, Reset}, int_min_tree::{INTMinTree, INTTransitions, StateDataKind}, log::{SimpleRootLog, ShortRootData}, iq_min_tree::ActionsTaken};
-use dfdx::{prelude::*, optim::Adam};
+use az_discrete_opt::{
+    int_min_tree::{INTMinTree, INTTransitions},
+    log::{ShortRootData, SimpleRootLog},
+    state::{Reset, StateNode, StateVec},
+};
+use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge};
 use rand::{rngs::ThreadRng, Rng};
 
@@ -53,19 +60,21 @@ type Trans<'a> = INTTransitions<'a>;
 type Cost = (Vec<Edge>, f64);
 type Log = SimpleRootLog<Node, Cost>;
 
-
 const DEBUG_FALSE: bool = false;
-
 
 fn main() -> eyre::Result<()> {
     // `epoch0.json, ...` get written to OUT/{dir_name}
-    let out_dir = std::env::var("OUT_DIR").map_or_else(
-        |_| {
-            std::env::var("CARGO_MANIFEST_DIR")
-                .map(|manifest_dir| Path::new(&manifest_dir).join("target"))
-        },
-        |out_dir| Ok(PathBuf::from(out_dir)),
-    ).unwrap_or_else(|_| "/home/azdopt/graph-state/target".into()).join("06-c21").join(Utc::now().to_rfc3339());
+    let out_dir = std::env::var("OUT_DIR")
+        .map_or_else(
+            |_| {
+                std::env::var("CARGO_MANIFEST_DIR")
+                    .map(|manifest_dir| Path::new(&manifest_dir).join("target"))
+            },
+            |out_dir| Ok(PathBuf::from(out_dir)),
+        )
+        .unwrap_or_else(|_| "/home/azdopt/graph-state/target".into())
+        .join("06-c21")
+        .join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
@@ -87,7 +96,7 @@ fn main() -> eyre::Result<()> {
             weight_decay: Some(WeightDecay::Decoupled(1e-2)),
         },
     );
-    
+
     // we initialize tensors to 0 and fill them as needed, minimizing allocations
     let mut v_t_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
     let mut prediction_tensor: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
@@ -96,13 +105,9 @@ fn main() -> eyre::Result<()> {
     let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
 
     let densities: RangeInclusive<f64> = 0.1f64..=0.2;
-    
-    let random_time = |rng: &mut ThreadRng| {
-        rng.gen_range(1..=5)
-    };
-    let random_density = |rng: &mut ThreadRng| {
-        rng.gen_range(densities.clone())
-    };
+
+    let random_time = |rng: &mut ThreadRng| rng.gen_range(1..=5);
+    let random_density = |rng: &mut ThreadRng| rng.gen_range(densities.clone());
     let random_connected_graph_state_node = |rng: &mut ThreadRng| {
         let time = random_time(rng);
         let density = random_density(rng);
@@ -111,22 +116,22 @@ fn main() -> eyre::Result<()> {
     };
 
     // generate states
-    let mut s_0: [Node; BATCH] = from_init(
-        || rand::thread_rng(),
-        random_connected_graph_state_node,
-    );
+    let mut s_0: [Node; BATCH] =
+        from_init(|| rand::thread_rng(), random_connected_graph_state_node);
 
     let cost = |s: &Node| s.state().conjecture_2_1_cost(); // .conjecture_2_1_cost();
     let mut all_losses: Vec<(f32, f32)> = vec![];
     // set logs
-    let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| (Vec::with_capacity(0).into(), 0.));
-    (&s_0, &mut c_t).into_par_iter().for_each(|(s, (m_old, l1_old))| {
-        let (m, l1) = cost(s);
-        *m_old = m;
-        *l1_old = l1;
-    });
+    let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| (Vec::with_capacity(0), 0.));
+    (&s_0, &mut c_t)
+        .into_par_iter()
+        .for_each(|(s, (m_old, l1_old))| {
+            let (m, l1) = cost(s);
+            *m_old = m;
+            *l1_old = l1;
+        });
     let mut logs: [Log; BATCH] = Log::par_new_logs(&s_0, &c_t);
-    
+
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set costs
@@ -135,7 +140,7 @@ fn main() -> eyre::Result<()> {
         (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
             s.write_vec(v);
         });
-        v_t_tensor.copy_from(&v_t.flatten());
+        v_t_tensor.copy_from(v_t.flatten());
         prediction_tensor = core_model.forward(v_t_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone());
         let probs: [ActionVec; BATCH] = probs_tensor.array();
@@ -147,22 +152,20 @@ fn main() -> eyre::Result<()> {
                 println!("==== EPISODE: {episode} ====");
             }
             let mut s_t = s_0.clone();
-            // let transitions: [Trans; BATCH] = (&trees, &mut s_t).into_par_iter().map(|(t, s)| {
-            //     let trans = t.simulate_once(s);
-            //     trans
-            // }).collect::<Vec<_>>().try_into().map_err(|_| ()).unwrap();
             let transitions: [Trans; BATCH] = Tree::par_simulate_once(&mut trees, &mut s_t);
-            (&s_t, &mut c_t).into_par_iter().for_each(|(s, c)| {
-                *c = cost(s);
+            (&s_t, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
+                *c_t = cost(s_t);
             });
 
-            (&s_t, &mut v_t).into_par_iter().for_each(|(s, v)| {
-                s.write_vec(v);
+            (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
+                s_t.write_vec(v_t);
             });
 
-            (&mut logs, &s_t, &c_t).into_par_iter().for_each(|(l, s, c)| {
-                l.update(s, c);
-            });
+            (&mut logs, &s_t, &c_t)
+                .into_par_iter()
+                .for_each(|(l, s_t, c_t)| {
+                    l.update(s_t, c_t);
+                });
 
             v_t_tensor.copy_from(v_t.flatten());
             prediction_tensor = core_model.forward(v_t_tensor.clone());
@@ -170,11 +173,14 @@ fn main() -> eyre::Result<()> {
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
-            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode>; BATCH] = core::array::from_fn(|_| None);
-            (&mut nodes, transitions, &c_t, &s_t, &values, &probs).into_par_iter().for_each(|(n, trans, c, s, v, p)| {
-                // let c = m.len() as f32 + *l as f32;
-                *n = trans.update_existing_nodes(c, s, p, v);
-            });
+            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode>; BATCH] =
+                core::array::from_fn(|_| None);
+            (&mut nodes, transitions, &c_t, &s_t, &values, &probs)
+                .into_par_iter()
+                .for_each(|(n, trans, c_t, s_t, v, probs_t)| {
+                    // let c = m.len() as f32 + *l as f32;
+                    *n = trans.update_existing_nodes(c_t, s_t, probs_t, v);
+                });
 
             // insert nodes into trees
             (&mut trees, nodes).into_par_iter().for_each(|(t, n)| {
@@ -182,14 +188,16 @@ fn main() -> eyre::Result<()> {
                     t.insert_node_at_next_level(n);
                 }
             });
-        };
+        }
 
         let mut probs: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
         let mut values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
 
-        (&trees, &mut probs, &mut values).into_par_iter().for_each(|(t, p, v)| {
-            t.observe(p, v);
-        });
+        (&trees, &mut probs, &mut values)
+            .into_par_iter()
+            .for_each(|(t, p, v)| {
+                t.observe(p, v);
+            });
         observed_probabilities_tensor.copy_from(probs.flatten());
         observed_values_tensor.copy_from(values.flatten());
 
@@ -199,7 +207,8 @@ fn main() -> eyre::Result<()> {
         let root_tensor = dev.tensor(v_t);
         let traced_predictions = core_model.forward(root_tensor.trace(grads));
         let predicted_logits = logits_model.forward(traced_predictions);
-        let cross_entropy = cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
+        let cross_entropy =
+            cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
         let entropy = cross_entropy.array();
         grads = cross_entropy.backward();
 
@@ -211,22 +220,25 @@ fn main() -> eyre::Result<()> {
         grads = value_loss.backward();
 
         all_losses.push((entropy, mse));
-        opt.update(&mut core_model, &grads).expect("optimizer failed");
+        opt.update(&mut core_model, &grads)
+            .expect("optimizer failed");
         core_model.zero_grads(&mut grads);
 
         let max_time = epoch + 5;
         let mut short_data: [Vec<ShortRootData<Cost>>; BATCH] = core::array::from_fn(|_| vec![]);
 
-        (&mut logs, &mut s_0, &mut c_t, &mut short_data).into_par_iter().for_each_init(
-            || rand::thread_rng(),
-            |rng, (l, s, c, d)| {
-                /* at the end of an epoch:
-                    * 1. check for stagnation
-                        * a. if stagnated, randomize root
-                        * b. else, reset to a random time
-                    * 2. 
-                */
-                match l.stagnation() {
+        (&mut logs, &mut s_0, &mut c_t, &mut short_data)
+            .into_par_iter()
+            .for_each_init(
+                || rand::thread_rng(),
+                |rng, (l, s, c, d)| {
+                    /* at the end of an epoch:
+                     * 1. check for stagnation
+                         * a. if stagnated, randomize root
+                         * b. else, reset to a random time
+                     * 2.
+                     */
+                    match l.stagnation() {
                     Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
                         // todo! s.reset_with(...);
                         // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
@@ -251,32 +263,20 @@ fn main() -> eyre::Result<()> {
                         s.clone_from(l.next_root());
                     },
                 }
-                c.clone_from(l.root_cost());
-                l.empty_root_data(d);
-                // if DEBUG_FALSE && l.stagnation().is_some_and(|s| s > max_tolerated_stagnation) {
-                //     todo!("randomize root (s_0 and logs), ")
-                //     // logs[i].best_state() equals s_0[i] already, no need to reset it
-                // } else {
-                //     let t = rng.gen_range(times.clone());
-                //     l.next_root_mut().reset(t);
-                // }
-            }
-        );
+                    c.clone_from(l.root_cost());
+                    l.empty_root_data(d);
+                },
+            );
         // write {short_data:?} to out_dir/epoch{epoch}.json
         let epoch_path = out_dir.join(format!("epoch{epoch}")).with_extension("json");
-        let mut epoch_file = std::fs::File::create(epoch_path).wrap_err("failed to create epoch file")?;
+        let mut epoch_file =
+            std::fs::File::create(epoch_path).wrap_err("failed to create epoch file")?;
         // we print format!("{short_data:?}") to the file
         // we are not using serde lol
-        epoch_file.write_all(format!("{short_data:?}").as_bytes()).wrap_err("failed to write epoch file")?;
-        // (&mut s_0, &logs).into_par_iter().for_each(|(s, l)| {
-        //     s.clone_from(l.best_state())
-        // });
-        // (&mut c_t, &s_0).into_par_iter().for_each(|(c, s)| {
-        //     *c = cost(s);
-        // });
-        // todo! verify we can skip the cost assignments here
-        // todo!("more updates required, also include a checker for stagnation")
-    };
+        epoch_file
+            .write_all(format!("{short_data:?}").as_bytes())
+            .wrap_err("failed to write epoch file")?;
+    }
     dbg!(&out_dir);
     Ok(())
 }

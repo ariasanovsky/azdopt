@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 use std::collections::VecDeque;
 
 use az_discrete_opt::state::StateNode;
-use faer::{Mat, Faer};
+use faer::{Faer, Mat};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::bitset::B32;
@@ -30,8 +30,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         self.fast_cut_edges()
     }
 
-    pub(crate) fn slow_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
-        let Self { neighborhoods } = self;
+    pub(crate) fn _slow_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
         self.edges().filter(move |e| self.is_cut_edge(e))
     }
 
@@ -59,7 +58,6 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         true
     }
 
-
     pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
         // todo! size asserts, move to `StateNode`
         let mut states: [MaybeUninit<StateNode<Self>>; BATCH] = MaybeUninit::uninit_array();
@@ -67,15 +65,16 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             let mut rng = rand::thread_rng();
             s.write(StateNode::new(Self::generate(p, &mut rng), time));
         });
-        let states = unsafe { MaybeUninit::array_assume_init(states) };
-        states
+        unsafe { MaybeUninit::array_assume_init(states) }
     }
 
     pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self {
         loop {
             let graph = BitsetGraph::<N>::generate(p, rng);
             if graph.is_connected() {
-                return Self { neighborhoods: graph.neighborhoods };
+                return Self {
+                    neighborhoods: graph.neighborhoods,
+                };
             }
         }
     }
@@ -95,17 +94,16 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
     }
 
     pub fn num_edges(&self) -> u32 {
-        let Self {
-            neighborhoods,
-        } = self;
+        let Self { neighborhoods } = self;
         neighborhoods.iter().map(|n| n.cardinality()).sum::<u32>() / 2
     }
 
     pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
         let Self { neighborhoods } = self;
-        neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
-            (0..v).map(move |u| n.contains(u))
-        })
+        neighborhoods
+            .iter()
+            .enumerate()
+            .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u)))
     }
 
     pub fn action_kinds(&self) -> impl Iterator<Item = Option<ActionKind>> + '_ {
@@ -129,30 +127,36 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
     pub fn ah_cost(&self) -> f32 {
         let mut distances: [[usize; N]; N] = [[0; N]; N];
         let mut diameter = 0;
-        let min_transmission = (0..N).map(|u| {
-            let mut explored = B32::empty();
-            explored.insert_unchecked(u);
-            let mut newly_seen_vertices = self.neighborhoods[u].clone();
-            let mut transmission = 0;
-            for d in 1.. {
-                if newly_seen_vertices.is_empty() {
-                    diameter = diameter.max(d - 1);
-                    break;
+        let min_transmission = (0..N)
+            .map(|u| {
+                let mut explored = B32::empty();
+                explored.insert_unchecked(u);
+                let mut newly_seen_vertices = self.neighborhoods[u].clone();
+                let mut transmission = 0;
+                for d in 1.. {
+                    if newly_seen_vertices.is_empty() {
+                        diameter = diameter.max(d - 1);
+                        break;
+                    }
+                    transmission += newly_seen_vertices.cardinality() * d;
+                    explored.union_assign(&newly_seen_vertices);
+                    let recently_seen_vertices = newly_seen_vertices;
+                    newly_seen_vertices = B32::empty();
+                    recently_seen_vertices.iter().for_each(|v| {
+                        distances[u][v] = d as usize;
+                        newly_seen_vertices.union_assign(&self.neighborhoods[v]);
+                    });
+                    newly_seen_vertices.minus_assign(&explored);
                 }
-                transmission += newly_seen_vertices.cardinality() * d;
-                explored.union_assign(&newly_seen_vertices);
-                let recently_seen_vertices = newly_seen_vertices;
-                newly_seen_vertices = B32::empty();
-                recently_seen_vertices.iter().for_each(|v| {
-                    distances[u][v] = d as usize;
-                    newly_seen_vertices.union_assign(&self.neighborhoods[v]);
-                });
-                newly_seen_vertices.minus_assign(&explored);
-            }
-            transmission
-        }).min().unwrap();
+                transmission
+            })
+            .min()
+            .unwrap();
         let proximity = min_transmission as f64 / (N - 1) as f64;
-        let k = (2 * diameter / 3).checked_sub(1).map(|k| k as usize).unwrap_or(N - 1);
+        let k = (2 * diameter / 3)
+            .checked_sub(1)
+            .map(|k| k as usize)
+            .unwrap_or(N - 1);
         let a: Mat<f64> = Mat::from_fn(N, N, |i, j| distances[i][j] as f64);
         let mut eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
         eigs.sort_floats();
@@ -191,7 +195,10 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         let mut matching_number = 0;
         let mut max_matching = Vec::with_capacity(0);
         while let Some(matching) = matching_queue.pop_back() {
-            let MatchingSearch { edges, mut unvisited_vertices } = matching;
+            let MatchingSearch {
+                edges,
+                mut unvisited_vertices,
+            } = matching;
             for edge in edges.iter() {
                 debug_assert!(
                     !unvisited_vertices.contains(edge.min()),
@@ -266,7 +273,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         // let eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
         // let lambda_1 = eigs.into_iter().max_by(|a, b| a.partial_cmp(&b).unwrap()).unwrap();
         let eigs: Vec<faer::complex_native::c64> = a.eigenvalues();
-        let lambda_1 = eigs.into_iter().max_by(|a, b| a.re.partial_cmp(&b.re).unwrap()).unwrap().re;
+        let lambda_1 = eigs
+            .into_iter()
+            .max_by(|a, b| a.re.partial_cmp(&b.re).unwrap())
+            .unwrap()
+            .re;
         let matching = self.maximum_matching();
         (matching, lambda_1)
     }
@@ -279,14 +290,20 @@ mod tests {
 
     #[test]
     fn complete_graph_on_four_vertices_has_matching_number_two() {
-        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         let graph = graph.to_connected().unwrap();
         debug_assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]
     fn cycle_graph_on_five_vertices_has_matching_number_two() {
-        let graph: BitsetGraph<5> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<5> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)]
+            .as_ref()
+            .try_into()
+            .unwrap();
         let graph = graph.to_connected().unwrap();
         debug_assert_eq!(graph.matching_number(), 2);
     }

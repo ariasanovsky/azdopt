@@ -15,5 +15,5 @@ impl<const N: usize> TryFrom<&[(usize, usize)]> for BitsetGraph<N> {
             neighborhoods[u].add_or_remove_unchecked(v);
         }
         Ok(Self { neighborhoods })
-    } 
+    }
 }

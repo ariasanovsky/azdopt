@@ -16,10 +16,10 @@ impl<const N: usize> BitsetGraph<N> {
         }
 
         // Add the adjacency matrix to the graph6 string
-        let mut foo = self.edge_bools().collect::<Vec<_>>();
-        let padding = (6 - (foo.len() % 6)) % 6;
-        foo.extend(vec![false; padding]);
-        foo.chunks_exact(6).for_each(|chunk| {
+        let mut bool_edges = self.edge_bools().collect::<Vec<_>>();
+        let padding = (6 - (bool_edges.len() % 6)) % 6;
+        bool_edges.extend(vec![false; padding]);
+        bool_edges.chunks_exact(6).for_each(|chunk| {
             let mut byte = 0;
             chunk.iter().rev().enumerate().for_each(|(i, &b)| {
                 if b {

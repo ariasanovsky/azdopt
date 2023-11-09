@@ -1,14 +1,14 @@
-use core::mem::MaybeUninit;
 use az_discrete_opt::state::StateNode;
+use core::mem::MaybeUninit;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::bitset::B32;
 
 use super::edge::Edge;
 
-pub(crate) mod state;
 mod display;
 mod graph6;
+pub(crate) mod state;
 mod try_from;
 
 #[derive(Clone, Debug)]
@@ -26,8 +26,7 @@ impl<const N: usize> BitsetGraph<N> {
             let mut rng = rand::thread_rng();
             s.write(StateNode::new(Self::generate(p, &mut rng), time));
         });
-        let states = unsafe { MaybeUninit::array_assume_init(states) };
-        states
+        unsafe { MaybeUninit::array_assume_init(states) }
     }
 
     pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self {
@@ -52,13 +51,16 @@ impl<const N: usize> BitsetGraph<N> {
         visited_vertices.insert_unchecked(0);
         let mut seen_vertices = neighborhoods[0].clone();
         while !seen_vertices.is_empty() {
-            seen_vertices = seen_vertices.iter().map(|v| {
-                visited_vertices.insert_unchecked(v);
-                &neighborhoods[v]
-            }).fold(B32::empty(), |mut acc, n| {
-                acc.union_assign(n);
-                acc
-            });
+            seen_vertices = seen_vertices
+                .iter()
+                .map(|v| {
+                    visited_vertices.insert_unchecked(v);
+                    &neighborhoods[v]
+                })
+                .fold(B32::empty(), |mut acc, n| {
+                    acc.union_assign(n);
+                    acc
+                });
             seen_vertices.minus_assign(&visited_vertices);
         }
         visited_vertices == Self::ALL_VERTICES
@@ -66,7 +68,9 @@ impl<const N: usize> BitsetGraph<N> {
 
     pub fn to_connected(self) -> Option<super::connected_bitset_graph::ConnectedBitsetGraph<N>> {
         if self.is_connected() {
-            Some(super::connected_bitset_graph::ConnectedBitsetGraph { neighborhoods: self.neighborhoods })
+            Some(super::connected_bitset_graph::ConnectedBitsetGraph {
+                neighborhoods: self.neighborhoods,
+            })
         } else {
             None
         }
@@ -88,8 +92,9 @@ impl<const N: usize> BitsetGraph<N> {
 
     pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
         let Self { neighborhoods } = self;
-        neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
-            (0..v).map(move |u| n.contains(u))
-        })
+        neighborhoods
+            .iter()
+            .enumerate()
+            .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u)))
     }
 }

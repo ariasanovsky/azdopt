@@ -13,14 +13,11 @@ pub enum Action {
 impl<const N: usize> az_discrete_opt::state::Action<BitsetGraph<N>> for Action {
     fn index(&self) -> usize {
         match self {
-            Action::Add(e) => {
-                let pos = e.colex_position();
-                pos
-            },
+            Action::Add(e) => e.colex_position(),
             Action::Delete(e) => {
                 let pos = e.colex_position();
                 pos + (N * (N - 1) / 2)
-            },
+            }
         }
     }
 
@@ -44,7 +41,7 @@ impl<const N: usize> State for BitsetGraph<N> {
                 let e = unsafe { Edge::new_unchecked(v, u) };
                 if n.contains(u) {
                     Action::Delete(e)
-                }  else {
+                } else {
                     Action::Add(e)
                 }
             })
@@ -58,8 +55,7 @@ impl<const N: usize> State for BitsetGraph<N> {
                 let (v, u) = e.vertices();
                 neighborhoods[u].add_or_remove_unchecked(v);
                 neighborhoods[v].add_or_remove_unchecked(u);
-            },
+            }
         }
     }
 }
-

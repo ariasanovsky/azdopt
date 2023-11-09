@@ -6,7 +6,10 @@ pub struct Edge {
 
 impl core::fmt::Debug for Edge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("").field("\"max\"", &self.max).field("\"min\"", &self.min).finish()
+        f.debug_struct("")
+            .field("\"max\"", &self.max)
+            .field("\"min\"", &self.min)
+            .finish()
         // let Self {
         //     max,
         //     min,
@@ -29,6 +32,9 @@ impl Edge {
         }
     }
 
+    /// # Safety
+    /// This function should only be called when `max` > `min`.
+    /// It does not perform checks and assumes the caller has already checked that `max` > `min`.
     pub const unsafe fn new_unchecked(max: usize, min: usize) -> Self {
         Self { max, min }
     }
