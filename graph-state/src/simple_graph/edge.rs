@@ -19,7 +19,7 @@ impl az_discrete_opt::state::cost::CostsOneEach for Edge {}
 
 impl Edge {
     pub const fn new(u: usize, v: usize) -> Self {
-        assert!(u != v);
+        debug_assert!(u != v);
         // todo! stuck behind #![feature(const_trait_impl)]
         // Self { max: u.max(v), min: u.min(v) }
         if u > v {
@@ -73,8 +73,8 @@ mod test {
     fn colex_position_of_edges_on_ten_vertices_are_correct() {
         let edges = (0..10).flat_map(|v| (0..v).map(move |u| Edge::new(v, u)));
         edges.enumerate().for_each(|(i, e)| {
-            assert_eq!(e.colex_position(), i);
-            assert_eq!(Edge::from_colex_position(i), e);
+            debug_assert_eq!(e.colex_position(), i);
+            debug_assert_eq!(Edge::from_colex_position(i), e);
         });
     }
 }

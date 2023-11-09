@@ -97,14 +97,14 @@ pub struct CliqueCounts(pub [[i32; E]; 2]);
 //             let bitset = g.neighborhoods[0][u] & g.neighborhoods[0][v];
 //             (bitset & (1 << w) != 0) && (bitset & (1 << x) != 0) && g.neighborhoods[0][*w] & (1 << x) != 0
 //         }).count();
-//         assert_eq!(red_uvwx, g.counts[0][i] as usize);
+//         debug_assert_eq!(red_uvwx, g.counts[0][i] as usize);
 //         let pairs = (0..N).map(|j| (0..j).map(move |i| (i, j))).flatten();
 //         let blue_uvwx = pairs.filter(|(w, x)| {
 //             // check each of the 5 edges (u, w), (u, x), (v, w), (v, x), (w, x) with the neighborhood bitset
 //             let bitset = g.neighborhoods[1][u] & g.neighborhoods[1][v];
 //             (bitset & (1 << w) != 0) && (bitset & (1 << x) != 0) && g.neighborhoods[1][*w] & (1 << x) != 0
 //         }).count();
-//         assert_eq!(blue_uvwx, g.counts[1][i] as usize);
+//         debug_assert_eq!(blue_uvwx, g.counts[1][i] as usize);
 //     });
 // }
 
@@ -113,7 +113,7 @@ pub struct CliqueCounts(pub [[i32; E]; 2]);
 // pub struct CheckFirstChooseTwoEqualsSecond<const N: usize, const E: usize>(core::marker::PhantomData<([(); N], [(); E])>);
 // impl<const N: usize, const E: usize> CheckFirstChooseTwoEqualsSecond<N, E> {
 //     pub const VALID: () = {
-//         assert!(N * (N - 1) / 2 == E);
+//         debug_assert!(N * (N - 1) / 2 == E);
 //     };
 // }
 
@@ -128,7 +128,7 @@ pub struct CliqueCounts(pub [[i32; E]; 2]);
 // pub struct CheckFirstTimesThreePlusOneEqualsSecond<const E: usize, const STATE: usize>(core::marker::PhantomData<([(); E], [(); STATE])>);
 // impl<const E: usize, const STATE: usize> CheckFirstTimesThreePlusOneEqualsSecond<E, STATE> {
 //     pub const VALID: () = {
-//         assert!(3 * E + 1 == STATE);
+//         debug_assert!(3 * E + 1 == STATE);
 //     };
 // }
 

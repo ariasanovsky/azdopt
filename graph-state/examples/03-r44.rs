@@ -183,7 +183,7 @@
 //         grads = {
 //             let prediction_tensor = model.forward(leaf_tensor.trace(grads));
 //             let predicted_logits: Tensor<(usize, usize), f32, Cuda, OwnedTape<f32, Cuda>> = prediction_tensor.slice((0.., 0..ACTION));
-//             assert_eq!(predicted_logits.shape(), &(64, 272));
+//             debug_assert_eq!(predicted_logits.shape(), &(64, 272));
 
 //             let p: f32 = (ACTION as f32).recip();
 //             let target_probs = [[p; ACTION]; BATCH];
@@ -196,7 +196,7 @@
 //         grads = {
 //             let core_tensor = model.forward(leaf_tensor.trace(grads));
 //             let predicted_values: Tensor<(usize, usize), f32, Cuda, OwnedTape<f32, Cuda>> = core_tensor.slice((0.., ACTION..));
-//             assert_eq!(predicted_values.shape(), &(64, 1));
+//             debug_assert_eq!(predicted_values.shape(), &(64, 1));
 
 //             let target_values = [[10.0f32; 1]; BATCH];
 //             let target_values = dev.tensor(target_values.clone()).slice((0.., 0..));

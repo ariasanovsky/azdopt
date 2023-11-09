@@ -6,16 +6,31 @@ use crate::{iq_min_tree::ActionsTaken, state::{State, Action, cost::Cost}};
 
 pub struct INTMinTree {
     root_data: INTStateData,
-    data: BTreeMap<ActionsTaken, INTStateData>,
+    data: Vec<BTreeMap<ActionsTaken, StateDataKind>>,
 }
 
 pub trait __INTStateDiagnostic {
     fn __actions(&self) -> Vec<usize>;
 }
 
-struct INTTransition {
-    p_i: ActionsTaken,
-    c_i: f32,
+pub enum StateDataKind {
+    Exhausted {
+        c_t_star: f32,
+    },
+    Active {
+        data: INTStateData,
+    }
+}
+
+enum EndStateKind<'a> {
+    NewNodeNewLevel,
+    NewNodeOldLevel(&'a mut BTreeMap<ActionsTaken, StateDataKind>),
+    OldExhaustedOldLevel { c_t_star: f32 },
+}
+
+struct INTTransition<'a> {
+    data_i: &'a mut INTStateData, // todo! rename this
+    c_i: f32, // todo! delete this since we have p_i.c_s
     a_i_plus_one: usize,
 }
 
@@ -23,7 +38,7 @@ impl INTMinTree {
     pub fn new<S: State>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
         Self {
             root_data: INTStateData::new(root_predictions, cost, root),
-            data: BTreeMap::new(),
+            data: Vec::new(),
         }
     }
 
@@ -49,7 +64,7 @@ impl INTMinTree {
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<S>(&self, s_0: &mut S) -> INTTransitions
+    pub fn simulate_once<'a, S>(&'a mut self, s_0: &mut S) -> INTTransitions<'a>
     where
         S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
         S::Actions: Eq + core::fmt::Display,
@@ -73,58 +88,75 @@ impl INTMinTree {
         unsafe { s_i.act_unchecked(&action_1) };
         let mut p_i = ActionsTaken::new(a_1);
         let mut transitions: Vec<INTTransition> = vec![];
-        while !s_i.is_terminal() {
-            // dbg!();
-            // println!("s_i = {s_i}");
-            // s_i.actions().for_each(|a| {
-            //     println!("a = {a}");
-            // });
-            if let Some(data) = data.get(&p_i) {
-                // assert_eq!(s_0.cost(), data.c_s);
-                // let mut __state_actions = s_0.__actions();
-                // __state_actions.sort();
-                // assert_eq!(__state_actions, data.__actions());
-                let a_i_plus_one = data.best_action();
-                // dbg!(a_i_plus_one);
-                transitions.push(INTTransition {
-                    p_i: p_i.clone(),
-                    c_i: data.c_s,
-                    a_i_plus_one,
-                });
-                let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
-                // println!("a_i_plus_one, action_i = {a_i_plus_one}, {action_i_plus_1}");
-                // dbg!();
-                s_i.act(&action_i_plus_1);
-                // dbg!();
-                // dbg!();
-                p_i.push(a_i_plus_one);
-                // dbg!();
-            } else {
-                // dbg!();
-                return INTTransitions {
-                    a_1,
-                    transitions,
-                    p_t: INTSearchEnd::Unvisited { state_path: p_i },
-                }
+
+        for data in data.iter_mut() {
+            /* isomorphic to
+            enum PreviouslyExhaustedValue {
+                NotFound,
+                FoundActive, // this is the problem case preventing us from using .get_mut()
+                // the borrow checker doesn't do inference down branches of enums, it processes ownership as a stack
+                FoundExhausted { c_t_star: f32 },
             }
+            */
+            let previously_exhausted_value: Option<Option<f32>> = data.get(&p_i).map(|data| match data {
+                StateDataKind::Exhausted { c_t_star } => Some(*c_t_star),
+                StateDataKind::Active { data } => None
+            });
+            match previously_exhausted_value {
+                Some(Some(c_t_star)) => {
+                    let end = EndStateKind::OldExhaustedOldLevel { c_t_star };
+                    return INTTransitions {
+                        a_1,
+                        root_data,
+                        transitions,
+                        p_t: p_i,
+                        end,
+                    }
+                },
+                Some(None) => {},
+                None => {
+                    let end = EndStateKind::NewNodeOldLevel(data);
+                    return INTTransitions {
+                        a_1,
+                        root_data,
+                        transitions,
+                        p_t: p_i,
+                        end,
+                    }
+                },
+            }
+            let state_data = match data.get_mut(&p_i) {
+                Some(StateDataKind::Active { data }) => data,
+                _ => unreachable!("this should be unreachable")
+            };
+            let c_i = state_data.c_s;
+            let a_i_plus_one = state_data.best_action();
+            let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
+            
+            debug_assert_eq!(action_i_plus_1.index(), a_i_plus_one);
+            debug_assert!(s_i.actions().any(|a| action_i_plus_1 == a));
+            
+            transitions.push(INTTransition {
+                data_i: state_data,
+                c_i,
+                a_i_plus_one,
+            });
+            s_i.act(&action_i_plus_1);
+            p_i.push(a_i_plus_one);
         }
-        // dbg!();
         INTTransitions {
             a_1,
             transitions,
-            p_t: INTSearchEnd::Terminal { state_path: p_i },
+            p_t: p_i,
+            root_data,
+            end: EndStateKind::NewNodeNewLevel,
         }
-        // INTTransitions {
-        //     first_action,
-        //     transitions,
-        //     end: INTSearchEnd::Unvisited { state_path },
-        // }
     }
 
-    pub fn par_simulate_once<S, const N: usize>(
-        trees: &[Self; N],
+    pub fn par_simulate_once<'a, S, const N: usize>(
+        trees: &'a mut [Self; N],
         s_0: &mut [S; N],
-    ) -> [INTTransitions; N]
+    ) -> [INTTransitions<'a>; N]
     where
         S: Send + core::fmt::Display + core::fmt::Debug + State,
         S::Actions: Eq + core::fmt::Display,
@@ -140,29 +172,21 @@ impl INTMinTree {
         unsafe { MaybeUninit::array_assume_init(trans) }
     }
 
-    pub fn insert<S, C>(
-        &mut self,
-        transitions: &INTTransitions,
-        s_t: &S,
-        c_t: &C,
-        prob_s_t: &[f32],
-    )
-    where
-        S: State + core::fmt::Display,
-        S::Actions: core::fmt::Display,
-        C: Cost<f32>,
-    {
+    pub fn insert_node_at_next_level(&mut self, node: UpdatedNode) {
+        let level = BTreeMap::from([(node.p_t, node.data_t)]);
+        self.data.push(level);
+        // self.data.push(node.new_level);
+
         // dbg!();
         // println!("inserting s_t = {s_t}\nwhich has actions:");
         // s_t.actions().for_each(|a| {
         //     println!("a = {a}");
         // });
-        let Self { root_data: _, data } = self;
-        let p_t = transitions.last_path();
-        let state_data = INTStateData::new(prob_s_t, c_t.cost(), s_t);
-        // dbg!(&state_data);
-        data.insert(p_t.clone(), state_data);
-        // panic!();
+        // let Self { root_data: _, data } = self;
+        // let state_data = INTStateData::new(prob_s_t, c_t.cost(), s_t);
+        // // dbg!(&state_data);
+        // data.push(node.node);
+        // data[p_t.len() - 1].insert(p_t.clone(), state_data);
     }
 
     pub fn update<C>(
@@ -174,32 +198,12 @@ impl INTMinTree {
     where
         C: Cost<f32>,
     {
-        assert_eq!(g_star_theta_s_t.len(), 1);
-        let INTTransitions {
-            a_1,
-            transitions,
-            p_t,
-        } = transitions;
-        let h_star_theta_s_t = match p_t {
-            INTSearchEnd::Terminal { .. } => 0.0,
-            INTSearchEnd::Unvisited { .. } => g_star_theta_s_t[0],
-        };
-        // we run from i = t to i = 0
-        let mut c_star_theta_i = c_t.cost() - h_star_theta_s_t.max(0.0);
-        let Self { root_data, data } = self;
-        transitions.into_iter().rev().for_each(|t_i| {
-            let INTTransition { p_i, c_i, a_i_plus_one } = t_i;
-            // let g_star_theta_i = c_i - c_star_theta_i;
-            let data_i = data.get_mut(p_i).unwrap();
-            data_i.update(*a_i_plus_one, &mut c_star_theta_i);
-            c_star_theta_i = c_star_theta_i.min(*c_i);
-        });
-        root_data.update(*a_1, &mut c_star_theta_i);
+        todo!()
     }
 
     pub fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
         probs.fill(0.0);
-        assert_eq!(values.len(), 1);
+        debug_assert_eq!(values.len(), 1);
         let Self { root_data, data: _ } = self;
         root_data.observe(probs, values);
     }
@@ -212,28 +216,116 @@ pub trait INTState {
     fn actions(&self) -> Vec<usize>;
 }
 
-pub struct INTTransitions {
+pub struct INTTransitions<'a> {
     a_1: usize,
-    transitions: Vec<INTTransition>,
-    p_t: INTSearchEnd,
+    root_data: &'a mut INTStateData,
+    transitions: Vec<INTTransition<'a>>,
+    p_t: ActionsTaken,
+    end: EndStateKind<'a>,
 }
 
-impl INTTransitions {
+pub struct UpdatedNode {
+    p_t: ActionsTaken,
+    data_t: StateDataKind,
+}
+
+
+impl<'a> INTTransitions<'a> {
+    pub fn update_existing_nodes(
+        self,
+        c_t: &impl Cost<f32>,
+        s_t: &impl State,
+        probs_t: &[f32],
+        g_star_theta_s_t: &[f32],
+    ) -> Option<UpdatedNode> {
+        debug_assert_eq!(g_star_theta_s_t.len(), 1);
+        let INTTransitions {
+            a_1,
+            transitions,
+            p_t,
+            root_data,
+            end,
+        } = self;
+        let (h_star_theta_s_t, node): (f32, _) = match end {
+            EndStateKind::NewNodeNewLevel => {
+                // let data_t = INTStateData::new(probs_t, c_t.cost(), s_t);
+                let (h_star_theta_s_t, data_t) = match s_t.is_terminal() {
+                    true => (0.0, StateDataKind::Exhausted { c_t_star: c_t.cost() }),
+                    false => (g_star_theta_s_t[0], StateDataKind::Active { data: INTStateData::new(probs_t, c_t.cost(), s_t) }),
+                };
+                let node = UpdatedNode { p_t, data_t };
+                (h_star_theta_s_t, Some(node))
+            },
+            EndStateKind::NewNodeOldLevel(t) => {
+                let data = match s_t.is_terminal() {
+                    true => StateDataKind::Exhausted { c_t_star: c_t.cost() },
+                    false => {
+                        let data = INTStateData::new(probs_t, c_t.cost(), s_t);
+                        StateDataKind::Active { data }
+                    },
+                };
+                // t.insert(p_t, data).unwrap();
+                let _i = t.insert(p_t, data);
+                debug_assert!(_i.is_none(), "this node should not already exist");
+                // todo!();
+                // let node = UnupdatedNode::OldLevel(t.get_mut(&p_t).unwrap());
+                let h_star_theta_s_t = match s_t.is_terminal() {
+                    true => 0.0,
+                    false => g_star_theta_s_t[0],
+                };
+                (h_star_theta_s_t, None)
+            },
+            EndStateKind::OldExhaustedOldLevel { c_t_star } => {
+                // todo! we can be clever and use the fact that we know the cost of all nodes reachable from the exhausted node
+                (0.0, None)
+            },
+
+            // EndStateKind::NewTerminal { tree } => {
+            //     let leaf = match tree {
+            //         Some(t) => {
+            //             let data = INTStateData::new(&g_star_theta_s_t, c_t.cost(), s_t);
+            //             t.insert(p_t, data);
+            //             todo!()
+            //         },
+            //         None => todo!(),
+            //     };
+            //     (0.0, leaf)
+            // },
+            // EndStateKind::NewActive { vacancy } => {
+            //     todo!()
+            // }
+            // EndStateKind::OldExhausted { c_t_star } => todo!(),
+            // EndStateKind::Todo => todo!(),
+            // TransitionEndKind::OldExhausted { c_t_star } => {
+            //     todo!()
+            // },
+            // TransitionEndKind::Todo => todo!(),
+            // TransitionEndKind::NewTerminal { p_t, vacancy } => todo!(),
+            // _ => todo!(),
+            // INTSearchEnd::Terminal { .. } => 0.0,
+            // INTSearchEnd::Unvisited { .. } => g_star_theta_s_t[0],
+        };
+
+        // todo! also backpropagate exhaustion
+        let mut c_star_theta_i = c_t.cost() - h_star_theta_s_t.max(0.0);
+        transitions.into_iter().rev().for_each(|t_i| {
+            let INTTransition { data_i, c_i, a_i_plus_one } = t_i;
+            // let g_star_theta_i = c_i - c_star_theta_i;
+            data_i.update(a_i_plus_one, &mut c_star_theta_i);
+            c_star_theta_i = c_star_theta_i.min(c_i);
+            // ");
+        });
+        root_data.update(a_1, &mut c_star_theta_i);
+        node
+    }
+
 //     pub fn last_cost(&self) -> Option<f32> {
 //         todo!()
 //     }
 
     pub fn last_path(&self) -> &ActionsTaken {
-        match &self.p_t {
-            INTSearchEnd::Terminal { state_path, .. } => state_path,
-            INTSearchEnd::Unvisited { state_path, .. } => state_path,
-        }
+        todo!()
     }
-}
-
-pub(crate) enum INTSearchEnd {
-    Terminal { state_path: ActionsTaken, },
-    Unvisited { state_path: ActionsTaken },
 }
 
 /* todo! refactor so that:
@@ -246,7 +338,7 @@ pub(crate) enum INTSearchEnd {
         unvisited actions use the same upper estimate formula, but it depends only on the probability
 */
 #[derive(Debug)]
-struct INTStateData {
+pub struct INTStateData {
     n_s: usize,
     c_s: f32,
     actions: Vec<INTActionData>,
@@ -255,7 +347,7 @@ struct INTStateData {
 impl INTStateData {
     fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
         probs.fill(0.0);
-        assert_eq!(values.len(), 1);
+        debug_assert_eq!(values.len(), 1);
         let Self {
             n_s,
             c_s: _,
@@ -271,17 +363,17 @@ impl INTStateData {
         });
         values[0] = value / n_s;
     }
-    
+
     fn __actions(&self) -> Vec<usize> {
         let mut actions = self.actions.iter().map(|a| a.a).collect::<Vec<_>>();
         actions.sort();
         actions
     }
-    
-    pub fn new<S: State>(predctions: &[f32], cost: f32, state: &S) -> Self {
-        let p_sum = state.actions().map(|a| predctions[a.index()]).sum::<f32>();
+
+    pub fn new<S: State>(probs: &[f32], cost: f32, state: &S) -> Self {
+        let p_sum = state.actions().map(|a| probs[a.index()]).sum::<f32>();
         let mut actions = state.actions().into_iter().map(|a| {
-            let p = predctions[a.index()] / p_sum;
+            let p = probs[a.index()] / p_sum;
             INTActionData::new(a.index(), p)
         }).collect::<Vec<_>>();
         actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
@@ -344,7 +436,7 @@ struct INTActionData {
     p_sa: f32,
     n_sa: usize,
     g_sa_sum: f32,
-    u_sa: f32,    
+    u_sa: f32,
 }
 
 const C_PUCT_0: f32 = 0.5;

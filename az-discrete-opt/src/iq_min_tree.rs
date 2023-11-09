@@ -267,7 +267,7 @@ impl IQMinTree {
             transitions,
             end: new_path,
         } = transitions;
-        assert_eq!(gains.len(), 1);
+        debug_assert_eq!(gains.len(), 1);
         let mut approximate_gain_to_terminal = match new_path {
             SearchEnd::Terminal { .. } => 0.0f32,
             SearchEnd::New { .. } => gains.first().unwrap().max(0.0),
