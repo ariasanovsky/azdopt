@@ -1,6 +1,6 @@
 # AlphaZero discrete optimization
 
-![a 3d plot showing 64 independent searches with `(x, y, z)` axes labeled `(Episodes, Matching, Lambda)`](3d_cost.png)
+![a 3d plot showing 64 independent searches with `(x, y, z)` axes labeled `(Episodes, Matching, Lambda)`](readme_3d_cost.png)
 
 The goal of this project is to optimize arbitrary functions over high-dimensional discrete state spaces with limited prior knowledge through self-play. See the [Issues](https://github.com/ariasanovsky/azdopt/issues/) for planned features and optimizations. Hyperparameters are not optimized.
 
