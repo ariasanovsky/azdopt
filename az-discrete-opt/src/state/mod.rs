@@ -187,6 +187,7 @@ impl<T: StateVec> StateVec for StateNode<T> {
     const AVAILABLE_ACTIONS_BOOL_DIM: usize = T::AVAILABLE_ACTIONS_BOOL_DIM;
 
     fn write_vec(&self, vec: &mut [f32]) {
+        // dbg!(vec.len());
         let (state, vec) = vec.split_at_mut(T::STATE_DIM);
         let (time, actions) = vec.split_at_mut(1);
         debug_assert_eq!(actions.len(), Self::AVAILABLE_ACTIONS_BOOL_DIM);

@@ -122,6 +122,7 @@ impl INTMinTree {
             let a_i_plus_one = state_data.best_action();
             let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
 
+            dbg!(a_i_plus_one);
             debug_assert_eq!(action_i_plus_1.index(), a_i_plus_one);
             debug_assert!(s_i.actions().any(|a| action_i_plus_1 == a));
 

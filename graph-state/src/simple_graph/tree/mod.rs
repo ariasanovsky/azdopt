@@ -1,12 +1,49 @@
-use super::edge::Edge;
+use std::collections::VecDeque;
+
+use faer::Faer;
+
+use self::state::PrueferCodeEntry;
+
+use super::{edge::Edge, connected_bitset_graph::{ConnectedBitsetGraph, Conjecture2Dot1Cost}};
 
 pub mod sparse6;
 mod display;
 mod state;
 
+#[derive(Debug, Clone)]
 pub struct PrueferCode<const N: usize> {
     code: [usize; N], // no const generics, else we'd put N - 2 here
 }
+
+impl<const N: usize> core::fmt::Display for PrueferCode<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for (i, &p) in self.code.iter().enumerate() {
+            write!(f, "{}", p)?;
+            if i != N - 3 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "]")
+    }
+}
+
+impl<const N: usize> az_discrete_opt::state::ProhibitsActions for PrueferCode<N> {
+    type Action = PrueferCodeEntry;
+
+    unsafe fn update_prohibited_actions_unchecked(
+        &self,
+        prohibited_actions: &mut std::collections::BTreeSet<usize>,
+        action: &Self::Action,
+    ) {}
+}
+
+impl<const N: usize> az_discrete_opt::log::ShortForm for PrueferCode<N> {
+    fn short_form(&self) -> String {
+        Tree::from(self).short_form()
+    }
+}
+
 
 impl<const N: usize> PrueferCode<N> {
     pub fn generate(rng: &mut impl rand::Rng) -> Self {
@@ -20,8 +57,8 @@ impl<const N: usize> PrueferCode<N> {
     }
 }
 
-impl<const N: usize> From<PrueferCode<N>> for Tree<N> {
-    fn from(value: PrueferCode<N>) -> Self {
+impl<const N: usize> From<&PrueferCode<N>> for Tree<N> {
+    fn from(value: &PrueferCode<N>) -> Self {
         Tree::from_pruefer_code(value.code())
     }
 }
@@ -49,7 +86,7 @@ impl<const N: usize> Tree<N> {
         for a in code {
             for b in 0..N {
                 if degrees[b] == 1 {
-                    dbg!(a, b, parent, degrees);
+                    // dbg!(a, b, parent, degrees);
                     parent[b] = Some(*a);
                     degrees[b] -= 1;
                     degrees[*a] -= 1;
@@ -72,6 +109,92 @@ impl<const N: usize> Tree<N> {
             .iter()
             .enumerate()
             .filter_map(|(i, &p)| p.map(|p| Edge::new(i, p)))
+    }
+
+    pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost {
+        let a = self.adjacency_matrix();
+        let eigs: Vec<faer::complex_native::c64> = a.eigenvalues();
+        let lambda_1 = eigs
+            .into_iter()
+            .max_by(|a, b| a.re.partial_cmp(&b.re).unwrap())
+            .unwrap()
+            .re;
+        let matching = self.maximum_matching();
+        Conjecture2Dot1Cost { matching, lambda_1 }
+    }
+
+    pub fn adjacency_matrix(&self) -> faer::Mat<f64> {
+        let mut a = faer::Mat::zeros(N, N);
+        for edge in self.edges() {
+            let (v, u) = edge.vertices();
+            a[(v, u)] = 1.0;
+            a[(u, v)] = 1.0;
+        }
+        a
+    }
+
+    pub fn maximum_matching(&self) -> Vec<Edge> {
+        // todo! basic algorithm
+        #[derive(Clone, Copy)]
+        enum VertexState {
+            Unseen,
+            Enqueued,
+            Removed,
+        }
+        let mut states: [VertexState; N] = core::array::from_fn(|_| VertexState::Enqueued);
+        for parent in self.parent.iter() {
+            if let Some(parent) = parent {
+                states[*parent] = VertexState::Unseen;
+            }
+        }
+        let mut queue = states.iter().enumerate().filter_map(|(i, b)| match b {
+            VertexState::Enqueued => Some(i),
+            _ => None,
+        }).collect::<VecDeque<_>>();
+        let mut matching = Vec::new();
+        // before removing a vertex, enqueue its parent if it is not already seen
+        while let Some(v) = queue.pop_back() {
+            // if v is a root, skip it
+            let p_v = match self.parent[v] {
+                Some(p_v) => p_v,
+                None => {
+                    states[v] = VertexState::Removed;
+                    continue;
+                },
+            };
+            // v is seen, but if v is removed, make sure its parent is enqueued
+            match states[v] {
+                VertexState::Unseen => unreachable!(),
+                VertexState::Enqueued => {},
+                VertexState::Removed => {
+                    match states[p_v] {
+                        VertexState::Unseen => {
+                            states[p_v] = VertexState::Enqueued;
+                            queue.push_back(p_v);
+                            continue;
+                        },
+                        _ => {},
+                    }
+                }
+            }
+            states[v] = VertexState::Removed;
+            // we removed v, but can it be matched?
+            match states[p_v] {
+                VertexState::Unseen => {
+                    states[p_v] = VertexState::Removed;
+                    matching.push(Edge::new(v, p_v));
+                    queue.push_back(p_v);
+                },
+                VertexState::Enqueued => {
+                    states[p_v] = VertexState::Removed;
+                    matching.push(Edge::new(v, p_v));
+                },
+                VertexState::Removed => {},
+            }
+            // todo!()
+        }
+        // todo!();
+        matching
     }
 }
 
