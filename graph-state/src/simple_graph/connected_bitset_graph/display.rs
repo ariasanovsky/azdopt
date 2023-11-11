@@ -1,5 +1,7 @@
 use core::fmt::Display;
 
+use crate::bitset::bitset::Bitset;
+
 use super::ConnectedBitsetGraph;
 
 impl<const N: usize> Display for ConnectedBitsetGraph<N> {

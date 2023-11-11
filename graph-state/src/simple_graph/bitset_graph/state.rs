@@ -1,6 +1,6 @@
 use az_discrete_opt::state::State;
 
-use crate::simple_graph::edge::Edge;
+use crate::{simple_graph::edge::Edge, bitset::bitset::Bitset};
 
 use super::BitsetGraph;
 
@@ -39,7 +39,7 @@ impl<const N: usize> State for BitsetGraph<N> {
         neighborhoods.iter().enumerate().flat_map(|(v, n)| {
             (0..v).map(move |u| {
                 let e = unsafe { Edge::new_unchecked(v, u) };
-                if n.contains(u) {
+                if n.contains(u as _).unwrap() {
                     Action::Delete(e)
                 } else {
                     Action::Add(e)
@@ -53,8 +53,8 @@ impl<const N: usize> State for BitsetGraph<N> {
         match action {
             Action::Add(e) | Action::Delete(e) => {
                 let (v, u) = e.vertices();
-                neighborhoods[u].add_or_remove_unchecked(v);
-                neighborhoods[v].add_or_remove_unchecked(u);
+                neighborhoods[u].add_or_remove_unchecked(v as u32);
+                neighborhoods[v].add_or_remove_unchecked(u as u32);
             }
         }
     }

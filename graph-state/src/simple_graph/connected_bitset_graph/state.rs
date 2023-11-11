@@ -1,7 +1,7 @@
 use az_discrete_opt::state::{ProhibitsActions, State, StateVec};
 use itertools::Itertools;
 
-use crate::simple_graph::{bitset_graph::state::Action, edge::Edge};
+use crate::{simple_graph::{bitset_graph::state::Action, edge::Edge}, bitset::bitset::Bitset};
 
 use super::ConnectedBitsetGraph;
 
@@ -30,7 +30,7 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).filter_map(move |u| {
                 let e = unsafe { Edge::new_unchecked(v, u) };
-                if n.contains(u) {
+                if unsafe { n.contains_unchecked(u as _) } {
                     if self.is_cut_edge(&e) {
                         None
                     } else {
@@ -48,8 +48,8 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
         match action {
             Action::Add(e) | Action::Delete(e) => {
                 let (v, u) = e.vertices();
-                neighborhoods[u].add_or_remove_unchecked(v);
-                neighborhoods[v].add_or_remove_unchecked(u);
+                neighborhoods[u].add_or_remove_unchecked(v as _);
+                neighborhoods[v].add_or_remove_unchecked(u as _);
             }
         }
     }

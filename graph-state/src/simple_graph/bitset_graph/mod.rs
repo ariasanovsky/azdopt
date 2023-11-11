@@ -2,7 +2,8 @@ use az_discrete_opt::state::StateNode;
 use core::mem::MaybeUninit;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::bitset::B32;
+use crate::bitset::primitive::B32;
+use crate::bitset::bitset::Bitset;
 
 use super::edge::Edge;
 
@@ -16,8 +17,18 @@ pub struct BitsetGraph<const N: usize, B = B32> {
     pub(crate) neighborhoods: [B; N],
 }
 
+trait AllVertices {
+    type B;
+    const ALL_VERTICES: Self::B;
+}
+
+impl<const N: usize> AllVertices for BitsetGraph<N> {
+    type B = B32;
+    const ALL_VERTICES: B32 = B32::from_bits((1 << N) - 1);
+}
+
 impl<const N: usize> BitsetGraph<N> {
-    const ALL_VERTICES: B32 = B32::new((1 << N) - 1);
+    // const ALL_VERTICES: B32 = B32::new((1 << N) - 1);
 
     pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
         // todo! size asserts, move par_generate_batch to `StateNode` impl block
@@ -34,8 +45,8 @@ impl<const N: usize> BitsetGraph<N> {
         for v in 0..N {
             for u in 0..v {
                 if rng.gen_bool(p) {
-                    neighborhoods[v].add_or_remove_unchecked(u);
-                    neighborhoods[u].add_or_remove_unchecked(v);
+                    unsafe { neighborhoods[v].add_or_remove_unchecked(u as u32) };
+                    unsafe { neighborhoods[u].add_or_remove_unchecked(v as u32) };
                 }
             }
         }
@@ -48,13 +59,13 @@ impl<const N: usize> BitsetGraph<N> {
         }
         let Self { neighborhoods } = self;
         let mut visited_vertices = B32::empty();
-        visited_vertices.insert_unchecked(0);
+        unsafe { visited_vertices.add_unchecked(0) };
         let mut seen_vertices = neighborhoods[0].clone();
         while !seen_vertices.is_empty() {
             seen_vertices = seen_vertices
                 .iter()
                 .map(|v| {
-                    visited_vertices.insert_unchecked(v);
+                    unsafe { visited_vertices.add_unchecked(v as _) };
                     &neighborhoods[v]
                 })
                 .fold(B32::empty(), |mut acc, n| {
@@ -81,7 +92,7 @@ impl<const N: usize> BitsetGraph<N> {
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).filter_map(move |u| {
                 let e = unsafe { Edge::new_unchecked(v, u) };
-                if n.contains(u) {
+                if n.contains(u as _).unwrap() {
                     Some(e)
                 } else {
                     None
@@ -95,6 +106,6 @@ impl<const N: usize> BitsetGraph<N> {
         neighborhoods
             .iter()
             .enumerate()
-            .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u)))
+            .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u as _).unwrap()))
     }
 }

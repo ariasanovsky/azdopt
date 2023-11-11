@@ -1,4 +1,4 @@
-use crate::{bitset::B32, simple_graph::edge::Edge};
+use crate::{simple_graph::edge::Edge, bitset::{primitive::B32, bitset::Bitset}};
 
 use super::ConnectedBitsetGraph;
 
@@ -18,43 +18,44 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             Cut { neighbor: usize },
         }
         let mut blocks: Vec<Block> = vec![Block {
-            block_positions_below: B32::singleton_unchecked(0),
-            elements: B32::singleton_unchecked(0),
+            block_positions_below: unsafe { B32::singleton_unchecked(0) },
+            elements: unsafe { B32::singleton_unchecked(0) },
             host: 0,
             kind: BlockKind::Root,
         }];
-        let mut active_block_indices = B32::singleton_unchecked(0);
+        let mut active_block_indices = unsafe { B32::singleton_unchecked(0) };
         let mut inserted_into: [usize; N] = [0; N];
-        let mut explored_vertices = B32::singleton_unchecked(0);
+        let mut explored_vertices = unsafe { B32::singleton_unchecked(0) };
         let mut new_vertices = self.neighborhoods[0].clone();
-        while let Some(v) = new_vertices.pop_max() {
-            // dbg!(v, &new_vertices, &explored_vertices, &inserted_into, &active_block_indices);
-            debug_assert!(!explored_vertices.contains(v));
-            let neighbors = &self.neighborhoods[v];
+        dbg!(&new_vertices, &explored_vertices, &inserted_into, &active_block_indices);
+        while let Some(v) = new_vertices.remove_max() {
+            dbg!(v, &new_vertices, &explored_vertices, &inserted_into, &active_block_indices);
+            debug_assert!(!explored_vertices.contains(v).unwrap());
+            let neighbors: &B32 = &self.neighborhoods[v as usize];
             let unexplored_neighbors = neighbors.minus(&explored_vertices);
             new_vertices.union_assign(&unexplored_neighbors);
             let explored_neighbors = neighbors.intersection(&explored_vertices);
 
             debug_assert!(!explored_neighbors.is_empty());
             if explored_neighbors.is_singleton() {
-                let u = explored_neighbors.max_unchecked();
+                let u = unsafe { explored_neighbors.max_unchecked() } as usize;
                 let u_i = inserted_into[u];
-                let mut block_positions_below = blocks[u_i].block_positions_below.clone();
-                let v_i = blocks.len();
-                debug_assert!(!block_positions_below.contains(v_i));
-                block_positions_below.add_or_remove_unchecked(v_i);
-                debug_assert!(!active_block_indices.contains(v_i));
-                active_block_indices.add_or_remove_unchecked(v_i);
+                let mut block_positions_below = blocks[u_i as usize].block_positions_below.clone();
+                let v_i = blocks.len() as u32;
+                debug_assert!(!block_positions_below.contains(v_i).unwrap());
+                unsafe { block_positions_below.add_or_remove_unchecked(v_i) };
+                debug_assert!(!active_block_indices.contains(v_i).unwrap());
+                unsafe { active_block_indices.add_or_remove_unchecked(v_i) };
 
                 let block = Block {
                     block_positions_below,
-                    elements: B32::singleton_unchecked(v),
-                    host: v,
-                    kind: BlockKind::Cut { neighbor: u },
+                    elements: unsafe { B32::singleton_unchecked(v) },
+                    host: v as _,
+                    kind: BlockKind::Cut { neighbor: u as _ },
                 };
                 dbg!(&block);
                 blocks.push(block);
-                inserted_into[v] = v_i;
+                inserted_into[v as usize] = v_i as usize;
             } else {
                 let mut h_union = B32::empty();
                 let mut h_intersection = active_block_indices.clone();
@@ -66,40 +67,40 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 }
                 h_union.intersection_assign(&active_block_indices);
                 debug_assert!(!h_intersection.is_empty());
-                let h_i = h_intersection.max_unchecked();
+                let h_i = unsafe { h_intersection.max_unchecked() };
                 let deactivated_blocks = h_union.minus(&h_intersection);
-                // println!("h_union = {h_union}");
-                // println!("h_intersection = {h_intersection}");
-                // println!("deactivated_blocks = {deactivated_blocks}");
+                println!("h_union = {h_union}");
+                println!("h_intersection = {h_intersection}");
+                println!("deactivated_blocks = {deactivated_blocks}");
                 if deactivated_blocks.is_empty() {
-                    let b_i = &mut blocks[h_i].elements;
-                    debug_assert!(!b_i.contains(v));
-                    b_i.add_or_remove_unchecked(v);
-                    inserted_into[v] = h_i;
+                    let b_i = &mut blocks[h_i as usize].elements;
+                    debug_assert!(!b_i.contains(v).unwrap());
+                    unsafe { b_i.add_or_remove_unchecked(v) };
+                    inserted_into[v as usize] = h_i as usize;
                 } else {
                     // dbg!(&blocks, &inserted_into);
-                    // println!("h_union = {h_union}");
-                    // println!("h_intersection = {h_intersection}");
-                    // println!("deactivated_blocks = {deactivated_blocks}");
+                    println!("h_union = {h_union}");
+                    println!("h_intersection = {h_intersection}");
+                    println!("deactivated_blocks = {deactivated_blocks}");
                     println!("merge into b_{{{h_i}}}");
                     for i in deactivated_blocks.iter() {
-                        debug_assert_ne!(i, h_i);
+                        debug_assert_ne!(i, h_i as usize);
                         let b_i = blocks[i].elements.clone();
-                        blocks[h_i].elements.union_assign(&b_i);
+                        blocks[h_i as usize].elements.union_assign(&b_i);
                     }
-                    blocks[h_i].elements.add_or_remove_unchecked(v);
-                    // println!("now blocks[{h_i}] = {}", &blocks[h_i].elements);
+                    unsafe { blocks[h_i as usize].elements.add_or_remove_unchecked(v) };
+                    println!("now blocks[{h_i}] = {}", &blocks[h_i as usize].elements);
                     debug_assert_eq!(
                         active_block_indices.intersection(&deactivated_blocks),
                         deactivated_blocks
                     );
                     active_block_indices.symmetric_difference_assign(&deactivated_blocks);
-                    // println!("active blocks: {active_block_indices}");
-                    inserted_into[v] = h_i;
+                    println!("active blocks: {active_block_indices}");
+                    inserted_into[v as usize] = h_i as usize;
                 }
             }
-            debug_assert!(!explored_neighbors.contains(v));
-            explored_vertices.add_or_remove_unchecked(v);
+            debug_assert!(!explored_neighbors.contains(v).unwrap());
+            unsafe { explored_vertices.add_or_remove_unchecked(v) };
         }
 
         let cuts = active_block_indices
