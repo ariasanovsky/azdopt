@@ -127,20 +127,20 @@ def plot_costs(
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     plt.figure()
     for epoch, sublist in enumerate(data):
-        for thread_i, data_list in enumerate(sublist):
+        for batch_i, data_list in enumerate(sublist):
             y = [data.cost.cost() for data in data_list]
             x = np.cumsum([data.duration for data in data_list])
             plt.step(
-                [_x + x_sums[thread_i] for _x in x],
+                [_x + x_sums[batch_i] for _x in x],
                 y,
                 where='pre',
-                color=colors[thread_i % num_colors],
+                color=colors[batch_i % num_colors],
             )
-            x_sums[thread_i] += x[-1]
+            x_sums[batch_i] += x[-1]
     plt.title(f'[{batch_size} batches] {dir_name[dir_name_trim_start:-dir_name_trim_end]}')
     plt.xlabel('Episode')
     plt.ylabel('Cost')
-    # plt.legend([f'Thread {i}' for i in range(batch_size)])
+    # plt.legend([f'Batch {i}' for i in range(batch_size)])
     plt.legend([f'{i} % ({num_colors})' for i in range(num_colors)], bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
     # save plot to file in the directory

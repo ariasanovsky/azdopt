@@ -42,6 +42,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod test {
     use crate::simple_graph::bitset_graph::BitsetGraph;
 

@@ -17,7 +17,10 @@ use az_discrete_opt::{
     state::{Reset, StateNode, StateVec},
 };
 use dfdx::{optim::Adam, prelude::*};
-use graph_state::simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge};
+use graph_state::simple_graph::{
+    connected_bitset_graph::{Conjecture2Dot1Cost, ConnectedBitsetGraph},
+    edge::Edge,
+};
 use rand::{rngs::ThreadRng, Rng};
 
 use chrono::prelude::*;
@@ -57,7 +60,7 @@ type Valuation = (
 
 type Tree = INTMinTree;
 type Trans<'a> = INTTransitions<'a>;
-type Cost = (Vec<Edge>, f64);
+type Cost = Conjecture2Dot1Cost;
 type Log = SimpleRootLog<Node, Cost>;
 
 const DEBUG_FALSE: bool = false;
@@ -122,14 +125,16 @@ fn main() -> eyre::Result<()> {
     let cost = |s: &Node| s.state().conjecture_2_1_cost(); // .conjecture_2_1_cost();
     let mut all_losses: Vec<(f32, f32)> = vec![];
     // set logs
-    let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| (Vec::with_capacity(0), 0.));
-    (&s_0, &mut c_t)
-        .into_par_iter()
-        .for_each(|(s, (m_old, l1_old))| {
-            let (m, l1) = cost(s);
-            *m_old = m;
-            *l1_old = l1;
-        });
+    let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| Default::default());
+    (&s_0, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
+        let Conjecture2Dot1Cost {
+            matching: m_t,
+            lambda_1: l_1_t,
+        } = c_t;
+        let Conjecture2Dot1Cost { matching, lambda_1 } = cost(s_t);
+        *m_t = matching;
+        *l_1_t = lambda_1;
+    });
     let mut logs: [Log; BATCH] = Log::par_new_logs(&s_0, &c_t);
 
     for epoch in 0..epochs {

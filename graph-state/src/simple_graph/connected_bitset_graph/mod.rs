@@ -267,7 +267,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         max_matching
     }
 
-    pub fn conjecture_2_1_cost(&self) -> (Vec<Edge>, f64) {
+    pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost {
         let a = self.adjacency_matrix();
         // println!("{a:?}");
         // let eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
@@ -279,7 +279,31 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             .unwrap()
             .re;
         let matching = self.maximum_matching();
-        (matching, lambda_1)
+        Conjecture2Dot1Cost { matching, lambda_1 }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Conjecture2Dot1Cost {
+    pub matching: Vec<Edge>,
+    pub lambda_1: f64,
+}
+
+impl az_discrete_opt::state::cost::Cost<f32> for Conjecture2Dot1Cost {
+    fn cost(&self) -> f32 {
+        let Self { matching, lambda_1 } = self;
+        let matching_number = matching.len() as f64;
+        let cost = matching_number + lambda_1;
+        cost as f32
+    }
+}
+
+impl core::fmt::Debug for Conjecture2Dot1Cost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map()
+            .entry(&"m", &self.matching)
+            .entry(&"l1", &self.lambda_1)
+            .finish()
     }
 }
 
@@ -310,7 +334,30 @@ mod tests {
 
     #[test]
     fn this_one_tree_on_twenty_vertices_has_matching_number_nine() {
-        let graph: BitsetGraph<20> = [(0, 11), (0, 16), (0, 19), (1, 15), (1, 17), (2, 13), (3, 14), (4, 13), (4, 14), (5, 9), (5, 10), (5, 18), (6, 15), (7, 17), (7, 19), (8, 10), (9, 12), (10, 13), (16, 18)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<20> = [
+            (0, 11),
+            (0, 16),
+            (0, 19),
+            (1, 15),
+            (1, 17),
+            (2, 13),
+            (3, 14),
+            (4, 13),
+            (4, 14),
+            (5, 9),
+            (5, 10),
+            (5, 18),
+            (6, 15),
+            (7, 17),
+            (7, 19),
+            (8, 10),
+            (9, 12),
+            (10, 13),
+            (16, 18),
+        ]
+        .as_ref()
+        .try_into()
+        .unwrap();
         let graph = graph.to_connected().unwrap();
         debug_assert_eq!(graph.matching_number(), 9);
     }

@@ -6,15 +6,8 @@ pub struct Edge {
 
 impl core::fmt::Debug for Edge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("")
-            .field("\"max\"", &self.max)
-            .field("\"min\"", &self.min)
-            .finish()
-        // let Self {
-        //     max,
-        //     min,
-        // } = self;
-        // (max, min).fmt(f)
+        let Self { max, min } = self;
+        f.debug_map().entry(&"max", max).entry(&"min", min).finish()
     }
 }
 

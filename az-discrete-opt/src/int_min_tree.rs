@@ -28,8 +28,7 @@ enum EndNodeAndLevel<'a> {
 }
 
 struct INTTransition<'a> {
-    data_i: &'a mut INTStateData, // todo! rename this
-    c_i: f32,                     // todo! delete this since we have p_i.c_s
+    data_i: &'a mut INTStateData,
     a_i_plus_one: usize,
 }
 
@@ -71,30 +70,19 @@ impl INTMinTree {
         S::Actions: Eq + core::fmt::Display,
     {
         let Self { root_data, data } = self;
-        // let mut __state_actions = s_0.__actions();
-        // __state_actions.sort();
-        // dbg!();
-        // assert_eq!(__state_actions, root_data.__actions());
-        // assert_eq!(s_0.cost(), root_data.c_s);
-        // dbg!();
-        // println!("root = \n{s_0}");
-        // s_0.actions().for_each(|a| {
-        //     println!("a = {a}");
-        // });
         let a_1 = root_data.best_action();
         let action_1 = unsafe { S::Actions::from_index_unchecked(a_1) };
-        // println!("a1, action_1 = {a_1}, {action_1}");
-        // todo!();
         let s_i = s_0;
         unsafe { s_i.act_unchecked(&action_1) };
         let mut p_i = ActionMultiset::new(a_1);
         let mut transitions: Vec<INTTransition> = vec![];
 
         for data in data.iter_mut() {
+            // Polonius case III: https://github.com/rust-lang/rfcs/blob/master/text/2094-nll.md#problem-case-3-conditional-control-flow-across-functions
             /* isomorphic to
             enum PreviouslyExhaustedValue {
                 NotFound,
-                FoundActive, // this is the problem case preventing us from using .get_mut()
+                FoundActive,
                 // the borrow checker doesn't do inference down branches of enums, it processes ownership as a stack
                 FoundExhausted { c_t_star: f32 },
             }
@@ -131,7 +119,6 @@ impl INTMinTree {
                 Some(StateDataKind::Active { data }) => data,
                 _ => unreachable!("this should be unreachable"),
             };
-            let c_i = state_data.c_s;
             let a_i_plus_one = state_data.best_action();
             let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
 
@@ -140,7 +127,6 @@ impl INTMinTree {
 
             transitions.push(INTTransition {
                 data_i: state_data,
-                c_i,
                 a_i_plus_one,
             });
             s_i.act(&action_i_plus_1);
@@ -277,10 +263,11 @@ impl<'a> INTTransitions<'a> {
         transitions.into_iter().rev().for_each(|t_i| {
             let INTTransition {
                 data_i,
-                c_i,
+                // c_i,
                 a_i_plus_one,
             } = t_i;
             // let g_star_theta_i = c_i - c_star_theta_i;
+            let c_i = data_i.c_s;
             data_i.update(a_i_plus_one, &mut c_star_theta_i);
             c_star_theta_i = c_star_theta_i.min(c_i);
             // ");

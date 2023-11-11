@@ -8,3 +8,5 @@ wandb/
 *.pyc
 foo.py
 !readme_3d_cost.png
+azdopt.code-workspace
+*.svg

@@ -12,8 +12,9 @@ class Cost:
         if len(cost) != 2:
             print(f"Error: Cost {cost} should have 2 elements")
             sys.exit(1)
-        self.matching = cost[0]
-        self.lambda_1 = cost[1]
+        # print(f"cost: {cost}")
+        self.matching = cost['m']
+        self.lambda_1 = cost['l1']
         # print(f"self.matching: {self.matching}")
         # print(f"self.lambda_1: {self.lambda_1}")
         # sys.exit(1)
@@ -70,7 +71,7 @@ class Data:
                 # sys.exit(1)
                 # Convert dictionaries to Data objects
                 if len(data_list) != batch_size:
-                    print(f"Error: {file_path} has {len(data_list)} threads")
+                    print(f"Error: {file_path} has batch size {len(data_list)} != {batch_size}")
                     sys.exit(1)
                 data_list: list = [[Data(**data_dict) for data_dict in sublist] for sublist in data_list]
                 data_lists.append(data_list)

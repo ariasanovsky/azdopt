@@ -179,15 +179,11 @@ pub struct ShortRootData<C = f32> {
 
 impl<C: core::fmt::Debug> core::fmt::Debug for ShortRootData<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self {
-            short_form,
-            cost,
-            duration,
-        } = self;
-        f.debug_struct("")
-            .field("\"short_form\"", &short_form)
-            .field("\"cost\"", &cost)
-            .field("\"duration\"", &duration)
+        let Self { short_form, cost, duration} = self;
+        f.debug_map()
+            .entry(&"short_form", short_form)
+            .entry(&"cost", cost)
+            .entry(&"duration", duration)
             .finish()
     }
 }
