@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::simple_graph::edge::Edge;
+use crate::{simple_graph::edge::Edge, bitset::bitset::Bitset};
 
 use super::{state::Action, BitsetGraph};
 

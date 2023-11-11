@@ -1,4 +1,4 @@
-use crate::bitset::B32;
+use crate::bitset::{primitive::B32, bitset::Bitset};
 
 use super::BitsetGraph;
 
@@ -11,8 +11,8 @@ impl<const N: usize> TryFrom<&[(usize, usize)]> for BitsetGraph<N> {
             if v >= N || u >= N || v == u {
                 return Err(());
             }
-            neighborhoods[v].add_or_remove_unchecked(u);
-            neighborhoods[u].add_or_remove_unchecked(v);
+            unsafe { neighborhoods[v].add_or_remove_unchecked(u as u32) };
+            unsafe { neighborhoods[u].add_or_remove_unchecked(v as u32) };
         }
         Ok(Self { neighborhoods })
     }

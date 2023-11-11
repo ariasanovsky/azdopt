@@ -5,7 +5,7 @@ use az_discrete_opt::state::StateNode;
 use faer::{Faer, Mat};
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::bitset::B32;
+use crate::bitset::{primitive::B32, bitset::Bitset};
 
 use super::{bitset_graph::BitsetGraph, edge::Edge};
 
@@ -40,11 +40,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         let mut new_vertices = neighborhoods[v].clone();
         // if `uv` is not an edge, then `new_vertices` is nonempty and contains `u`
         // so we don't need to check if `u` is in `new_vertices`
-        new_vertices.add_or_remove_unchecked(u);
+        unsafe { new_vertices.add_or_remove_unchecked(u as _) };
         let mut explored_vertices = B32::empty();
-        explored_vertices.insert_unchecked(v);
+        unsafe { explored_vertices.add_unchecked(v as _) };
         while !new_vertices.is_empty() {
-            if new_vertices.contains(u) {
+            if unsafe { new_vertices.contains_unchecked(u as _) } {
                 return false;
             }
             explored_vertices.union_assign(&new_vertices);
@@ -84,7 +84,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).filter_map(move |u| {
                 let e = unsafe { Edge::new_unchecked(v, u) };
-                if n.contains(u) {
+                if unsafe { n.contains_unchecked(u as u32) } {
                     Some(e)
                 } else {
                     None
@@ -103,14 +103,14 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         neighborhoods
             .iter()
             .enumerate()
-            .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u)))
+            .flat_map(move |(v, n)| (0..v).map(move |u| unsafe { n.contains_unchecked(u as u32) }))
     }
 
     pub fn action_kinds(&self) -> impl Iterator<Item = Option<ActionKind>> + '_ {
         let Self { neighborhoods } = self;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).map(move |u| {
-                if n.contains(u) {
+                if unsafe { n.contains_unchecked(u as u32) } {
                     let e = unsafe { Edge::new_unchecked(v, u) };
                     if self.is_cut_edge(&e) {
                         None
@@ -130,7 +130,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         let min_transmission = (0..N)
             .map(|u| {
                 let mut explored = B32::empty();
-                explored.insert_unchecked(u);
+                unsafe { explored.add_unchecked(u as _) };
                 let mut newly_seen_vertices = self.neighborhoods[u].clone();
                 let mut transmission = 0;
                 for d in 1.. {
@@ -188,7 +188,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         }
         let first_matching = MatchingSearch {
             edges: Vec::new(),
-            unvisited_vertices: B32::range_to_unchecked(N),
+            unvisited_vertices: unsafe { B32::range_to_unchecked(N as _) },
         };
         let mut matching_queue = VecDeque::new();
         matching_queue.push_back(first_matching);
@@ -201,11 +201,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             } = matching;
             for edge in edges.iter() {
                 debug_assert!(
-                    !unvisited_vertices.contains(edge.min()),
+                    !unvisited_vertices.contains(edge.min() as _).unwrap(),
                     "I think this is impossible, let's see if it ever fails"
                 );
                 debug_assert!(
-                    !unvisited_vertices.contains(edge.max()),
+                    !unvisited_vertices.contains(edge.max() as _).unwrap(),
                     "I think this is impossible, let's see if it ever fails"
                 );
             }
@@ -217,12 +217,12 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 !unvisited_vertices.is_empty(),
                 "I think this is impossible, let's see if it ever fails"
             );
-            let next_v = unvisited_vertices.max_unchecked();
+            let next_v = unsafe { unvisited_vertices.max_unchecked() };
             debug_assert!(
-                unvisited_vertices.contains(next_v),
+                unvisited_vertices.contains(next_v).unwrap(),
                 "I think this is impossible, let's see if it ever fails"
             );
-            unvisited_vertices.add_or_remove_unchecked(next_v);
+            unsafe { unvisited_vertices.add_or_remove_unchecked(next_v) };
             let max_future_increase = unvisited_vertices.cardinality() / 2;
             // we push this matching first so that our search is a DFS
             // this will let us get to large matching first
@@ -235,16 +235,16 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 matching_queue.push_back(new_matching);
             }
             let mut unvisited_v_neighbors = unvisited_vertices.clone();
-            unvisited_v_neighbors.intersection_assign(&self.neighborhoods[next_v]);
+            unvisited_v_neighbors.intersection_assign(&self.neighborhoods[next_v as usize]);
             for next_u in unvisited_v_neighbors.iter() {
                 let mut new_edges = edges.clone();
-                new_edges.push(unsafe { Edge::new_unchecked(next_v, next_u) });
+                new_edges.push(unsafe { Edge::new_unchecked(next_v as _, next_u as _) });
                 let mut new_unvisited_vertices = unvisited_vertices.clone();
                 debug_assert!(
-                    new_unvisited_vertices.contains(next_u),
+                    new_unvisited_vertices.contains(next_u as _).unwrap(),
                     "I think this is impossible, let's see if it ever fails"
                 );
-                new_unvisited_vertices.add_or_remove_unchecked(next_u);
+                unsafe { new_unvisited_vertices.add_or_remove_unchecked(next_u as _) };
                 if new_edges.len() > matching_number {
                     matching_number = new_edges.len();
                     max_matching = new_edges.clone();
