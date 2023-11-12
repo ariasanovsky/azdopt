@@ -3,7 +3,6 @@
 #![feature(maybe_uninit_array_assume_init)]
 
 use core::mem::MaybeUninit;
-use core::ops::RangeInclusive;
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -27,7 +26,7 @@ use chrono::prelude::*;
 
 use eyre::WrapErr;
 
-const N: usize = 20;
+const N: usize = 3;
 // const E: usize = N * (N - 1) / 2;
 type State = PrueferCode<N>;
 type Node = StateNode<State>;
