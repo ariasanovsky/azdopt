@@ -69,3 +69,44 @@ impl<const N: usize> az_discrete_opt::state::StateVec for PrueferCode<N> {
 
     fn write_vec_actions_dims(&self, _action_vec: &mut [f32]) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use az_discrete_opt::state::State;
+
+    use crate::simple_graph::tree::PrueferCode;
+
+    use super::PrueferCodeEntry;
+
+    #[test]
+    fn test_pruefer_codes_for_trees_on_3_vertices_have_correct_actions() {
+        let codes = [
+            [0, 0, 0], // extra 2 entries should be irrelevant
+            [1, 1, 1],
+            [2, 2, 2],
+        ].map(|code| PrueferCode::<3> { code });
+        let correct_actions = [
+            [
+                // (0, 0),
+                (0, 1),
+                (0, 2),
+            ],
+            [
+                (0, 0),
+                // (0, 1),
+                (0, 2),
+            ],
+            [
+                (0, 0),
+                (0, 1),
+                // (0, 2),
+            ],
+        ].map(|actions| {
+            actions.map(|(i, parent)| PrueferCodeEntry { i, parent })
+        });
+        for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
+            let actions: Vec<_> = code.actions().collect();
+            assert_eq!(&actions, correct_actions);
+        }
+    }
+}

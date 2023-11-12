@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use az_discrete_opt::{
     int_min_tree::{INTMinTree, INTTransitions},
     log::{ShortRootData, SimpleRootLog},
-    state::{Reset, StateNode, StateVec},
+    state::{Reset, StateNode, StateVec}, path::ActionSequence,
 };
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
@@ -26,7 +26,7 @@ use chrono::prelude::*;
 
 use eyre::WrapErr;
 
-const N: usize = 3;
+const N: usize = 20;
 // const E: usize = N * (N - 1) / 2;
 type State = PrueferCode<N>;
 type Node = StateNode<State>;
@@ -36,7 +36,7 @@ const STATE: usize = ACTION + 1;
 type StateVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 1;
+const BATCH: usize = 64;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
@@ -57,8 +57,9 @@ type Valuation = (
     // Linear<HIDDEN_2, 3>,
 );
 
-type Tree = INTMinTree;
-type Trans<'a> = INTTransitions<'a>;
+type P = ActionSequence;
+type Tree = INTMinTree<P>;
+type Trans<'a> = INTTransitions<'a, P>;
 type Cost = Conjecture2Dot1Cost;
 type Log = SimpleRootLog<Node, Cost>;
 
@@ -75,7 +76,7 @@ fn main() -> eyre::Result<()> {
             |out_dir| Ok(PathBuf::from(out_dir)),
         )
         .unwrap_or_else(|_| "/home/azdopt/graph-state/target".into())
-        .join("06-c21")
+        .join("07-c21-tree")
         .join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     // create the directory if it doesn't exist
@@ -177,7 +178,7 @@ fn main() -> eyre::Result<()> {
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
-            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode>; BATCH] =
+            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode<P>>; BATCH] =
                 core::array::from_fn(|_| None);
             (&mut nodes, transitions, &c_t, &s_t, &values, &probs)
                 .into_par_iter()
@@ -235,40 +236,40 @@ fn main() -> eyre::Result<()> {
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
-                |rng, (l, s, c, d)| {
+                |rng, (log, s_0, c_t, d)| {
                     /* at the end of an epoch:
                      * 1. check for stagnation
                          * a. if stagnated, randomize root
                          * b. else, reset to a random time
                      * 2.
                      */
-                    match l.stagnation() {
+                    match log.stagnation() {
                     Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
                         // todo! s.reset_with(...);
                         // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                         // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
                         let r = random_state(rng);
-                        s.clone_from(&r);
-                        l.reset_root(s, c);
+                        s_0.clone_from(&r);
+                        log.reset_root(s_0, c_t);
                     },
                     Some(_) => {
                         // todo! should `increment_stagnation` be private?
                         // maybe an `empty epoch` method is needed?
                         // return a `Vec` of serializable data to write to file instead of storing?
-                        l.increment_stagnation();
+                        log.increment_stagnation();
                         let t = rng.gen_range(1..=max_time);
-                        l.next_root_mut().reset(t);
-                        s.reset(t);
+                        log.next_root_mut().reset(t);
+                        s_0.reset(t);
                     },
                     None => {
-                        l.zero_stagnation();
+                        log.zero_stagnation();
                         let t = rng.gen_range(1..=max_time);
-                        l.next_root_mut().reset(t);
-                        s.clone_from(l.next_root());
+                        log.next_root_mut().reset(t);
+                        s_0.clone_from(log.next_root());
                     },
                 }
-                    c.clone_from(l.root_cost());
-                    l.empty_root_data(d);
+                    c_t.clone_from(log.root_cost());
+                    log.empty_root_data(d);
                 },
             );
         // write {short_data:?} to out_dir/epoch{epoch}.json

@@ -17,14 +17,7 @@ pub struct PrueferCode<const N: usize> {
 
 impl<const N: usize> core::fmt::Display for PrueferCode<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[")?;
-        for (i, &p) in self.code.iter().enumerate() {
-            write!(f, "{}", p)?;
-            if i != N - 3 {
-                write!(f, ", ")?;
-            }
-        }
-        write!(f, "]")
+        format!("{:?}", self.code).fmt(f)
     }
 }
 
@@ -55,6 +48,14 @@ impl<const N: usize> PrueferCode<N> {
     pub fn code(&self) -> &[usize] {
         &self.code[..(N - 2)]
     }
+
+    // pub(crate) fn _new(code: &[usize]) -> Self {
+    //     debug_assert_eq!(code.len(), N - 2);
+    //     debug_assert!(code.iter().all(|i| i.lt(&N)));
+    //     let mut code = code.to_owned();
+    //     code.sort();
+    //     Self { code: code.try_into().unwrap() }
+    // }
 }
 
 impl<const N: usize> From<&PrueferCode<N>> for Tree<N> {

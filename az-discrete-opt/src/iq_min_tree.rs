@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Default)]
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Default)]
 pub struct ActionMultiset {
     actions_taken: Vec<usize>,
 }

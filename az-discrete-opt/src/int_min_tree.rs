@@ -3,13 +3,13 @@ use std::{collections::BTreeMap, mem::MaybeUninit};
 
 // use core::num::NonZeroUsize;
 use crate::{
-    iq_min_tree::ActionMultiset,
-    state::{cost::Cost, Action, State},
+    // iq_min_tree::ActionMultiset,
+    state::{cost::Cost, Action, State}, path::ActionPath,
 };
 
-pub struct INTMinTree {
+pub struct INTMinTree<P> {
     root_data: INTStateData,
-    data: Vec<BTreeMap<ActionMultiset, StateDataKind>>,
+    data: Vec<BTreeMap<P, StateDataKind>>,
 }
 
 pub trait __INTStateDiagnostic {
@@ -21,9 +21,9 @@ pub enum StateDataKind {
     Active { data: INTStateData },
 }
 
-enum EndNodeAndLevel<'a> {
+enum EndNodeAndLevel<'a, P> {
     NewNodeNewLevel,
-    NewNodeOldLevel(&'a mut BTreeMap<ActionMultiset, StateDataKind>),
+    NewNodeOldLevel(&'a mut BTreeMap<P, StateDataKind>),
     OldExhaustedNode { c_t_star: f32 },
 }
 
@@ -32,7 +32,7 @@ struct INTTransition<'a> {
     a_i_plus_one: usize,
 }
 
-impl INTMinTree {
+impl<P> INTMinTree<P> {
     pub fn new<S: State>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
         Self {
             root_data: INTStateData::new(root_predictions, cost, root),
@@ -64,20 +64,21 @@ impl INTMinTree {
         self.root_data = INTStateData::new(root_predictions, cost, root);
     }
 
-    pub fn simulate_once<'a, S>(&'a mut self, s_0: &mut S) -> INTTransitions<'a>
+    pub fn simulate_once<'a, S>(&'a mut self, s_0: &mut S) -> INTTransitions<'a, P>
     where
         S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
         S::Actions: Eq + core::fmt::Display,
+        P: Ord + ActionPath<S>,
     {
         let Self { root_data, data } = self;
         let a_1 = root_data.best_action();
         let action_1 = unsafe { S::Actions::from_index_unchecked(a_1) };
         let s_i = s_0;
         unsafe { s_i.act_unchecked(&action_1) };
-        let mut p_i = ActionMultiset::new(a_1);
+        let mut p_i = P::new(&action_1);
         let mut transitions: Vec<INTTransition> = vec![];
 
-        for data in data.iter_mut() {
+        for (_depth, data) in data.iter_mut().enumerate() {
             // Polonius case III: https://github.com/rust-lang/rfcs/blob/master/text/2094-nll.md#problem-case-3-conditional-control-flow-across-functions
             /* isomorphic to
             enum PreviouslyExhaustedValue {
@@ -122,16 +123,26 @@ impl INTMinTree {
             let a_i_plus_one = state_data.best_action();
             let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
 
-            dbg!(a_i_plus_one);
+            // dbg!(a_i_plus_one);
             debug_assert_eq!(action_i_plus_1.index(), a_i_plus_one);
-            debug_assert!(s_i.actions().any(|a| action_i_plus_1 == a));
+            debug_assert!(
+                s_i.actions().any(|a| action_i_plus_1 == a),
+                "self = {s_i}, action_i_plus_1 = {action_i_plus_1}, actions = {:?}\ndepth = {_depth}",
+                s_i.actions().map(|a| a.index()).collect::<Vec<_>>(),
+            );
+
+            // debug_assert!(
+            //     s_i.actions().any(|a| action_i_plus_1 == a),
+            //     "self = {s_i}, action_i_plus_1 = {action_i_plus_1}, actions = {:?}\np_i = {p_i:?}\ndepth = {_depth}",
+            //     s_i.actions().map(|a| a.index()).collect::<Vec<_>>(),
+            // );
 
             transitions.push(INTTransition {
                 data_i: state_data,
                 a_i_plus_one,
             });
             s_i.act(&action_i_plus_1);
-            p_i.push(a_i_plus_one);
+            p_i.push(&action_i_plus_1);
         }
         INTTransitions {
             a_1,
@@ -145,14 +156,15 @@ impl INTMinTree {
     pub fn par_simulate_once<'a, S, const N: usize>(
         trees: &'a mut [Self; N],
         s_0: &mut [S; N],
-    ) -> [INTTransitions<'a>; N]
+    ) -> [INTTransitions<'a, P>; N]
     where
         S: Send + core::fmt::Display + core::fmt::Debug + State,
         S::Actions: Eq + core::fmt::Display,
+        P: Send + Ord + ActionPath<S>,
         // S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
         // S::Actions: Eq + core::fmt::Display,
     {
-        let mut trans: [MaybeUninit<INTTransitions>; N] = MaybeUninit::uninit_array();
+        let mut trans: [MaybeUninit<INTTransitions<P>>; N] = MaybeUninit::uninit_array();
         // let foo = trees.par_iter();
         // let bar = s_0.par_iter_mut();
         (&mut trans, trees, s_0)
@@ -163,7 +175,10 @@ impl INTMinTree {
         unsafe { MaybeUninit::array_assume_init(trans) }
     }
 
-    pub fn insert_node_at_next_level(&mut self, node: UpdatedNode) {
+    pub fn insert_node_at_next_level(&mut self, node: UpdatedNode<P>)
+    where
+        P: Ord,
+    {
         let level = BTreeMap::from([(node.p_t, node.data_t)]);
         self.data.push(level);
     }
@@ -183,27 +198,30 @@ pub trait INTState {
     fn actions(&self) -> Vec<usize>;
 }
 
-pub struct INTTransitions<'a> {
+pub struct INTTransitions<'a, P> {
     a_1: usize,
     root_data: &'a mut INTStateData,
     transitions: Vec<INTTransition<'a>>,
-    p_t: ActionMultiset,
-    end: EndNodeAndLevel<'a>,
+    p_t: P,
+    end: EndNodeAndLevel<'a, P>,
 }
 
-pub struct UpdatedNode {
-    p_t: ActionMultiset,
+pub struct UpdatedNode<P> {
+    p_t: P,
     data_t: StateDataKind,
 }
 
-impl<'a> INTTransitions<'a> {
+impl<'a, P> INTTransitions<'a, P> {
     pub fn update_existing_nodes(
         self,
         c_t: &impl Cost<f32>,
         s_t: &impl State,
         probs_t: &[f32],
         g_star_theta_s_t: &[f32],
-    ) -> Option<UpdatedNode> {
+    ) -> Option<UpdatedNode<P>>
+    where
+        P: Ord,
+    {
         debug_assert_eq!(g_star_theta_s_t.len(), 1);
         let INTTransitions {
             a_1,
@@ -277,7 +295,7 @@ impl<'a> INTTransitions<'a> {
         node
     }
 
-    pub fn last_path(&self) -> &ActionMultiset {
+    pub fn last_path(&self) -> &P {
         todo!()
     }
 }
