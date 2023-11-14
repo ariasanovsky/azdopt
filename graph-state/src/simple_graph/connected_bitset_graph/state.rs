@@ -1,4 +1,4 @@
-use az_discrete_opt::state::{ProhibitsActions, State, StateVec};
+use az_discrete_opt::state::{ProhibitsActions, State};
 use itertools::Itertools;
 
 use crate::{simple_graph::{bitset_graph::state::Action, edge::Edge}, bitset::bitset::Bitset};
@@ -55,52 +55,71 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
     }
 }
 
-impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
-    const STATE_DIM: usize = N * (N - 1) / 2;
+// impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
+//     const STATE_DIM: usize = N * (N - 1) / 2;
 
-    const AVAILABLE_ACTIONS_BOOL_DIM: usize = N * (N - 1);
+//     const ACTION_DIM: usize = N * (N - 1);
 
-    fn write_vec_state_dims(&self, state_vec: &mut [f32]) {
-        self.edge_bools().zip_eq(state_vec).for_each(|(b, f)| {
-            if b {
-                *f = 1.;
-            } else {
-                *f = 0.;
-            }
-        });
-    }
+//     const WRITE_ACTION_DIMS: bool = false;
 
-    fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
-        let (adds, deletes) = action_vec.split_at_mut(N * (N - 1) / 2);
-        self.action_kinds()
-            .zip_eq(adds)
-            .zip_eq(deletes)
-            .for_each(|((b, add), delete)| {
-                use crate::simple_graph::connected_bitset_graph::ActionKind;
-                (*add, *delete) = match b {
-                    Some(ActionKind::Add) => (1., 0.),
-                    Some(ActionKind::Delete) => (0., 1.),
-                    None => (0., 0.),
-                }
-            });
-    }
-}
+//     fn write_vec_state_dims(&self, state_vec: &mut [f32]) {
+//         self.edge_bools().zip_eq(state_vec).for_each(|(b, f)| {
+//             if b {
+//                 *f = 1.;
+//             } else {
+//                 *f = 0.;
+//             }
+//         });
+//     }
 
-impl<const N: usize> ProhibitsActions for ConnectedBitsetGraph<N> {
-    type Action = Action;
+//     fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
+//         let (adds, deletes) = action_vec.split_at_mut(N * (N - 1) / 2);
+//         self.action_kinds()
+//             .zip_eq(adds)
+//             .zip_eq(deletes)
+//             .for_each(|((b, add), delete)| {
+//                 use crate::simple_graph::connected_bitset_graph::ActionKind;
+//                 (*add, *delete) = match b {
+//                     Some(ActionKind::Add) => (1., 0.),
+//                     Some(ActionKind::Delete) => (0., 1.),
+//                     None => (0., 0.),
+//                 }
+//             });
+//     }
+// }
 
+impl<const N: usize> ProhibitsActions<Action> for ConnectedBitsetGraph<N> {
     unsafe fn update_prohibited_actions_unchecked(
         &self,
-        actions: &mut std::collections::BTreeSet<usize>,
-        action: &Self::Action,
+        prohibited_actions: &mut std::collections::BTreeSet<usize>,
+        action: &Action,
     ) {
         match action {
             Action::Add(e) | Action::Delete(e) => {
-                actions.insert(e.colex_position());
-                actions.insert(e.colex_position() + N * (N - 1) / 2);
-            }
+                prohibited_actions.insert(e.colex_position());
+                prohibited_actions.insert(e.colex_position() + N * (N - 1) / 2);
+            },
         }
     }
+    // unsafe fn update_prohibited_actions_unchecked(
+    //     &self,
+    //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
+    //     action: &impl az_discrete_opt::state::Action<Self>,
+    // ) {
+    //     todo!()
+    // }
+    // unsafe fn update_prohibited_actions_unchecked(
+    //     &self,
+    //     actions: &mut std::collections::BTreeSet<usize>,
+    //     action: &Self::Action,
+    // ) {
+    //     match action {
+    //         Action::Add(e) | Action::Delete(e) => {
+    //             actions.insert(e.colex_position());
+    //             actions.insert(e.colex_position() + N * (N - 1) / 2);
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]

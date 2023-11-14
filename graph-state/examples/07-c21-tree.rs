@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use az_discrete_opt::{
     int_min_tree::{INTMinTree, INTTransitions},
     log::{ShortRootData, SimpleRootLog},
-    state::{Reset, StateNode, StateVec}, path::ActionSequence,
+    state::exclude_previous_actions::ExcludePreviousActions, path::ActionSet, tree_node::{TreeNode, StatePath, prohibitions::WithActionProhibitions},
 };
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
@@ -28,21 +28,24 @@ use eyre::WrapErr;
 
 const N: usize = 20;
 // const E: usize = N * (N - 1) / 2;
-type State = PrueferCode<N>;
-type Node = StateNode<State>;
+type RawState = PrueferCode<N>;
+type State = WithActionProhibitions<RawState>;
+type P = ActionSet;
+type Node = StatePath<State, P>;
 
 const ACTION: usize = N * (N - 2);
 const STATE: usize = ACTION + 1;
-type StateVector = [f32; STATE];
+const NODE: usize = STATE + ACTION;
+type NodeVector = [f32; NODE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 64;
+const BATCH: usize = 1;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 128;
 
 type Core = (
-    (Linear<STATE, HIDDEN_1>, ReLU),
+    (Linear<NODE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     // Linear<HIDDEN_2, PREDICTION>,
 );
@@ -57,7 +60,6 @@ type Valuation = (
     // Linear<HIDDEN_2, 3>,
 );
 
-type P = ActionSequence;
 type Tree = INTMinTree<P>;
 type Trans<'a> = INTTransitions<'a, P>;
 type Cost = Conjecture2Dot1Cost;
@@ -101,32 +103,40 @@ fn main() -> eyre::Result<()> {
     );
 
     // we initialize tensors to 0 and fill them as needed, minimizing allocations
-    let mut v_t_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
+    let mut v_t_tensor: Tensor<Rank2<BATCH, NODE>, f32, _> = dev.zeros();
     let mut prediction_tensor: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
     let mut probs_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
     let mut observed_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
     let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
 
     let random_time = |rng: &mut ThreadRng| rng.gen_range(1..=5);
-    let random_state = |rng: &mut ThreadRng| {
+    let random_node = |rng: &mut ThreadRng| {
         let time = random_time(rng);
-        let graph = State::generate(rng);
-        Node::new(graph, time)
+        let code = PrueferCode::generate(rng);
+        let state = WithActionProhibitions::new(code);
+        let node = StatePath::new(state, todo!());
+        node
     };
 
     // generate states
-    let mut s_0: [Node; BATCH] =
-        from_init(|| rand::thread_rng(), random_state);
+    let mut n_0: [Node; BATCH] =
+        from_init(|| rand::thread_rng(), random_node);
 
     let cost = |s: &Node| {
         type _Tree = graph_state::simple_graph::tree::Tree<N>;
-        let tree = _Tree::from(s.state());
+        let tree = _Tree::from(s.state().state());
         tree.conjecture_2_1_cost()
     };
+
+    let write_vec = |s: &Node, v: &mut NodeVector| {
+        let code = s.state().state().code();
+        todo!()
+    };
+
     let mut all_losses: Vec<(f32, f32)> = vec![];
     // set logs
     let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| Default::default());
-    (&s_0, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
+    (&n_0, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
         let Conjecture2Dot1Cost {
             matching: m_t,
             lambda_1: l_1_t,
@@ -135,38 +145,38 @@ fn main() -> eyre::Result<()> {
         *m_t = matching;
         *l_1_t = lambda_1;
     });
-    let mut logs: [Log; BATCH] = Log::par_new_logs(&s_0, &c_t);
+    let mut logs: [Log; BATCH] = Log::par_new_logs(&n_0, &c_t);
 
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set costs
         // set state vectors
-        let mut v_t: [StateVector; BATCH] = [[0.0; STATE]; BATCH];
-        (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
-            s.write_vec(v);
+        let mut v_t: [NodeVector; BATCH] = [[0.0; NODE]; BATCH];
+        (&n_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
+            write_vec(s, v);
         });
         v_t_tensor.copy_from(v_t.flatten());
         prediction_tensor = core_model.forward(v_t_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone());
         let probs: [ActionVec; BATCH] = probs_tensor.array();
-        let mut trees: [Tree; BATCH] = Tree::par_new_trees(&probs, &c_t, &s_0);
+        let mut trees: [Tree; BATCH] = Tree::par_new_trees(&probs, &c_t, &n_0);
 
         let mut grads = core_model.alloc_grads();
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
-            let mut s_t = s_0.clone();
-            let transitions: [Trans; BATCH] = Tree::par_simulate_once(&mut trees, &mut s_t);
-            (&s_t, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
+            let mut n_t = n_0.clone();
+            let transitions: [Trans; BATCH] = Tree::par_simulate_once(&mut trees, &mut n_t);
+            (&n_t, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
                 *c_t = cost(s_t);
             });
 
-            (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
-                s_t.write_vec(v_t);
+            (&n_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
+                write_vec(s_t, v_t);
             });
 
-            (&mut logs, &s_t, &c_t)
+            (&mut logs, &n_t, &c_t)
                 .into_par_iter()
                 .for_each(|(l, s_t, c_t)| {
                     l.update(s_t, c_t);
@@ -178,19 +188,19 @@ fn main() -> eyre::Result<()> {
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
-            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode<P>>; BATCH] =
+            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode>; BATCH] =
                 core::array::from_fn(|_| None);
-            (&mut nodes, transitions, &c_t, &s_t, &values, &probs)
+            (&mut nodes, transitions, &c_t, &n_t, &values, &probs)
                 .into_par_iter()
-                .for_each(|(n, trans, c_t, s_t, v, probs_t)| {
+                .for_each(|(n, trans, c_t, n_t, v, probs_t)| {
                     // let c = m.len() as f32 + *l as f32;
-                    *n = trans.update_existing_nodes(c_t, s_t, probs_t, v);
+                    *n = trans.update_existing_nodes(c_t, n_t, probs_t, v);
                 });
 
             // insert nodes into trees
-            (&mut trees, nodes).into_par_iter().for_each(|(t, n)| {
+            (&mut trees, nodes, &n_t).into_par_iter().for_each(|(t, n, n_t)| {
                 if let Some(n) = n {
-                    t.insert_node_at_next_level(n);
+                    t.insert_node_at_next_level(n, n_t);
                 }
             });
         }
@@ -206,8 +216,8 @@ fn main() -> eyre::Result<()> {
         observed_probabilities_tensor.copy_from(probs.flatten());
         observed_values_tensor.copy_from(values.flatten());
 
-        (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
-            s.write_vec(v);
+        (&n_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
+            write_vec(s, v);
         });
         let root_tensor = dev.tensor(v_t);
         let traced_predictions = core_model.forward(root_tensor.trace(grads));
@@ -232,7 +242,7 @@ fn main() -> eyre::Result<()> {
         let max_time = epoch + 5;
         let mut short_data: [Vec<ShortRootData<Cost>>; BATCH] = core::array::from_fn(|_| vec![]);
 
-        (&mut logs, &mut s_0, &mut c_t, &mut short_data)
+        (&mut logs, &mut n_0, &mut c_t, &mut short_data)
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
@@ -248,7 +258,7 @@ fn main() -> eyre::Result<()> {
                         // todo! s.reset_with(...);
                         // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                         // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
-                        let r = random_state(rng);
+                        let r = random_node(rng);
                         s_0.clone_from(&r);
                         log.reset_root(s_0, c_t);
                     },
@@ -257,14 +267,14 @@ fn main() -> eyre::Result<()> {
                         // maybe an `empty epoch` method is needed?
                         // return a `Vec` of serializable data to write to file instead of storing?
                         log.increment_stagnation();
-                        let t = rng.gen_range(1..=max_time);
-                        log.next_root_mut().reset(t);
-                        s_0.reset(t);
+                        // let t = rng.gen_range(1..=max_time);
+                        // log.next_root_mut().reset(t);
+                        // s_0.reset(t);
                     },
                     None => {
                         log.zero_stagnation();
-                        let t = rng.gen_range(1..=max_time);
-                        log.next_root_mut().reset(t);
+                        // let t = rng.gen_range(1..=max_time);
+                        // log.next_root_mut().reset(t);
                         s_0.clone_from(log.next_root());
                     },
                 }

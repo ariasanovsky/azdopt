@@ -14,6 +14,7 @@ class Cost:
             sys.exit(1)
         # print(f"cost: {cost}")
         self.matching = cost['m']
+        # if the matching has less than 5, print it
         self.lambda_1 = cost['l1']
         # print(f"self.matching: {self.matching}")
         # print(f"self.lambda_1: {self.lambda_1}")
@@ -34,7 +35,12 @@ class Data:
         # print(f"cost: {cost}")
         # print(f"duration: {duration}")
         self.short_form: str = short_form
+        # count the number of `,` in `short_form`
         self.cost: Cost = Cost(cost)
+        if len(self.cost.matching) < 5 and self.cost.lambda_1 < 2.0:
+            print(f"{self.short_form}")
+            print(f"self.cost.matching: {self.cost.matching}")
+            print(f"self.cost.lambda_1: {self.cost.lambda_1}")
         self.duration: int = duration
         # print(f"self.short_form: {self.short_form}")
         # print(f"self.cost: {self.cost}")
@@ -48,11 +54,16 @@ class Data:
         return from_graph6_bytes(self.short_form.encode('ascii'))
     
     @staticmethod
-    def read_data(dir_name: str, batch_size: int) -> list[list[list['Data']]]:
+    def read_data(
+        dir_name: str,
+        batch_size: int
+    ) -> list[list[list['Data']]]:
         # Find all JSON files in the directory
+        print(f"dir_name: {dir_name}")
         json_files: list[str] = glob.glob(os.path.join(dir_name, '*.json'))
         json_files.sort()
         data_lists: list[list['Data']] = []
+        # print(f"json_files: {json_files}")
         for file_path in json_files:
             # replace `(` and `)` with `[` and `]`
             with open(file_path, 'r') as f:

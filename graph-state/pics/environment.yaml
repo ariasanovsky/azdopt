@@ -7,4 +7,4 @@ dependencies:
   - matplotlib
   - imageio
   - msgpack-python
-  # - json
+  - scipy

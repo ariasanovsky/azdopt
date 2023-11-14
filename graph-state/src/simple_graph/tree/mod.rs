@@ -9,6 +9,7 @@ use super::{edge::Edge, connected_bitset_graph::{ConnectedBitsetGraph, Conjectur
 pub mod sparse6;
 mod display;
 mod state;
+mod prohibit;
 
 #[derive(Debug, Clone)]
 pub struct PrueferCode<const N: usize> {
@@ -21,14 +22,21 @@ impl<const N: usize> core::fmt::Display for PrueferCode<N> {
     }
 }
 
-impl<const N: usize> az_discrete_opt::state::ProhibitsActions for PrueferCode<N> {
-    type Action = PrueferCodeEntry;
-
+impl<const N: usize> az_discrete_opt::state::ProhibitsActions<PrueferCodeEntry> for PrueferCode<N> {
     unsafe fn update_prohibited_actions_unchecked(
         &self,
         prohibited_actions: &mut std::collections::BTreeSet<usize>,
-        action: &Self::Action,
-    ) {}
+        action: &PrueferCodeEntry,
+    ) {
+        todo!()
+    }
+    // unsafe fn update_prohibited_actions_unchecked(
+    //     &self,
+    //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
+    //     action: &impl az_discrete_opt::state::Action<Self>,
+    // ) {
+    //     todo!()
+    // }
 }
 
 impl<const N: usize> az_discrete_opt::log::ShortForm for PrueferCode<N> {
@@ -48,14 +56,6 @@ impl<const N: usize> PrueferCode<N> {
     pub fn code(&self) -> &[usize] {
         &self.code[..(N - 2)]
     }
-
-    // pub(crate) fn _new(code: &[usize]) -> Self {
-    //     debug_assert_eq!(code.len(), N - 2);
-    //     debug_assert!(code.iter().all(|i| i.lt(&N)));
-    //     let mut code = code.to_owned();
-    //     code.sort();
-    //     Self { code: code.try_into().unwrap() }
-    // }
 }
 
 impl<const N: usize> From<&PrueferCode<N>> for Tree<N> {
@@ -126,6 +126,10 @@ impl<const N: usize> Tree<N> {
 
     pub fn adjacency_matrix(&self) -> faer::Mat<f64> {
         let mut a = faer::Mat::zeros(N, N);
+        const ZERO: f64 = 0.0000001;
+        for i in 0..N {
+            a[(i, i)] = ZERO;
+        }
         for edge in self.edges() {
             let (v, u) = edge.vertices();
             a[(v, u)] = 1.0;

@@ -4,8 +4,8 @@ use super::PrueferCode;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PrueferCodeEntry {
-    i: usize,
-    parent: usize,
+    pub(crate) i: usize,
+    pub(crate) parent: usize,
 }
 
 impl core::fmt::Display for PrueferCodeEntry {
@@ -54,21 +54,23 @@ impl<const N: usize> Action<PrueferCode<N>> for PrueferCodeEntry {
     }
 }
 
-impl<const N: usize> az_discrete_opt::state::StateVec for PrueferCode<N> {
-    const STATE_DIM: usize = N * (N - 2);
+// impl<const N: usize> az_discrete_opt::state::StateVec for PrueferCode<N> {
+//     const STATE_DIM: usize = N * (N - 2);
 
-    const AVAILABLE_ACTIONS_BOOL_DIM: usize = 0;
+//     const ACTION_DIM: usize = N * (N - 2);
 
-    fn write_vec_state_dims(&self, state_vec: &mut [f32]) {
-        debug_assert_eq!(state_vec.len(), Self::STATE_DIM);
-        state_vec.fill(0.0);
-        for (i, &parent) in self.code().iter().enumerate() {
-            state_vec[i * N + parent] = 1.0;
-        }
-    }
+//     const WRITE_ACTION_DIMS: bool = false;
 
-    fn write_vec_actions_dims(&self, _action_vec: &mut [f32]) {}
-}
+//     fn write_vec_state_dims(&self, state_vec: &mut [f32]) {
+//         debug_assert_eq!(state_vec.len(), Self::STATE_DIM);
+//         state_vec.fill(0.0);
+//         for (i, &parent) in self.code().iter().enumerate() {
+//             state_vec[i * N + parent] = 1.0;
+//         }
+//     }
+
+//     fn write_vec_actions_dims(&self, _action_vec: &mut [f32]) {}
+// }
 
 #[cfg(test)]
 mod tests {
