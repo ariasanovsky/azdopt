@@ -12,7 +12,7 @@ impl core::fmt::Debug for Edge {
     }
 }
 
-impl az_discrete_opt::state::cost::CostsOneEach for Edge {}
+// impl az_discrete_opt::state::cost::CostsOneEach for Edge {}
 
 impl Edge {
     pub const fn new(u: usize, v: usize) -> Self {

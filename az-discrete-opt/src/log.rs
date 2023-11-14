@@ -5,10 +5,7 @@ use rayon::prelude::{
     IntoParallelRefMutIterator, ParallelIterator,
 };
 
-use crate::{
-    iq_min_tree::{ActionMultiset, Transitions},
-    state::StateNode,
-};
+use crate::iq_min_tree::{ActionMultiset, Transitions};
 
 pub struct SimpleRootLog<S, C = f32> {
     next_root: S,
@@ -159,16 +156,16 @@ pub trait ShortForm {
     fn short_form(&self) -> String;
 }
 
-impl<T: ShortForm> ShortForm for StateNode<T> {
-    fn short_form(&self) -> String {
-        let Self {
-            state,
-            time: _,
-            prohibited_actions: _,
-        } = &self;
-        state.short_form()
-    }
-}
+// impl<T: ShortForm> ShortForm for StateNode<T> {
+//     fn short_form(&self) -> String {
+//         let Self {
+//             state,
+//             time: _,
+//             prohibited_actions: _,
+//         } = &self;
+//         state.short_form()
+//     }
+// }
 
 // #[derive(Debug)]
 pub struct ShortRootData<C = f32> {

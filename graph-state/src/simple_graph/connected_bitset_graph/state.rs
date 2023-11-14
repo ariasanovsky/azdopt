@@ -1,4 +1,4 @@
-use az_discrete_opt::state::{ProhibitsActions, State};
+// use az_discrete_opt::state::{ProhibitsActions, State};
 use itertools::Itertools;
 
 use crate::{simple_graph::{bitset_graph::state::Action, edge::Edge}, bitset::bitset::Bitset};
@@ -7,12 +7,13 @@ use super::ConnectedBitsetGraph;
 
 impl<const N: usize> az_discrete_opt::state::Action<ConnectedBitsetGraph<N>> for Action {
     fn index(&self) -> usize {
-        <Self as az_discrete_opt::state::Action<
-            crate::simple_graph::bitset_graph::BitsetGraph<N>,
-        >>::index(self)
+        match self {
+            Action::Add(e) => e.colex_position(),
+            Action::Delete(e) => e.colex_position() + N * (N - 1) / 2,
+        }
     }
 
-    unsafe fn from_index_unchecked(index: usize) -> Self {
+    fn from_index(index: usize) -> Self {
         let e = N * (N - 1) / 2;
         if index < e {
             Self::Add(Edge::from_colex_position(index))
@@ -20,18 +21,48 @@ impl<const N: usize> az_discrete_opt::state::Action<ConnectedBitsetGraph<N>> for
             Self::Delete(Edge::from_colex_position(index - e))
         }
     }
-}
 
-impl<const N: usize> State for ConnectedBitsetGraph<N> {
-    type Actions = Action;
+    fn act(&self, state: &mut ConnectedBitsetGraph<N>) {
+        match self {
+            Action::Add(e) => {
+                let (v, u) = e.vertices();
+                debug_assert!(state.neighborhoods[u].contains(v as _).unwrap());
+                debug_assert!(state.neighborhoods[v].contains(u as _).unwrap());
+                unsafe { state.neighborhoods[u].add_or_remove_unchecked(v as _) };
+                unsafe { state.neighborhoods[v].add_or_remove_unchecked(u as _) };
+            },
+            Action::Delete(e) => {
+                let (v, u) = e.vertices();
+                debug_assert!(!state.neighborhoods[u].contains(v as _).unwrap());
+                debug_assert!(!state.neighborhoods[v].contains(u as _).unwrap());
+                unsafe { state.neighborhoods[u].add_or_remove_unchecked(v as _) };
+                unsafe { state.neighborhoods[v].add_or_remove_unchecked(u as _) };
+            }
+        }
+    }
 
-    fn actions(&self) -> impl Iterator<Item = Self::Actions> {
-        let Self { neighborhoods } = self;
+    fn actions(state: &ConnectedBitsetGraph<N>) -> impl Iterator<Item = usize> {
+//         let Self { neighborhoods } = self;
+//         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
+//             (0..v).filter_map(move |u| {
+//                 let e = unsafe { Edge::new_unchecked(v, u) };
+//                 if unsafe { n.contains_unchecked(u as _) } {
+//                     if self.is_cut_edge(&e) {
+//                         None
+//                     } else {
+//                         Some(Action::Delete(e))
+//                     }
+//                 } else {
+//                     Some(Action::Add(e))
+//                 }
+//             })
+//         })
+        let ConnectedBitsetGraph { neighborhoods } = state;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).filter_map(move |u| {
                 let e = unsafe { Edge::new_unchecked(v, u) };
                 if unsafe { n.contains_unchecked(u as _) } {
-                    if self.is_cut_edge(&e) {
+                    if state.is_cut_edge(&e) {
                         None
                     } else {
                         Some(Action::Delete(e))
@@ -40,20 +71,61 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
                     Some(Action::Add(e))
                 }
             })
-        })
+        }).map(|a| az_discrete_opt::state::Action::<ConnectedBitsetGraph<N>>::index(&a))
     }
 
-    unsafe fn act_unchecked(&mut self, action: &Self::Actions) {
-        let Self { neighborhoods } = self;
-        match action {
-            Action::Add(e) | Action::Delete(e) => {
-                let (v, u) = e.vertices();
-                neighborhoods[u].add_or_remove_unchecked(v as _);
-                neighborhoods[v].add_or_remove_unchecked(u as _);
-            }
-        }
+    fn is_terminal(state: &ConnectedBitsetGraph<N>) -> bool {
+        Self::actions(state).next().is_none()
     }
+
+    // fn index(&self) -> usize {
+    //     <Self as az_discrete_opt::state::Action<
+    //         crate::simple_graph::bitset_graph::BitsetGraph<N>,
+    //     >>::index(self)
+    // }
+
+    // unsafe fn from_index(index: usize) -> Self {
+    //     let e = N * (N - 1) / 2;
+    //     if index < e {
+    //         Self::Add(Edge::from_colex_position(index))
+    //     } else {
+    //         Self::Delete(Edge::from_colex_position(index - e))
+    //     }
+    // }
 }
+
+// impl<const N: usize> State for ConnectedBitsetGraph<N> {
+//     type Actions = Action;
+
+//     fn actions(&self) -> impl Iterator<Item = Self::Actions> {
+//         let Self { neighborhoods } = self;
+//         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
+//             (0..v).filter_map(move |u| {
+//                 let e = unsafe { Edge::new_unchecked(v, u) };
+//                 if unsafe { n.contains_unchecked(u as _) } {
+//                     if self.is_cut_edge(&e) {
+//                         None
+//                     } else {
+//                         Some(Action::Delete(e))
+//                     }
+//                 } else {
+//                     Some(Action::Add(e))
+//                 }
+//             })
+//         })
+//     }
+
+//     unsafe fn act_unchecked(&mut self, action: &Self::Actions) {
+//         let Self { neighborhoods } = self;
+//         match action {
+//             Action::Add(e) | Action::Delete(e) => {
+//                 let (v, u) = e.vertices();
+//                 neighborhoods[u].add_or_remove_unchecked(v as _);
+//                 neighborhoods[v].add_or_remove_unchecked(u as _);
+//             }
+//         }
+//     }
+// }
 
 // impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
 //     const STATE_DIM: usize = N * (N - 1) / 2;
@@ -88,39 +160,39 @@ impl<const N: usize> State for ConnectedBitsetGraph<N> {
 //     }
 // }
 
-impl<const N: usize> ProhibitsActions<Action> for ConnectedBitsetGraph<N> {
-    unsafe fn update_prohibited_actions_unchecked(
-        &self,
-        prohibited_actions: &mut std::collections::BTreeSet<usize>,
-        action: &Action,
-    ) {
-        match action {
-            Action::Add(e) | Action::Delete(e) => {
-                prohibited_actions.insert(e.colex_position());
-                prohibited_actions.insert(e.colex_position() + N * (N - 1) / 2);
-            },
-        }
-    }
-    // unsafe fn update_prohibited_actions_unchecked(
-    //     &self,
-    //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
-    //     action: &impl az_discrete_opt::state::Action<Self>,
-    // ) {
-    //     todo!()
-    // }
-    // unsafe fn update_prohibited_actions_unchecked(
-    //     &self,
-    //     actions: &mut std::collections::BTreeSet<usize>,
-    //     action: &Self::Action,
-    // ) {
-    //     match action {
-    //         Action::Add(e) | Action::Delete(e) => {
-    //             actions.insert(e.colex_position());
-    //             actions.insert(e.colex_position() + N * (N - 1) / 2);
-    //         }
-    //     }
-    // }
-}
+// impl<const N: usize> ProhibitsActions<Action> for ConnectedBitsetGraph<N> {
+//     unsafe fn update_prohibited_actions_unchecked(
+//         &self,
+//         prohibited_actions: &mut std::collections::BTreeSet<usize>,
+//         action: &Action,
+//     ) {
+//         match action {
+//             Action::Add(e) | Action::Delete(e) => {
+//                 prohibited_actions.insert(e.colex_position());
+//                 prohibited_actions.insert(e.colex_position() + N * (N - 1) / 2);
+//             },
+//         }
+//     }
+//     // unsafe fn update_prohibited_actions_unchecked(
+//     //     &self,
+//     //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
+//     //     action: &impl az_discrete_opt::state::Action<Self>,
+//     // ) {
+//     //     todo!()
+//     // }
+//     // unsafe fn update_prohibited_actions_unchecked(
+//     //     &self,
+//     //     actions: &mut std::collections::BTreeSet<usize>,
+//     //     action: &Self::Action,
+//     // ) {
+//     //     match action {
+//     //         Action::Add(e) | Action::Delete(e) => {
+//     //             actions.insert(e.colex_position());
+//     //             actions.insert(e.colex_position() + N * (N - 1) / 2);
+//     //         }
+//     //     }
+//     // }
+// }
 
 #[cfg(test)]
 mod test {
@@ -193,7 +265,10 @@ mod test {
             .try_into()
             .unwrap();
         let graph = graph.to_connected().unwrap();
-        let actions = graph.actions().collect::<Vec<_>>();
+        let actions: Vec<Action> = <Action as az_discrete_opt::state::Action<ConnectedBitsetGraph<4>>>::actions(&graph)
+            .into_iter()
+            .map(|i| <Action as az_discrete_opt::state::Action<ConnectedBitsetGraph<4>>>::from_index(i))
+            .collect();
         debug_assert_eq!(
             actions,
             vec![

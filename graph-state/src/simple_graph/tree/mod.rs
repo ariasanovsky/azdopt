@@ -22,22 +22,22 @@ impl<const N: usize> core::fmt::Display for PrueferCode<N> {
     }
 }
 
-impl<const N: usize> az_discrete_opt::state::ProhibitsActions<PrueferCodeEntry> for PrueferCode<N> {
-    unsafe fn update_prohibited_actions_unchecked(
-        &self,
-        prohibited_actions: &mut std::collections::BTreeSet<usize>,
-        action: &PrueferCodeEntry,
-    ) {
-        todo!()
-    }
-    // unsafe fn update_prohibited_actions_unchecked(
-    //     &self,
-    //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
-    //     action: &impl az_discrete_opt::state::Action<Self>,
-    // ) {
-    //     todo!()
-    // }
-}
+// impl<const N: usize> az_discrete_opt::state::ProhibitsActions<PrueferCodeEntry> for PrueferCode<N> {
+//     unsafe fn update_prohibited_actions_unchecked(
+//         &self,
+//         prohibited_actions: &mut std::collections::BTreeSet<usize>,
+//         action: &PrueferCodeEntry,
+//     ) {
+//         todo!()
+//     }
+//     // unsafe fn update_prohibited_actions_unchecked(
+//     //     &self,
+//     //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
+//     //     action: &impl az_discrete_opt::state::Action<Self>,
+//     // ) {
+//     //     todo!()
+//     // }
+// }
 
 impl<const N: usize> az_discrete_opt::log::ShortForm for PrueferCode<N> {
     fn short_form(&self) -> String {

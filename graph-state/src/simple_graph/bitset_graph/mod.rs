@@ -1,4 +1,4 @@
-use az_discrete_opt::state::StateNode;
+// use az_discrete_opt::state::StateNode;
 use core::mem::MaybeUninit;
 use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
@@ -30,15 +30,15 @@ impl<const N: usize> AllVertices for BitsetGraph<N> {
 impl<const N: usize> BitsetGraph<N> {
     // const ALL_VERTICES: B32 = B32::new((1 << N) - 1);
 
-    pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
-        // todo! size asserts, move par_generate_batch to `StateNode` impl block
-        let mut states: [MaybeUninit<StateNode<Self>>; BATCH] = MaybeUninit::uninit_array();
-        states.par_iter_mut().for_each(|s| {
-            let mut rng = rand::thread_rng();
-            s.write(StateNode::new(Self::generate(p, &mut rng), time));
-        });
-        unsafe { MaybeUninit::array_assume_init(states) }
-    }
+    // pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
+    //     // todo! size asserts, move par_generate_batch to `StateNode` impl block
+    //     let mut states: [MaybeUninit<StateNode<Self>>; BATCH] = MaybeUninit::uninit_array();
+    //     states.par_iter_mut().for_each(|s| {
+    //         let mut rng = rand::thread_rng();
+    //         s.write(StateNode::new(Self::generate(p, &mut rng), time));
+    //     });
+    //     unsafe { MaybeUninit::array_assume_init(states) }
+    // }
 
     pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self {
         let mut neighborhoods = core::array::from_fn(|_| B32::empty());
