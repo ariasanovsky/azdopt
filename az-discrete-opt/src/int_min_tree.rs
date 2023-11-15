@@ -2,18 +2,11 @@ use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 // use core::num::NonZeroUsize;
-use crate::{
-    // iq_min_tree::ActionMultiset,
-    state::{cost::Cost, Action, TreeNode},
-};
+use crate::{state::cost::Cost, space::{Action, StateActionSpace}, tree_node::{TreeNode, TreeNodeFor}, path::ActionPathFor};
 
 pub struct INTMinTree<P> {
     root_data: INTStateData,
     data: Vec<BTreeMap<P, StateDataKind>>,
-}
-
-pub trait __INTStateDiagnostic {
-    fn __actions(&self) -> Vec<usize>;
 }
 
 pub enum StateDataKind {
@@ -33,36 +26,40 @@ struct INTTransition<'a> {
 }
 
 impl<P> INTMinTree<P> {
-    pub fn new<N>(root_predictions: &[f32], cost: f32, root: &N) -> Self
+    pub fn new<Space, N>(
+        root_predictions: &[f32],
+        cost: f32,
+        root: &N,
+    ) -> Self
     where
-        N: TreeNode<Path = P>,
-        N::Action: Action<N>,
+        Space: StateActionSpace,
+        N: TreeNode<State = Space::State, Path = P>,
     {
         Self {
-            root_data: INTStateData::new(root_predictions, cost, root),
+            root_data: INTStateData::new::<N, Space>(root_predictions, cost, root),
             data: Vec::new(),
         }
     }
 
-    pub fn par_new_trees<N, const B: usize, const A: usize, C>(
+    pub fn par_new_trees<Space, N, const B: usize, const A: usize, C>(
         root_predictions: &[[f32; A]; B],
         costs: &[C; B],
         roots: &[N; B],
     ) -> [Self; B]
     where
+        Space: StateActionSpace,
         Self: Send,
         C: Cost<f32> + Sync,
-        N: TreeNode<Path = P> + Sync,
-        N::Action: Action<N>,
+        N: TreeNode<State = Space::State, Path = P> + Sync,
+        // N::Action: Action<N>,
     {
         let mut trees: [MaybeUninit<Self>; B] = MaybeUninit::uninit_array();
         (&mut trees, root_predictions, costs, roots)
             .into_par_iter()
             .for_each(|(t, root_predictions, cost, root)| {
-                t.write(Self::new(root_predictions, cost.cost(), root));
+                t.write(Self::new::<Space, _>(root_predictions, cost.cost(), root));
             });
         unsafe { MaybeUninit::array_assume_init(trees) }
-        // todo!()
     }
 
     // pub fn replant<N>(&mut self, root_predictions: &[f32], cost: f32, root: &S)
@@ -74,20 +71,24 @@ impl<P> INTMinTree<P> {
     //     self.root_data = INTStateData::new(root_predictions, cost, root);
     // }
 
-    pub fn simulate_once<'a, N>(
+    pub fn simulate_once<'a, Space>(
         &'a mut self,
-        n_0: &mut N,
+        n_0: &mut (impl TreeNode<Path = P> + TreeNodeFor<Space>),
     ) -> INTTransitions<'a, P>
     where
-        N: TreeNode<Path = P>,
-        N::Action: Action<N>,
-        N::Path: Ord,
+        // Space::Action: Action<Space>,
+        Space: StateActionSpace,
+        P: ActionPathFor<Space> + Ord,
+        // N: TreeNode<Path = P> + TreeNodeFor<Space>,
+        // N: TreeNode<Path = P>,
+        // N::Action: Action<N>,
+        // N::Path: Ord,
     {
         let Self { root_data, data } = self;
         let a_1 = root_data.best_action();
-        let action_1 = <<N as TreeNode>::Action as Action<N>>::from_index(a_1);
-        let mut n_i = n_0;
-        action_1.act(n_i);
+        let action_1 = Space::from_index(a_1);
+        let n_i = n_0;
+        n_i.apply_action(&action_1);
         // n_i.apply_action(&action_1);
         // unsafe { n_i.state().act_unchecked(&action_1) };
         // let p_i = p_0;
@@ -116,7 +117,6 @@ impl<P> INTMinTree<P> {
                         a_1,
                         root_data,
                         transitions,
-                        // p_t: p_i,
                         end,
                     };
                 }
@@ -127,7 +127,6 @@ impl<P> INTMinTree<P> {
                         a_1,
                         root_data,
                         transitions,
-                        // p_t: p_i,
                         end,
                     };
                 }
@@ -137,10 +136,10 @@ impl<P> INTMinTree<P> {
                 _ => unreachable!("this should be unreachable"),
             };
             let a_i_plus_one = state_data.best_action();
-            let action_i_plus_1 = <<N as TreeNode>::Action as Action<N>>::from_index(a_i_plus_one);
+            let action_i_plus_1 = Space::from_index(a_i_plus_one);
 
             // dbg!(a_i_plus_one);
-            debug_assert_eq!(action_i_plus_1.index(), a_i_plus_one);
+            debug_assert_eq!(Space::index(&action_i_plus_1), a_i_plus_one);
             // debug_assert!(
             //     n_i.state().actions().any(|a| action_i_plus_1 == a),
             //     "self = {}, action_i_plus_1 = {action_i_plus_1}, actions = {:?}\ndepth = {_depth}",
@@ -158,8 +157,7 @@ impl<P> INTMinTree<P> {
                 data_i: state_data,
                 a_i_plus_one,
             });
-            action_i_plus_1.act(n_i);
-            // n_i.apply_action(&action_i_plus_1);
+            n_i.apply_action(&action_i_plus_1);
         }
         INTTransitions {
             a_1,
@@ -170,14 +168,15 @@ impl<P> INTMinTree<P> {
         }
     }
 
-    pub fn par_simulate_once<'a, N, const B: usize>(
+    pub fn par_simulate_once<'a, Space, N, const B: usize>(
         trees: &'a mut [Self; B],
         n_0: &mut [N; B],
     ) -> [INTTransitions<'a, P>; B]
     where
+        Space: StateActionSpace,
+        P: ActionPathFor<Space> + Ord,
         Self: Send,
-        N: TreeNode<Path = P> + Send,
-        N::Action: Action<N>,
+        N: TreeNode<Path = P> + TreeNodeFor<Space> + Send,
         P: Ord,
         INTTransitions<'a, P>: Send,
     {
@@ -189,7 +188,6 @@ impl<P> INTMinTree<P> {
                 trans.write(t.simulate_once(n_0));
             });
         unsafe { MaybeUninit::array_assume_init(trans) }
-        // todo!()
     }
 
     pub fn insert_node_at_next_level(
@@ -233,7 +231,7 @@ pub struct UpdatedNode {
 }
 
 impl<'a, P> INTTransitions<'a, P> {
-    pub fn update_existing_nodes<N>(
+    pub fn update_existing_nodes<N, Space>(
         self,
         c_t: &impl Cost<f32>,
         n_t: &N,
@@ -243,9 +241,11 @@ impl<'a, P> INTTransitions<'a, P> {
         g_star_theta_s_t: &[f32],
     ) -> Option<UpdatedNode>
     where
-        N: TreeNode<Path = P>,
+        Space: StateActionSpace,
+        P: ActionPathFor<Space> + Ord,
+        N: TreeNode<Path = P, State = Space::State>,
         P: Ord + Clone,
-        N::Action: Action<N>,
+        // N::Action: Action<N>,
     {
         debug_assert_eq!(g_star_theta_s_t.len(), 1);
         let INTTransitions {
@@ -258,7 +258,7 @@ impl<'a, P> INTTransitions<'a, P> {
         let (h_star_theta_s_t, node): (f32, _) = match end {
             EndNodeAndLevel::NewNodeNewLevel => {
                 // let data_t = INTStateData::new(probs_t, c_t.cost(), s_t);
-                let (h_star_theta_s_t, data_t) = match N::Action::is_terminal(n_t) {
+                let (h_star_theta_s_t, data_t) = match Space::is_terminal(n_t.state()) {
                     true => (
                         0.0,
                         StateDataKind::Exhausted {
@@ -268,7 +268,7 @@ impl<'a, P> INTTransitions<'a, P> {
                     false => (
                         g_star_theta_s_t[0],
                         StateDataKind::Active {
-                            data: INTStateData::new(probs_t, c_t.cost(), n_t),
+                            data: INTStateData::new::<_, Space>(probs_t, c_t.cost(), n_t),
                         },
                     ),
                 };
@@ -276,12 +276,12 @@ impl<'a, P> INTTransitions<'a, P> {
                 (h_star_theta_s_t, Some(node))
             }
             EndNodeAndLevel::NewNodeOldLevel(t) => {
-                let data = match N::Action::is_terminal(n_t) {
+                let data = match Space::is_terminal(n_t.state()) {
                     true => StateDataKind::Exhausted {
                         c_t_star: c_t.cost(),
                     },
                     false => {
-                        let data = INTStateData::new(probs_t, c_t.cost(), n_t);
+                        let data = INTStateData::new::<_, Space>(probs_t, c_t.cost(), n_t);
                         StateDataKind::Active { data }
                     }
                 };
@@ -290,7 +290,7 @@ impl<'a, P> INTTransitions<'a, P> {
                 debug_assert!(_i.is_none(), "this node should not already exist");
                 // todo!();
                 // let node = UnupdatedNode::OldLevel(t.get_mut(&p_t).unwrap());
-                let h_star_theta_s_t = match N::Action::is_terminal(n_t) {
+                let h_star_theta_s_t = match Space::is_terminal(n_t.state()) {
                     true => 0.0,
                     false => g_star_theta_s_t[0],
                 };
@@ -318,10 +318,6 @@ impl<'a, P> INTTransitions<'a, P> {
         });
         root_data.update(a_1, &mut c_star_theta_i);
         node
-    }
-
-    pub fn last_path(&self) -> &P {
-        todo!()
     }
 }
 
@@ -367,13 +363,18 @@ impl INTStateData {
         actions
     }
 
-    pub fn new<N>(probs: &[f32], cost: f32, state: &N) -> Self
+    pub fn new<N, Space>(
+        probs: &[f32],
+        cost: f32,
+        node: &N,
+    ) -> Self
     where
-        N: TreeNode,
-        N::Action: Action<N>,
+        Space: StateActionSpace,
+        N: TreeNode<State = Space::State>,
+        // N::Action: Action<N>,
     {
-        let p_sum = N::Action::actions(state).map(|a| probs[a]).sum::<f32>();
-        let mut actions = N::Action::actions(state)
+        let p_sum = Space::actions(node.state()).map(|a| probs[a]).sum::<f32>();// = N::Action::actions(state).map(|a| probs[a]).sum::<f32>();
+        let mut actions = Space::actions(node.state())
             .map(|a| {
                 let p = probs[a] / p_sum;
                 INTActionData::new(a, p)

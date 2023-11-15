@@ -10,6 +10,7 @@ pub mod sparse6;
 mod display;
 mod state;
 mod prohibit;
+pub mod space;
 
 #[derive(Debug, Clone)]
 pub struct PrueferCode<const N: usize> {

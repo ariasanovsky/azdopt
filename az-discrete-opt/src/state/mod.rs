@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
-
 pub mod cost;
 mod display;
+pub mod prohibit;
+pub mod vec;
 
 // #[derive(Clone, Debug)]
 // pub struct StateNode<S, A = usize> {
@@ -33,62 +33,63 @@ mod display;
 //     }
 // }
 
-pub trait Action<S: ?Sized> {
-    fn index(&self) -> usize;
-    fn from_index(index: usize) -> Self;
-    fn act(&self, state: &mut S);
-    fn actions(state: &S) -> impl Iterator<Item = usize>;
-    fn is_terminal(state: &S) -> bool {
-        Self::actions(state).next().is_none()
-    }
-}
+// pub trait Action<S, Space = S>: Sized {
+//     const DIM: usize;
+//     fn index(&self) -> usize;
+//     fn from_index(index: usize) -> Self;
+//     fn act(&self, state: &mut S);
+//     fn actions(state: &S) -> impl Iterator<Item = usize>;
+//     fn is_terminal(state: &S) -> bool {
+//         Self::actions(state).next().is_none()
+//     }
+// }
 
-pub trait State {
-    fn index<A>(a: &A) -> usize
-    where
-        A: Action<Self>,
-    {
-        A::index(a)
-    }
+// pub trait State: Sized {
+//     fn index<A>(a: &A) -> usize
+//     where
+//         A: Action<Self>,
+//     {
+//         A::index(a)
+//     }
 
-    fn from_index<A>(index: usize) -> A
-    where
-        A: Action<Self>,
-    {
-        A::from_index(index)
-    }
+//     fn from_index<A>(index: usize) -> A
+//     where
+//         A: Action<Self>,
+//     {
+//         A::from_index(index)
+//     }
 
-    fn act<A>(&mut self, a: &A)
-    where
-        A: Action<Self>,
-    {
-        A::act(a, self)
-    }
+//     fn act<A>(&mut self, a: &A)
+//     where
+//         A: Action<Self>,
+//     {
+//         A::act(a, self)
+//     }
 
-    fn actions<A>(&self) -> impl Iterator<Item = usize>
-    where
-        A: Action<Self>
-    {
-        A::actions(self)
-    }
+//     fn actions<A>(&self) -> impl Iterator<Item = usize>
+//     where
+//         A: Action<Self>
+//     {
+//         A::actions(self)
+//     }
 
-    fn is_terminal<A>(&self) -> bool
-    where
-        A: Action<Self>,
-    {
-        A::is_terminal(self)
-    }
-}
+//     fn is_terminal<A>(&self) -> bool
+//     where
+//         A: Action<Self>,
+//     {
+//         A::is_terminal(self)
+//     }
+// }
 
-impl<S> State for S {}
+// impl<S> State for S {}
 
-pub trait TreeNode {
-    type Action;
-    type State;
-    type Path;
-    fn state(&self) -> &Self::State;
-    fn path(&self) -> &Self::Path;
-}
+// pub trait TreeNode {
+//     type Action;
+//     type State;
+//     type Path;
+//     fn state(&self) -> &Self::State;
+//     fn path(&self) -> &Self::Path;
+// }
 
 // pub trait State: Sized {
 //     type Actions: Action<Self>;

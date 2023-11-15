@@ -7,3 +7,5 @@ pub mod iq_min_tree;
 pub mod log;
 pub mod state;
 pub mod tree_node;
+pub mod space;
+pub mod path;
