@@ -2,13 +2,10 @@ use std::collections::VecDeque;
 
 use faer::Faer;
 
-use self::state::PrueferCodeEntry;
-
-use super::{edge::Edge, connected_bitset_graph::{ConnectedBitsetGraph, Conjecture2Dot1Cost}};
+use super::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost};
 
 pub mod sparse6;
 mod display;
-mod state;
 mod prohibit;
 pub mod space;
 

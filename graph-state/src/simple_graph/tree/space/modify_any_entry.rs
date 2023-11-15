@@ -1,6 +1,8 @@
 use az_discrete_opt::space::StateActionSpace;
 
-use crate::simple_graph::tree::{PrueferCode, state::PrueferCodeEntry};
+use crate::simple_graph::tree::PrueferCode;
+
+use super::action::PrueferCodeEntry;
 
 pub struct ModifyAnyPrueferCodeEntry<const N: usize>;
 
@@ -12,19 +14,16 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
     const DIM: usize = N * (N - 2);
 
     fn index(action: &Self::Action) -> usize {
-        let PrueferCodeEntry { i, parent } = action;
-        *i * N + *parent
+        action.action_index::<N>()
     }
 
     fn from_index(index: usize) -> Self::Action {
-        let i = index / N;
-        let parent = index % N;
-        PrueferCodeEntry { i, parent }
+        PrueferCodeEntry::from_action_index::<N>(index)
     }
 
     fn act(state: &mut Self::State, action: &Self::Action) {
         let PrueferCodeEntry { i, parent } = action;
-        state.code[*i] = *parent
+        state.modify_entry(*i, *parent);
     }
 
     fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
