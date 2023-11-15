@@ -2,19 +2,17 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
-use core::mem::MaybeUninit;
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-};
+// use core::mem::MaybeUninit;
+// use std::{
+//     io::Write,
+//     path::{Path, PathBuf},
+// };
 
 use rayon::prelude::*;
 
-use az_discrete_opt::{
-    int_min_tree::{INTMinTree, INTTransitions},
-    log::{ShortRootData, SimpleRootLog},
-    state::exclude_previous_actions::ExcludePreviousActions, path::ActionSet, tree_node::{TreeNode, StatePath, prohibitions::WithActionProhibitions},
-};
+use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
+
+use az_discrete_opt::{int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::set::ActionSet, state::prohibit::WithProhibitions, tree_node::MutRefNode};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
@@ -29,9 +27,16 @@ use eyre::WrapErr;
 const N: usize = 20;
 // const E: usize = N * (N - 1) / 2;
 type RawState = PrueferCode<N>;
-type State = WithActionProhibitions<RawState>;
+type S = WithProhibitions<RawState>;
 type P = ActionSet;
-type Node = StatePath<State, P>;
+type Node<'a> = MutRefNode<'a, S, P>;
+
+type Tree = INTMinTree<P>;
+type Trans<'a> = INTTransitions<'a, P>;
+type C = Conjecture2Dot1Cost;
+type Log = SimpleRootLog<S, C>;
+
+const DEBUG_FALSE: bool = false;
 
 const ACTION: usize = N * (N - 2);
 const STATE: usize = ACTION + 1;
@@ -59,13 +64,6 @@ type Valuation = (
     Linear<HIDDEN_2, 1>,
     // Linear<HIDDEN_2, 3>,
 );
-
-type Tree = INTMinTree<P>;
-type Trans<'a> = INTTransitions<'a, P>;
-type Cost = Conjecture2Dot1Cost;
-type Log = SimpleRootLog<Node, Cost>;
-
-const DEBUG_FALSE: bool = false;
 
 fn main() -> eyre::Result<()> {
     // `epoch0.json, ...` get written to OUT/{dir_name}
@@ -110,32 +108,30 @@ fn main() -> eyre::Result<()> {
     let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
 
     let random_time = |rng: &mut ThreadRng| rng.gen_range(1..=5);
-    let random_node = |rng: &mut ThreadRng| {
+    let random_state = |rng: &mut ThreadRng| {
         let time = random_time(rng);
         let code = PrueferCode::generate(rng);
-        let state = WithActionProhibitions::new(code);
-        let node = StatePath::new(state, todo!());
-        node
+        let state = todo!();
+        state
     };
 
     // generate states
-    let mut n_0: [Node; BATCH] =
-        from_init(|| rand::thread_rng(), random_node);
+    let mut n_0: [S; BATCH] =
+        from_init(|| rand::thread_rng(), random_state);
 
-    let cost = |s: &Node| {
+    let cost = |s: &S| {
         type _Tree = graph_state::simple_graph::tree::Tree<N>;
-        let tree = _Tree::from(s.state().state());
+        let tree = _Tree::from(&s.state);
         tree.conjecture_2_1_cost()
     };
 
-    let write_vec = |s: &Node, v: &mut NodeVector| {
-        let code = s.state().state().code();
+    let write_vec = |s: &S, v: &mut NodeVector| {
         todo!()
     };
 
     let mut all_losses: Vec<(f32, f32)> = vec![];
     // set logs
-    let mut c_t: [Cost; BATCH] = core::array::from_fn(|_| Default::default());
+    let mut c_t: [C; BATCH] = core::array::from_fn(|_| Default::default());
     (&n_0, &mut c_t).into_par_iter().for_each(|(s_t, c_t)| {
         let Conjecture2Dot1Cost {
             matching: m_t,
@@ -240,7 +236,7 @@ fn main() -> eyre::Result<()> {
         core_model.zero_grads(&mut grads);
 
         let max_time = epoch + 5;
-        let mut short_data: [Vec<ShortRootData<Cost>>; BATCH] = core::array::from_fn(|_| vec![]);
+        let mut short_data: [Vec<ShortRootData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
 
         (&mut logs, &mut n_0, &mut c_t, &mut short_data)
             .into_par_iter()
@@ -258,7 +254,7 @@ fn main() -> eyre::Result<()> {
                         // todo! s.reset_with(...);
                         // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                         // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
-                        let r = random_node(rng);
+                        let r = random_state(rng);
                         s_0.clone_from(&r);
                         log.reset_root(s_0, c_t);
                     },

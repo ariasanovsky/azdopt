@@ -2,6 +2,7 @@ use crate::{space::StateActionSpace, tree_node::{TreeNodeFor, MutRefNode}};
 
 use super::{ActionPath, ActionPathFor};
 
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ActionSequence {
     actions: Vec<usize>,
 }

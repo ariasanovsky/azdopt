@@ -28,6 +28,12 @@ pub struct MutRefNode<'a, S, P> {
     pub(crate) path: &'a mut P,
 }
 
+impl<'a, S, P> MutRefNode<'a, S, P> {
+    pub fn new(state: &'a mut S, path: &'a mut P) -> Self {
+        Self { state, path }
+    }
+}
+
 impl<'a, S, P> TreeNode for MutRefNode<'a, S, P> {
     type State = S;
 
