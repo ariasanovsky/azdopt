@@ -1,6 +1,4 @@
-use super::PrueferCode;
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PrueferCodeEntry {
     pub(crate) i: usize,
     pub(crate) parent: usize,
@@ -107,43 +105,49 @@ impl core::fmt::Display for PrueferCodeEntry {
 
 #[cfg(test)]
 mod tests {
-    use crate::simple_graph::tree::PrueferCode;
+    use az_discrete_opt::space::{State, Action};
+
+    use crate::simple_graph::tree::{PrueferCode, space::modify_any_entry::ModifyAnyPrueferCodeEntry};
 
     use super::PrueferCodeEntry;
 
     #[test]
     fn test_pruefer_codes_for_trees_on_3_vertices_have_correct_actions() {
-        todo!();
-        // let codes = [
-        //     [0, 0, 0], // extra 2 entries should be irrelevant
-        //     [1, 1, 1],
-        //     [2, 2, 2],
-        // ].map(|code| PrueferCode::<3> { code });
-        // let correct_actions = [
-        //     [
-        //         // (0, 0),
-        //         (0, 1),
-        //         (0, 2),
-        //     ],
-        //     [
-        //         (0, 0),
-        //         // (0, 1),
-        //         (0, 2),
-        //     ],
-        //     [
-        //         (0, 0),
-        //         (0, 1),
-        //         // (0, 2),
-        //     ],
-        // ].map(|actions| {
-        //     actions.map(|(i, parent)| PrueferCodeEntry { i, parent })
-        // });
-        // for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
-        //     let actions: Vec<PrueferCodeEntry> = code.actions::<PrueferCodeEntry>().into_iter().map(|i| {
-        //         let i = PrueferCode::<3>::from_index(i);
-        //         i
-        //     }).collect();
-        //     assert_eq!(&actions, correct_actions);
-        // }
+        let codes = [
+            [0, 0, 0], // extra 2 entries should be irrelevant
+            [1, 1, 1],
+            [2, 2, 2],
+        ].map(|code| PrueferCode::<3> { code });
+        let correct_actions = [
+            [
+                // (0, 0),
+                (0, 1),
+                (0, 2),
+            ],
+            [
+                (0, 0),
+                // (0, 1),
+                (0, 2),
+            ],
+            [
+                (0, 0),
+                (0, 1),
+                // (0, 2),
+            ],
+        ].map(|actions| {
+            actions.map(|(i, parent)| PrueferCodeEntry { i, parent })
+        });
+        type Space = ModifyAnyPrueferCodeEntry<3>;
+        type Action = PrueferCodeEntry;
+        for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
+            let actions: Vec<PrueferCodeEntry> = code.actions::<Space>().into_iter().map(|i| {
+                Action::from_index::<Space>(i)
+            }).collect();
+            let actions: Vec<PrueferCodeEntry> = code.actions::<Space>().into_iter().map(|i| {
+                Action::from_index::<Space>(i)
+            }).collect();
+            assert_eq!(actions, correct_actions);
+            // todo!();
+        }
     }
 }

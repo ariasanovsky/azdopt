@@ -2,7 +2,7 @@ use az_discrete_opt::space::StateActionSpace;
 
 use crate::simple_graph::tree::{PrueferCode, state::PrueferCodeEntry};
 
-struct ModifyAnyPrueferCodeEntry<const N: usize>;
+pub struct ModifyAnyPrueferCodeEntry<const N: usize>;
 
 impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
     type State = PrueferCode<N>;

@@ -1,2 +1,2 @@
-mod modify_any_entry;
-mod modify_each_entry_once;
+pub mod modify_any_entry;
+pub mod modify_each_entry_once;

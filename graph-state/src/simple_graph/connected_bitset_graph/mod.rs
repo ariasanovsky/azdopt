@@ -323,7 +323,7 @@ mod tests {
             .try_into()
             .unwrap();
         let graph = graph.to_connected().unwrap();
-        debug_assert_eq!(graph.matching_number(), 2);
+        assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
             .try_into()
             .unwrap();
         let graph = graph.to_connected().unwrap();
-        debug_assert_eq!(graph.matching_number(), 2);
+        assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]

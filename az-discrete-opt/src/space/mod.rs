@@ -7,6 +7,7 @@ pub trait StateActionSpace {
     fn index(action: &Self::Action) -> usize;
     fn from_index(index: usize) -> Self::Action;
     fn act(state: &mut Self::State, action: &Self::Action);
+    // todo! iterator should depend on `state`
     fn actions(state: &Self::State) -> impl Iterator<Item = usize>;
     fn is_terminal(state: &Self::State) -> bool {
         Self::actions(state).next().is_none()
@@ -33,6 +34,7 @@ pub trait State: Sized {
     fn act<Space: StateActionSpace<State = Self>>(&mut self, action: &Space::Action) {
         Space::act(self, action)
     }
+    // todo! iterator should depend on `self`
     fn actions<Space: StateActionSpace<State = Self>>(&self) -> impl Iterator<Item = usize> {
         Space::actions(self)
     }

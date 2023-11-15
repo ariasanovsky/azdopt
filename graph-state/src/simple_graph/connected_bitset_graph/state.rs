@@ -1,9 +1,72 @@
-// use az_discrete_opt::state::{ProhibitsActions, State};
-use itertools::Itertools;
+use az_discrete_opt::space::StateActionSpace;
 
-use crate::{simple_graph::{bitset_graph::state::Action, edge::Edge}, bitset::bitset::Bitset};
+use crate::{simple_graph::bitset_graph::space::action::AddOrDeleteEdge, bitset::bitset::Bitset};
 
 use super::ConnectedBitsetGraph;
+
+pub struct ConnectedAddOrDeleteEdge<const N: usize>;
+
+impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
+    type State = ConnectedBitsetGraph<N>;
+
+    type Action = AddOrDeleteEdge;
+
+    const DIM: usize = N * (N - 1) / 2;
+
+    fn index(action: &Self::Action) -> usize {
+        action.action_index::<N>()
+    }
+
+    fn from_index(index: usize) -> Self::Action {
+        Self::Action::from_action_index::<N>(index)
+    }
+
+    fn act(state: &mut Self::State, action: &Self::Action) {
+        match action {
+            AddOrDeleteEdge::Add(e) => {
+                debug_assert!(state.neighborhoods[e.max].contains(e.min as _).unwrap());
+                debug_assert!(state.neighborhoods[e.min].contains(e.max as _).unwrap());
+                unsafe { state.neighborhoods[e.max].add_or_remove_unchecked(e.min as _) };
+                unsafe { state.neighborhoods[e.min].add_or_remove_unchecked(e.max as _) };
+            },
+            AddOrDeleteEdge::Delete(e) => {
+                debug_assert!(!state.neighborhoods[e.max].contains(e.min as _).unwrap());
+                debug_assert!(!state.neighborhoods[e.min].contains(e.max as _).unwrap());
+                unsafe { state.neighborhoods[e.max].add_or_remove_unchecked(e.min as _) };
+                unsafe { state.neighborhoods[e.min].add_or_remove_unchecked(e.max as _) };
+            }
+        }
+    }
+
+    fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
+        let actions = state.action_kinds().enumerate().filter_map(|(i, b)| {
+            b.map(|b| match b {
+                super::ActionKind::Add => i,
+                super::ActionKind::Delete => i + N * (N - 1) / 2,
+            })
+        }).collect::<Vec<_>>();
+        actions.into_iter()
+    }
+
+    fn write_vec(state: &Self::State, vec: &mut [f32]) {
+        debug_assert!(vec.len() == Self::DIM);
+        vec.iter_mut().zip(state.edge_bools()).for_each(|(f, b)| {
+            match b {
+                true => *f = 1.0,
+                false => *f = 0.0,
+            }
+        });
+    }
+
+    fn is_terminal(state: &Self::State) -> bool {
+        Self::actions(state).next().is_none()
+    }
+
+    fn has_action(state: &Self::State, action: &Self::Action) -> bool {
+        let action_index = Self::index(action);
+        Self::actions(state).any(|i| i == action_index)
+    }
+}
 
 // impl<const N: usize> az_discrete_opt::state::Action<ConnectedBitsetGraph<N>> for Action {
 //     const DIM: usize = N * (N - 1);
@@ -198,9 +261,11 @@ use super::ConnectedBitsetGraph;
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::simple_graph::bitset_graph::BitsetGraph;
+    use az_discrete_opt::space::{State, StateActionSpace};
 
+    use super::*;
+    use crate::simple_graph::{bitset_graph::BitsetGraph, edge::Edge};
+    
     #[test]
     fn c4_is_connected_and_has_no_cut_edges() {
         let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3), (3, 0)]
@@ -212,13 +277,13 @@ mod test {
             .edges()
             .enumerate()
             .map(|(i, e)| {
-                debug_assert!(!graph.is_cut_edge(&e));
+                assert!(!graph.is_cut_edge(&e));
                 i
             })
             .last()
             .unwrap()
             + 1;
-        debug_assert_eq!(len, 4);
+        assert_eq!(len, 4);
     }
 
     #[test]
@@ -229,13 +294,13 @@ mod test {
             .edges()
             .enumerate()
             .map(|(i, e)| {
-                debug_assert!(graph.is_cut_edge(&e));
+                assert!(graph.is_cut_edge(&e));
                 i
             })
             .last()
             .unwrap()
             + 1;
-        debug_assert_eq!(len, 3);
+        assert_eq!(len, 3);
     }
 
     #[test]
@@ -250,14 +315,14 @@ mod test {
             .enumerate()
             .map(|(i, e)| {
                 if graph.is_cut_edge(&e) {
-                    debug_assert_eq!(e.vertices(), (3, 2));
+                    assert_eq!(e.vertices(), (3, 2));
                 }
                 i
             })
             .last()
             .unwrap()
             + 1;
-        debug_assert_eq!(len, 4);
+        assert_eq!(len, 4);
     }
 
     #[test]
@@ -266,22 +331,18 @@ mod test {
             .as_ref()
             .try_into()
             .unwrap();
-        todo!();
-        
-        // let actions: Vec<Action> = <Action as az_discrete_opt::state::Action<ConnectedBitsetGraph<4>>>::actions(&graph)
-        //     .into_iter()
-        //     .map(|i| <Action as az_discrete_opt::state::Action<ConnectedBitsetGraph<4>>>::from_index(i))
-        //     .collect();
-        // debug_assert_eq!(
-        //     actions,
-        //     vec![
-        //         Action::Delete(Edge::new(0, 1)),
-        //         Action::Delete(Edge::new(0, 2)),
-        //         Action::Delete(Edge::new(1, 2)),
-        //         Action::Delete(Edge::new(0, 3)),
-        //         Action::Delete(Edge::new(1, 3)),
-        //         Action::Delete(Edge::new(2, 3)),
-        //     ]
-        // );
+        type Space = ConnectedAddOrDeleteEdge<4>;
+        let actions = graph.actions::<Space>().map(|i| Space::from_index(i)).collect::<Vec<_>>();
+        assert_eq!(
+            actions,
+            vec![
+                AddOrDeleteEdge::Delete(Edge::new(0, 1)),
+                AddOrDeleteEdge::Delete(Edge::new(0, 2)),
+                AddOrDeleteEdge::Delete(Edge::new(1, 2)),
+                AddOrDeleteEdge::Delete(Edge::new(0, 3)),
+                AddOrDeleteEdge::Delete(Edge::new(1, 3)),
+                AddOrDeleteEdge::Delete(Edge::new(2, 3)),
+            ]
+        );
     }
 }

@@ -112,7 +112,7 @@ impl RamseyState {
         // (0..C).for_each(|c| {
         //     (0..N).for_each(|u| {
         //         let neigh = neighborhoods[c][u];
-        //         debug_assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+        //         assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
         //     });
         // });
 
@@ -305,7 +305,7 @@ impl IQState<STATE> for RamseyState {
         // (0..C).for_each(|c| {
         //     (0..N).for_each(|u| {
         //         let neigh = neighborhoods[c][u];
-        //         debug_assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
+        //         assert_eq!(neigh & (1 << u), 0, "u = {u}, neigh = {neigh:b}");
         //     });
         // });
 
@@ -616,14 +616,14 @@ mod test {
         //     time_remaining,
         // } = s;
         let cliques = incident_cliques(&state, 0);
-        debug_assert_eq!(cliques[0].len(), 105);
+        assert_eq!(cliques[0].len(), 105);
         (1..C).for_each(|i| assert_eq!(cliques[i].len(), 0));
-        debug_assert_eq!(state.cost(), 2380.0);
+        assert_eq!(state.cost(), 2380.0);
         let rewards = state.action_rewards();
-        debug_assert_eq!(rewards.len(), 136);
+        assert_eq!(rewards.len(), 136);
         let (_, reward) = rewards.into_iter().find(|(a, _)| *a == E).unwrap();
-        debug_assert_eq!(reward, 105.0);
+        assert_eq!(reward, 105.0);
         state.act(E);
-        debug_assert_eq!(state.cost(), 2275.0);
+        assert_eq!(state.cost(), 2275.0);
     }
 }

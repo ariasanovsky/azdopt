@@ -1,6 +1,3 @@
-// use az_discrete_opt::state::StateNode;
-use core::mem::MaybeUninit;
-use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::bitset::primitive::B32;
 use crate::bitset::bitset::Bitset;
@@ -9,7 +6,7 @@ use super::edge::Edge;
 
 mod display;
 mod graph6;
-pub(crate) mod state;
+pub mod space;
 mod try_from;
 
 #[derive(Clone, Debug)]

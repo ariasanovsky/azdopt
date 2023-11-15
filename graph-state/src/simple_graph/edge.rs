@@ -1,4 +1,4 @@
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Edge {
     pub max: usize,
     pub min: usize,
@@ -73,8 +73,8 @@ mod test {
     fn colex_position_of_edges_on_ten_vertices_are_correct() {
         let edges = (0..10).flat_map(|v| (0..v).map(move |u| Edge::new(v, u)));
         edges.enumerate().for_each(|(i, e)| {
-            debug_assert_eq!(e.colex_position(), i);
-            debug_assert_eq!(Edge::from_colex_position(i), e);
+            assert_eq!(e.colex_position(), i);
+            assert_eq!(Edge::from_colex_position(i), e);
         });
     }
 }
