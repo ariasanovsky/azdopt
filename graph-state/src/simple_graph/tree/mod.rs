@@ -6,7 +6,6 @@ use super::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost};
 
 pub mod sparse6;
 mod display;
-mod prohibit;
 pub mod space;
 
 #[derive(Debug, Clone)]
@@ -16,26 +15,9 @@ pub struct PrueferCode<const N: usize> {
 
 impl<const N: usize> core::fmt::Display for PrueferCode<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        format!("{:?}", self.code).fmt(f)
+        format!("{:?}", self.code()).fmt(f)
     }
 }
-
-// impl<const N: usize> az_discrete_opt::state::ProhibitsActions<PrueferCodeEntry> for PrueferCode<N> {
-//     unsafe fn update_prohibited_actions_unchecked(
-//         &self,
-//         prohibited_actions: &mut std::collections::BTreeSet<usize>,
-//         action: &PrueferCodeEntry,
-//     ) {
-//         todo!()
-//     }
-//     // unsafe fn update_prohibited_actions_unchecked(
-//     //     &self,
-//     //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
-//     //     action: &impl az_discrete_opt::state::Action<Self>,
-//     // ) {
-//     //     todo!()
-//     // }
-// }
 
 impl<const N: usize> az_discrete_opt::log::ShortForm for PrueferCode<N> {
     fn short_form(&self) -> String {

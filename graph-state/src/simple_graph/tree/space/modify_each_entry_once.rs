@@ -80,10 +80,10 @@ mod tests {
 
     use az_discrete_opt::{space::{StateActionSpace, State}, state::prohibit::WithProhibitions};
 
-    use crate::simple_graph::tree::{PrueferCode, space::{modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce, action::PrueferCodeEntry}};
+    use crate::simple_graph::tree::{PrueferCode, space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce};
 
     type SASpace<const N: usize> = ModifyEachPrueferCodeEntriesExactlyOnce<N>;
-    type S<const N: usize> = <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::State;
+    // type S<const N: usize> = <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::State;
     type A<const N: usize> = <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::Action;
     
     use az_discrete_opt::space::Action;
@@ -106,50 +106,50 @@ mod tests {
     #[test]
     fn after_modifying_a_pruefer_code_entry_the_entry_can_no_longer_be_modified() {
         type Space4 = SASpace<4>;
-        type A = PrueferCodeEntry;
+        type A4 = A<4>;
         let mut code = WithProhibitions {
             state: PrueferCode { code: [1, 3, 0, 0] },
             prohibited_actions: BTreeSet::from([
                 // Action { i: 0, parent: 0 },
-                A { i: 0, parent: 1 },
+                A4 { i: 0, parent: 1 },
                 // Action { i: 0, parent: 2 },
                 // Action { i: 0, parent: 3 },
                 // Action { i: 1, parent: 0 },
                 // Action { i: 1, parent: 1 },
                 // Action { i: 1, parent: 2 },
-                A { i: 1, parent: 3 },
+                A4 { i: 1, parent: 3 },
             ].map(|a| a.index::<Space4>())),
         };
         let actions_to_take = [
-            A { i: 0, parent: 1 },
-            A { i: 1, parent: 3 },
+            A4 { i: 0, parent: 1 },
+            A4 { i: 1, parent: 3 },
         ];
-        let action_sets: [BTreeSet<A>; 3] = [
+        let action_sets: [BTreeSet<A4>; 3] = [
             BTreeSet::from([
-                A { i: 0, parent: 0 },
+                A4 { i: 0, parent: 0 },
                 // Action { i: 0, parent: 1 },
-                A { i: 0, parent: 2 },
-                A { i: 0, parent: 3 },
-                A { i: 1, parent: 0 },
-                A { i: 1, parent: 1 },
-                A { i: 1, parent: 2 },
+                A4 { i: 0, parent: 2 },
+                A4 { i: 0, parent: 3 },
+                A4 { i: 1, parent: 0 },
+                A4 { i: 1, parent: 1 },
+                A4 { i: 1, parent: 2 },
                 // Action { i: 1, parent: 3 },
             ]),
             BTreeSet::from([
-                A { i: 1, parent: 0 },
-                A { i: 1, parent: 1 },
-                A { i: 1, parent: 2 },
+                A4 { i: 1, parent: 0 },
+                A4 { i: 1, parent: 1 },
+                A4 { i: 1, parent: 2 },
                 // Action { i: 1, parent: 3 },
             ]),
             BTreeSet::from([]),
         ];
         // test the action set before taking actions
-        let actions = code.actions::<Space4>().map(|i| A::from_index::<Space4>(i)).collect::<BTreeSet<_>>();
+        let actions = code.actions::<Space4>().map(|i| A4::from_index::<Space4>(i)).collect::<BTreeSet<_>>();
         let (action_set_0, action_sets) = action_sets.split_first().unwrap();
         assert_eq!(actions, *action_set_0);
         for i in 0..2 {
             code.act::<Space4>(&actions_to_take[i]);
-            let actions = code.actions::<Space4>().map(|i| A::from_index::<Space4>(i)).collect::<BTreeSet<_>>();
+            let actions = code.actions::<Space4>().map(|i| A4::from_index::<Space4>(i)).collect::<BTreeSet<_>>();
             assert_eq!(actions, action_sets[i]);
         }
         

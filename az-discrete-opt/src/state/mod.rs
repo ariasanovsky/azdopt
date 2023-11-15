@@ -1,5 +1,4 @@
 pub mod cost;
-mod display;
 pub mod prohibit;
 pub mod vec;
 

@@ -70,9 +70,6 @@ mod tests {
             let actions: Vec<PrueferCodeEntry> = code.actions::<Space>().into_iter().map(|i| {
                 Action::from_index::<Space>(i)
             }).collect();
-            let actions: Vec<PrueferCodeEntry> = code.actions::<Space>().into_iter().map(|i| {
-                Action::from_index::<Space>(i)
-            }).collect();
             assert_eq!(actions, correct_actions);
             // todo!();
         }

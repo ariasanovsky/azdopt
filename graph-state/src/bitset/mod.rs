@@ -1,4 +1,4 @@
-use bit_iter::BitIter;
+// use bit_iter::BitIter;
 
 pub mod bitset;
 mod display;

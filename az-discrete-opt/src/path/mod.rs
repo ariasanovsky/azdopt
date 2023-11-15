@@ -1,9 +1,9 @@
 use crate::space::StateActionSpace;
 
-mod sequence;
-mod ord_set;
-mod multiset;
-mod set;
+pub mod sequence;
+pub mod ord_set;
+pub mod multiset;
+pub mod set;
 
 pub trait ActionPath {
     fn len(&self) -> usize;
