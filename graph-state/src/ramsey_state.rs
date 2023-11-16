@@ -1,12 +1,12 @@
 use core::mem::{transmute, MaybeUninit};
 
-use az_discrete_opt::{arr_map::VALUE, iq_min_tree::IQState};
+use az_discrete_opt::iq_min_tree::IQState;
 use bit_iter::BitIter;
 use itertools::Itertools;
 use priority_queue::PriorityQueue;
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
-};
+// use rayon::prelude::{
+//     IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+// };
 
 use crate::{
     CliqueCounts, Color, ColoredCompleteGraph, EdgeRecoloring, MulticoloredGraphEdges,
@@ -27,7 +27,7 @@ const ACTION: usize = C * E;
 pub const STATE: usize = 6 * E + 1;
 pub type StateVec = [f32; STATE];
 pub type ActionVec = [f32; ACTION];
-pub type ValueVec = [f32; VALUE];
+pub type ValueVec = [f32; 1];
 
 pub trait Cost {
     fn cost(&self) -> f32;
@@ -150,31 +150,31 @@ impl RamseyState {
         Self::new(colors, edges, neighborhoods, available_actions, t)
     }
 
-    pub fn par_generate_batch<const BATCH: usize>(t: usize) -> [Self; BATCH] {
-        let mut states: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        states.par_iter_mut().for_each(|s| {
-            s.write(RamseyState::generate_random(t, &mut rand::thread_rng()));
-        });
-        let b: [Self; BATCH] = unsafe { MaybeUninit::array_assume_init(states) };
-        // b.iter().for_each(|s| {
-        //     s.check_for_inconsistencies();
-        // });
-        b
-    }
+    // pub fn par_generate_batch<const BATCH: usize>(t: usize) -> [Self; BATCH] {
+    //     let mut states: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
+    //     states.par_iter_mut().for_each(|s| {
+    //         s.write(RamseyState::generate_random(t, &mut rand::thread_rng()));
+    //     });
+    //     let b: [Self; BATCH] = unsafe { MaybeUninit::array_assume_init(states) };
+    //     // b.iter().for_each(|s| {
+    //     //     s.check_for_inconsistencies();
+    //     // });
+    //     b
+    // }
 
-    pub fn par_generate_vecs<const BATCH: usize>(states: &[Self; BATCH]) -> [StateVec; BATCH] {
-        // states.iter().for_each(|s| {
-        //     s.check_for_inconsistencies();
-        // });
-        let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = MaybeUninit::uninit_array();
-        states
-            .par_iter()
-            .zip_eq(state_vecs.par_iter_mut())
-            .for_each(|(s, v)| {
-                v.write(s.to_vec());
-            });
-        unsafe { MaybeUninit::array_assume_init(state_vecs) }
-    }
+    // pub fn par_generate_vecs<const BATCH: usize>(states: &[Self; BATCH]) -> [StateVec; BATCH] {
+    //     // states.iter().for_each(|s| {
+    //     //     s.check_for_inconsistencies();
+    //     // });
+    //     let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = MaybeUninit::uninit_array();
+    //     states
+    //         .par_iter()
+    //         .zip_eq(state_vecs.par_iter_mut())
+    //         .for_each(|(s, v)| {
+    //             v.write(s.to_vec());
+    //         });
+    //     unsafe { MaybeUninit::array_assume_init(state_vecs) }
+    // }
 
     pub fn to_vec(&self) -> StateVec {
         let Self {

@@ -1,4 +1,4 @@
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+// use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 // use core::num::NonZeroUsize;
@@ -40,27 +40,27 @@ impl<P> INTMinTree<P> {
         }
     }
 
-    pub fn par_new_trees<Space, const B: usize, const A: usize, C>(
-        prob_0: &[[f32; A]; B],
-        c_0: &[C; B],
-        s_0: &[Space::State; B],
-    ) -> [Self; B]
-    where
-        Space: StateActionSpace,
-        Space::State: Sync,
-        Self: Send,
-        C: Cost<f32> + Sync,
-        // N: TreeNode<State = Space::State, Path = P> + Sync,
-        // N::Action: Action<N>,
-    {
-        let mut trees: [MaybeUninit<Self>; B] = MaybeUninit::uninit_array();
-        (&mut trees, prob_0, c_0, s_0)
-            .into_par_iter()
-            .for_each(|(t, root_predictions, cost, root)| {
-                t.write(Self::new::<Space>(root_predictions, cost.cost(), root));
-            });
-        unsafe { MaybeUninit::array_assume_init(trees) }
-    }
+    // pub fn par_new_trees<Space, const B: usize, const A: usize, C>(
+    //     prob_0: &[[f32; A]; B],
+    //     c_0: &[C; B],
+    //     s_0: &[Space::State; B],
+    // ) -> [Self; B]
+    // where
+    //     Space: StateActionSpace,
+    //     Space::State: Sync,
+    //     Self: Send,
+    //     C: Cost<f32> + Sync,
+    //     // N: TreeNode<State = Space::State, Path = P> + Sync,
+    //     // N::Action: Action<N>,
+    // {
+    //     let mut trees: [MaybeUninit<Self>; B] = MaybeUninit::uninit_array();
+    //     (&mut trees, prob_0, c_0, s_0)
+    //         .into_par_iter()
+    //         .for_each(|(t, root_predictions, cost, root)| {
+    //             t.write(Self::new::<Space>(root_predictions, cost.cost(), root));
+    //         });
+    //     unsafe { MaybeUninit::array_assume_init(trees) }
+    // }
 
     // pub fn replant<N>(&mut self, root_predictions: &[f32], cost: f32, root: &S)
     // where
@@ -169,27 +169,27 @@ impl<P> INTMinTree<P> {
     }
 
     // todo! refactor/deprecate
-    pub(crate) fn _par_simulate_once<'a, Space, N, const B: usize>(
-        trees: &'a mut [Self; B],
-        n_0: &mut [N; B],
-    ) -> [INTTransitions<'a, P>; B]
-    where
-        Space: StateActionSpace,
-        P: ActionPathFor<Space> + Ord,
-        Self: Send,
-        N: TreeNode<Path = P> + TreeNodeFor<Space> + Send,
-        P: Ord,
-        INTTransitions<'a, P>: Send,
-    {
-        let mut trans: [MaybeUninit<INTTransitions<P>>; B] = MaybeUninit::uninit_array();
-        // let foo = trans.into_par_iter();
-        (&mut trans, trees, n_0)
-            .into_par_iter()
-            .for_each(|(trans, t, n_0)| {
-                trans.write(t.simulate_once(n_0));
-            });
-        unsafe { MaybeUninit::array_assume_init(trans) }
-    }
+    // pub(crate) fn _par_simulate_once<'a, Space, N, const B: usize>(
+    //     trees: &'a mut [Self; B],
+    //     n_0: &mut [N; B],
+    // ) -> [INTTransitions<'a, P>; B]
+    // where
+    //     Space: StateActionSpace,
+    //     P: ActionPathFor<Space> + Ord,
+    //     Self: Send,
+    //     N: TreeNode<Path = P> + TreeNodeFor<Space> + Send,
+    //     P: Ord,
+    //     INTTransitions<'a, P>: Send,
+    // {
+    //     let mut trans: [MaybeUninit<INTTransitions<P>>; B] = MaybeUninit::uninit_array();
+    //     // let foo = trans.into_par_iter();
+    //     (&mut trans, trees, n_0)
+    //         .into_par_iter()
+    //         .for_each(|(trans, t, n_0)| {
+    //             trans.write(t.simulate_once(n_0));
+    //         });
+    //     unsafe { MaybeUninit::array_assume_init(trans) }
+    // }
 
     pub fn insert_node_at_next_level(
         &mut self,
@@ -364,6 +364,7 @@ impl INTStateData {
         actions
     }
 
+    // todo! refactor to `Option<Self>` and cut the `is_terminal` checks from `simulate_once`
     pub fn new<Space>(
         probs: &[f32],
         cost: f32,
@@ -395,10 +396,6 @@ impl INTStateData {
             c_s: _,
             actions,
         } = self;
-        // if self.n_s > 4 {
-        //     dbg!(actions);
-        //     panic!();
-        // }
         actions[0].a
     }
 

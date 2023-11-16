@@ -1,9 +1,9 @@
 use core::mem::MaybeUninit;
 
-use rayon::prelude::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-    IntoParallelRefMutIterator, ParallelIterator,
-};
+// use rayon::prelude::{
+//     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+//     IntoParallelRefMutIterator, ParallelIterator,
+// };
 
 use crate::iq_min_tree::{ActionMultiset, Transitions};
 
@@ -50,20 +50,20 @@ impl<S, C> SimpleRootLog<S, C> {
         self.stagnation = None;
     }
 
-    pub fn par_new_logs<const BATCH: usize>(s_t: &[S; BATCH], costs: &[C; BATCH]) -> [Self; BATCH]
-    where
-        S: Sync + Clone,
-        C: Sync + Clone,
-        Self: Send,
-    {
-        let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        (&mut logs, s_t, costs)
-            .into_par_iter()
-            .for_each(|(l, s, cost)| {
-                l.write(Self::new(cost, s));
-            });
-        unsafe { MaybeUninit::array_assume_init(logs) }
-    }
+    // pub fn par_new_logs<const BATCH: usize>(s_t: &[S; BATCH], costs: &[C; BATCH]) -> [Self; BATCH]
+    // where
+    //     S: Sync + Clone,
+    //     C: Sync + Clone,
+    //     Self: Send,
+    // {
+    //     let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
+    //     (&mut logs, s_t, costs)
+    //         .into_par_iter()
+    //         .for_each(|(l, s, cost)| {
+    //             l.write(Self::new(cost, s));
+    //         });
+    //     unsafe { MaybeUninit::array_assume_init(logs) }
+    // }
 
     pub fn update(&mut self, s_t: &S, c_t: &C)
     where
@@ -203,13 +203,13 @@ impl BasicLog {
         &self.path
     }
 
-    pub fn par_new_logs<const BATCH: usize>() -> [Self; BATCH] {
-        let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-        logs.par_iter_mut().for_each(|l| {
-            l.write(Self::new());
-        });
-        unsafe { MaybeUninit::array_assume_init(logs) }
-    }
+    // pub fn par_new_logs<const BATCH: usize>() -> [Self; BATCH] {
+    //     let mut logs: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
+    //     logs.par_iter_mut().for_each(|l| {
+    //         l.write(Self::new());
+    //     });
+    //     unsafe { MaybeUninit::array_assume_init(logs) }
+    // }
 
     pub fn update(&mut self, transitions: &Transitions) {
         let Self {
@@ -260,11 +260,11 @@ impl BasicLog {
     }
 }
 
-pub fn par_update_logs<const BATCH: usize>(
-    logs: &mut [BasicLog; BATCH],
-    transitions: &[Transitions; BATCH],
-) {
-    let logs = logs.par_iter_mut();
-    let transitions = transitions.par_iter();
-    logs.zip_eq(transitions).for_each(|(l, t)| l.update(t));
-}
+// pub fn par_update_logs<const BATCH: usize>(
+//     logs: &mut [BasicLog; BATCH],
+//     transitions: &[Transitions; BATCH],
+// ) {
+//     let logs = logs.par_iter_mut();
+//     let transitions = transitions.par_iter();
+//     logs.zip_eq(transitions).for_each(|(l, t)| l.update(t));
+// }

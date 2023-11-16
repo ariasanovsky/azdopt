@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
 
-use az_discrete_opt::{int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::prohibit::WithProhibitions, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
+use az_discrete_opt::{int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
@@ -135,7 +135,16 @@ fn main() -> eyre::Result<()> {
     
 
     // set logs
-    let mut logs: [Log; BATCH] = Log::par_new_logs(&s_0, &episode_c_t);
+    let mut logs: [Log; BATCH] = {
+        let mut logs: [MaybeUninit<Log>; BATCH] = MaybeUninit::uninit_array();
+        (&mut logs, &s_0, &episode_c_t)
+            .into_par_iter()
+            .for_each(|(l, s, cost)| {
+                l.write(Log::new(cost, s));
+            });
+        unsafe { MaybeUninit::array_assume_init(logs) }
+    };
+    //Log::par_new_logs(&s_0, &episode_c_t);
 
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
@@ -150,7 +159,16 @@ fn main() -> eyre::Result<()> {
         prediction_tensor = core_model.forward(v_t_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone());
         let probs: [ActionVec; BATCH] = probs_tensor.array();
-        let mut trees: [Tree; BATCH] = Tree::par_new_trees::<Space, BATCH, ACTION, _>(&probs, &episode_c_t, &s_0);
+        let mut trees: [Tree; BATCH] = {
+            let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
+            (&mut trees, &probs, &episode_c_t, &s_0)
+                .into_par_iter()
+                .for_each(|(t, root_predictions, cost, root)| {
+                    t.write(Tree::new::<Space>(root_predictions, cost.cost(), root));
+                });
+            // Tree::par_new_trees::<Space, BATCH, ACTION, _>(&probs, &episode_c_t, &s_0);
+            unsafe { MaybeUninit::array_assume_init(trees) }
+        };
 
         let mut grads = core_model.alloc_grads();
         for episode in 1..=episodes {
