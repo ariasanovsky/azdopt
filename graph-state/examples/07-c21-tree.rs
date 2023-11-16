@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
 
-use az_discrete_opt::{int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::prohibit::WithProhibitions, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec}};
+use az_discrete_opt::{int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::prohibit::WithProhibitions, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
@@ -104,10 +104,14 @@ fn main() -> eyre::Result<()> {
 
     // generate states
     let random_state = |rng: &mut ThreadRng| {
-        let code = PrueferCode::generate(rng);
-        let prohibited_actions = code.entries().map(|e| e.index::<Space>());
-        let state = WithProhibitions::new(code.clone(), prohibited_actions);
-        state
+        loop {
+            let code = PrueferCode::generate(rng);
+            let prohibited_actions = code.entries().map(|e| e.index::<Space>());
+            let state = WithProhibitions::new(code.clone(), prohibited_actions);
+            if !state.is_terminal::<Space>() {
+                break state;
+            }
+        }
     };
     let mut s_0: [S; BATCH] =
         par_init_map(|| rand::thread_rng(), random_state);
@@ -163,7 +167,7 @@ fn main() -> eyre::Result<()> {
                     let mut n_0 = MutRefNode::new(s, p);
                     trans.write(t.simulate_once::<Space>(&mut n_0));
                 });
-                todo!();
+                // todo!();
                 unsafe { MaybeUninit::array_assume_init(transitions) }
             };// Tree::par_simulate_once(&mut trees, &mut n_t);
             (&s_t, &mut episode_c_t).into_par_iter().for_each(|(s_t, c_t)| {
@@ -236,7 +240,6 @@ fn main() -> eyre::Result<()> {
             .expect("optimizer failed");
         core_model.zero_grads(&mut grads);
 
-        let max_time = epoch + 5;
         let mut short_data: [Vec<ShortRootData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
 
         (&mut logs, &mut s_0, &mut episode_c_t, &mut short_data)
@@ -251,30 +254,38 @@ fn main() -> eyre::Result<()> {
                      * 2.
                      */
                     match log.stagnation() {
-                    Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
-                        // todo! s.reset_with(...);
-                        // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
-                        // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
-                        let r = random_state(rng);
-                        s_0.clone_from(&r);
-                        log.reset_root(s_0, c_t);
-                    },
-                    Some(_) => {
-                        // todo! should `increment_stagnation` be private?
-                        // maybe an `empty epoch` method is needed?
-                        // return a `Vec` of serializable data to write to file instead of storing?
-                        log.increment_stagnation();
-                        // let t = rng.gen_range(1..=max_time);
-                        // log.next_root_mut().reset(t);
-                        // s_0.reset(t);
-                    },
-                    None => {
-                        log.zero_stagnation();
-                        // let t = rng.gen_range(1..=max_time);
-                        // log.next_root_mut().reset(t);
-                        s_0.clone_from(log.next_root());
-                    },
-                }
+                        Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
+                            // todo! s.reset_with(...);
+                            // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
+                            // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
+                            let r = random_state(rng);
+                            s_0.clone_from(&r);
+                            log.reset_root(s_0, c_t);
+                        },
+                        Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
+                            // todo! s.reset_with(...);
+                            // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
+                            // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
+                            let r = random_state(rng);
+                            s_0.clone_from(&r);
+                            log.reset_root(s_0, c_t);
+                        },
+                        Some(_) => {
+                            // todo! should `increment_stagnation` be private?
+                            // maybe an `empty epoch` method is needed?
+                            // return a `Vec` of serializable data to write to file instead of storing?
+                            log.increment_stagnation();
+                            // let t = rng.gen_range(1..=max_time);
+                            // log.next_root_mut().reset(t);
+                            // s_0.reset(t);
+                        },
+                        None => {
+                            log.zero_stagnation();
+                            // let t = rng.gen_range(1..=max_time);
+                            // log.next_root_mut().reset(t);
+                            s_0.clone_from(log.next_root());
+                        },
+                    }
                     c_t.clone_from(log.root_cost());
                     log.empty_root_data(d);
                 },

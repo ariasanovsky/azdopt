@@ -168,7 +168,8 @@ impl<P> INTMinTree<P> {
         }
     }
 
-    pub fn par_simulate_once<'a, Space, N, const B: usize>(
+    // todo! refactor/deprecate
+    pub(crate) fn _par_simulate_once<'a, Space, N, const B: usize>(
         trees: &'a mut [Self; B],
         n_0: &mut [N; B],
     ) -> [INTTransitions<'a, P>; B]

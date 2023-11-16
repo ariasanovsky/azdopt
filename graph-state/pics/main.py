@@ -28,7 +28,6 @@ def main(
 
 if __name__ == "__main__":
     args: Arguments = Arguments.from_json('default_args.json')
-    print(f"defaults:         {args}")
     # all arguments are optional overrides with no default values
     parser = argparse.ArgumentParser(description = "For plotting output data")
     parser.add_argument('-dir', type = str, help = 'Directory')
@@ -39,6 +38,7 @@ if __name__ == "__main__":
     
     # override defaults
     overrides = parser.parse_args() # namespace = args)
+    print(f"defaults:         {args}")
     args.override_with(overrides)
     print(f"after overrides:  {args}")
     # assign last project

@@ -28,6 +28,7 @@ where
     P: ActionPathFor<Space>,
 {
     fn apply_action(&mut self, action: &<Space as StateActionSpace>::Action) {
+        // todo!("pass in a Fn that updates a");
         let Self { state, path } = self;
         let index = Space::index(action);
         unsafe { path.push_unchecked(index) }
