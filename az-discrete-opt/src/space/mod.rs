@@ -8,6 +8,7 @@ pub trait StateActionSpace {
     fn from_index(index: usize) -> Self::Action;
     fn act(state: &mut Self::State, action: &Self::Action);
     // todo! iterator should depend on `state`
+    // ??? fn actions<'a>(state: &'a Self::State) -> impl IntoIteratorIterator<Item = usize> + 'a;
     fn actions(state: &Self::State) -> impl Iterator<Item = usize>;
     fn is_terminal(state: &Self::State) -> bool {
         Self::actions(state).next().is_none()
@@ -19,7 +20,7 @@ pub trait StateActionSpace {
     fn write_vec(state: &Self::State, vec: &mut [f32]);
 }
 
-pub trait Action: Sized {
+pub trait ActionSpace: Sized {
     fn index<Space: StateActionSpace<Action = Self>>(&self) -> usize {
         Space::index(self)
     }
@@ -28,13 +29,15 @@ pub trait Action: Sized {
     }
 }
 
-impl<A> Action for A {}
+// todo! `#[derive(ActionSpace)]` instead
+impl<A> ActionSpace for A {}
 
-pub trait State: Sized {
+pub trait StateSpace: Sized {
     fn act<Space: StateActionSpace<State = Self>>(&mut self, action: &Space::Action) {
         Space::act(self, action)
     }
     // todo! iterator should depend on `self`
+    // ??? fn actions<Space>(&self) -> impl IntoIterator<Item = usize> + '_;
     fn actions<Space: StateActionSpace<State = Self>>(&self) -> impl Iterator<Item = usize> {
         Space::actions(self)
     }
@@ -46,20 +49,15 @@ pub trait State: Sized {
     }
 }
 
-impl<S> State for S {}
+// todo! `#[derive(StateSpace)]` instead
+impl<S> StateSpace for S {}
 
-// pub trait StateVec<Space> {
-//     const DIM: usize;
-//     fn write_vec(&self, vec: &mut [f32]);
-// }
+pub trait StateSpaceVec: Sized {
+    fn write_vec<Space: StateActionSpace<State = Self>>(&self, vec: &mut [f32]) {
+        debug_assert!(vec.len() == Space::DIM);
+        Space::write_vec(self, vec)
+    }
+}
 
-
-// impl<Space, S> StateVec<Space> for S
-// where
-//     Space: StateActionSpace<State = S>,
-// {
-//     const DIM: usize = Space::DIM;
-//     fn write_vec(&self, vec: &mut [f32]) {
-//         Space::write_vec(self, vec)
-//     }
-// }
+// todo! `#[derive(StateSpaceVec)]` instead
+impl<S> StateSpaceVec for S {}

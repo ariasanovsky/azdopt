@@ -6,6 +6,10 @@ pub struct OrderedActionSet {
 }
 
 impl ActionPath for OrderedActionSet {
+    fn new() -> Self {
+        Self { actions: Vec::new() }
+    }
+
     fn len(&self) -> usize {
         self.actions.len()
     }

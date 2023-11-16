@@ -26,38 +26,38 @@ struct INTTransition<'a> {
 }
 
 impl<P> INTMinTree<P> {
-    pub fn new<Space, N>(
+    pub fn new<Space>(
         root_predictions: &[f32],
         cost: f32,
-        root: &N,
+        root: &Space::State,
     ) -> Self
     where
         Space: StateActionSpace,
-        N: TreeNode<State = Space::State, Path = P>,
     {
         Self {
-            root_data: INTStateData::new::<N, Space>(root_predictions, cost, root),
+            root_data: INTStateData::new::<Space>(root_predictions, cost, root),
             data: Vec::new(),
         }
     }
 
-    pub fn par_new_trees<Space, N, const B: usize, const A: usize, C>(
-        root_predictions: &[[f32; A]; B],
-        costs: &[C; B],
-        roots: &[N; B],
+    pub fn par_new_trees<Space, const B: usize, const A: usize, C>(
+        prob_0: &[[f32; A]; B],
+        c_0: &[C; B],
+        s_0: &[Space::State; B],
     ) -> [Self; B]
     where
         Space: StateActionSpace,
+        Space::State: Sync,
         Self: Send,
         C: Cost<f32> + Sync,
-        N: TreeNode<State = Space::State, Path = P> + Sync,
+        // N: TreeNode<State = Space::State, Path = P> + Sync,
         // N::Action: Action<N>,
     {
         let mut trees: [MaybeUninit<Self>; B] = MaybeUninit::uninit_array();
-        (&mut trees, root_predictions, costs, roots)
+        (&mut trees, prob_0, c_0, s_0)
             .into_par_iter()
             .for_each(|(t, root_predictions, cost, root)| {
-                t.write(Self::new::<Space, _>(root_predictions, cost.cost(), root));
+                t.write(Self::new::<Space>(root_predictions, cost.cost(), root));
             });
         unsafe { MaybeUninit::array_assume_init(trees) }
     }
@@ -193,12 +193,12 @@ impl<P> INTMinTree<P> {
     pub fn insert_node_at_next_level(
         &mut self,
         un_t: UpdatedNode,
-        n_t: &impl TreeNode<Path = P>,
+        p_t: &P,
     )
     where
         P: Ord + Clone,
     {
-        let level = BTreeMap::from([(n_t.path().clone(), un_t.data_t)]);
+        let level = BTreeMap::from([(p_t.clone(), un_t.data_t)]);
         self.data.push(level);
     }
 
@@ -234,9 +234,9 @@ impl<'a, P> INTTransitions<'a, P> {
     pub fn update_existing_nodes<N, Space>(
         self,
         c_t: &impl Cost<f32>,
-        n_t: &N,
+        s_t: &Space::State,
         // s_t: &impl State,
-        // p_t: &P,
+        p_t: &P,
         probs_t: &[f32],
         g_star_theta_s_t: &[f32],
     ) -> Option<UpdatedNode>
@@ -258,7 +258,7 @@ impl<'a, P> INTTransitions<'a, P> {
         let (h_star_theta_s_t, node): (f32, _) = match end {
             EndNodeAndLevel::NewNodeNewLevel => {
                 // let data_t = INTStateData::new(probs_t, c_t.cost(), s_t);
-                let (h_star_theta_s_t, data_t) = match Space::is_terminal(n_t.state()) {
+                let (h_star_theta_s_t, data_t) = match Space::is_terminal(s_t) {
                     true => (
                         0.0,
                         StateDataKind::Exhausted {
@@ -268,7 +268,7 @@ impl<'a, P> INTTransitions<'a, P> {
                     false => (
                         g_star_theta_s_t[0],
                         StateDataKind::Active {
-                            data: INTStateData::new::<_, Space>(probs_t, c_t.cost(), n_t),
+                            data: INTStateData::new::<Space>(probs_t, c_t.cost(), s_t),
                         },
                     ),
                 };
@@ -276,21 +276,21 @@ impl<'a, P> INTTransitions<'a, P> {
                 (h_star_theta_s_t, Some(node))
             }
             EndNodeAndLevel::NewNodeOldLevel(t) => {
-                let data = match Space::is_terminal(n_t.state()) {
+                let data = match Space::is_terminal(s_t) {
                     true => StateDataKind::Exhausted {
                         c_t_star: c_t.cost(),
                     },
                     false => {
-                        let data = INTStateData::new::<_, Space>(probs_t, c_t.cost(), n_t);
+                        let data = INTStateData::new::<Space>(probs_t, c_t.cost(), s_t);
                         StateDataKind::Active { data }
                     }
                 };
                 // t.insert(p_t, data).unwrap();
-                let _i = t.insert(n_t.path().clone(), data);
+                let _i = t.insert(p_t.clone(), data);
                 debug_assert!(_i.is_none(), "this node should not already exist");
                 // todo!();
                 // let node = UnupdatedNode::OldLevel(t.get_mut(&p_t).unwrap());
-                let h_star_theta_s_t = match Space::is_terminal(n_t.state()) {
+                let h_star_theta_s_t = match Space::is_terminal(s_t) {
                     true => 0.0,
                     false => g_star_theta_s_t[0],
                 };
@@ -363,18 +363,18 @@ impl INTStateData {
         actions
     }
 
-    pub fn new<N, Space>(
+    pub fn new<Space>(
         probs: &[f32],
         cost: f32,
-        node: &N,
+        state: &Space::State,
     ) -> Self
     where
         Space: StateActionSpace,
-        N: TreeNode<State = Space::State>,
+        // N: TreeNode<State = Space::State>,
         // N::Action: Action<N>,
     {
-        let p_sum = Space::actions(node.state()).map(|a| probs[a]).sum::<f32>();// = N::Action::actions(state).map(|a| probs[a]).sum::<f32>();
-        let mut actions = Space::actions(node.state())
+        let p_sum = Space::actions(state).map(|a| probs[a]).sum::<f32>();// = N::Action::actions(state).map(|a| probs[a]).sum::<f32>();
+        let mut actions = Space::actions(state)
             .map(|a| {
                 let p = probs[a] / p_sum;
                 INTActionData::new(a, p)

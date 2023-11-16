@@ -32,7 +32,7 @@ impl core::fmt::Display for PrueferCodeEntry {
 
 #[cfg(test)]
 mod tests {
-    use az_discrete_opt::space::{State, Action};
+    use az_discrete_opt::space::{StateSpace, ActionSpace};
 
     use crate::simple_graph::tree::{PrueferCode, space::modify_any_entry::ModifyAnyPrueferCodeEntry};
 

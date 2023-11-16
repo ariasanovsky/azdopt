@@ -78,7 +78,7 @@ impl<const N: usize> StateActionSpace for ModifyEachPrueferCodeEntriesExactlyOnc
 mod tests {
     use std::collections::BTreeSet;
 
-    use az_discrete_opt::{space::{StateActionSpace, State}, state::prohibit::WithProhibitions};
+    use az_discrete_opt::{space::{StateActionSpace, StateSpace}, state::prohibit::WithProhibitions};
 
     use crate::simple_graph::tree::{PrueferCode, space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce};
 
@@ -86,7 +86,7 @@ mod tests {
     // type S<const N: usize> = <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::State;
     type A<const N: usize> = <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::Action;
     
-    use az_discrete_opt::space::Action;
+    use az_discrete_opt::space::ActionSpace;
     
     #[test]
     fn pruefer_code_indexes_correct_for_4_vertices() {

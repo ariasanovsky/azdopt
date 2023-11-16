@@ -6,6 +6,7 @@ pub mod multiset;
 pub mod set;
 
 pub trait ActionPath {
+    fn new() -> Self;
     fn len(&self) -> usize;
     unsafe fn push_unchecked(&mut self, action: usize);
 }

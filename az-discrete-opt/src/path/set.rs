@@ -8,6 +8,10 @@ pub struct ActionSet {
 }
 
 impl ActionPath for ActionSet {
+    fn new() -> Self {
+        Self { actions: BTreeSet::new() }
+    }
+
     fn len(&self) -> usize {
         self.actions.len()
     }

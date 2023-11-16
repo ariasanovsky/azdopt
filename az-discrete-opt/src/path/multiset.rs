@@ -8,6 +8,10 @@ pub struct ActionMultiset {
 }
 
 impl ActionPath for ActionMultiset {
+    fn new() -> Self {
+        Self { actions: BTreeMap::new() }
+    }
+    
     fn len(&self) -> usize {
         self.actions.iter().map(|(_, count)| count).sum()
     }

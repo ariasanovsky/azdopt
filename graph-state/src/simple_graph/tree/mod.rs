@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 
 use faer::Faer;
 
+use self::space::action::PrueferCodeEntry;
+
 use super::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost};
 
 pub mod sparse6;
@@ -11,6 +13,23 @@ pub mod space;
 #[derive(Debug, Clone)]
 pub struct PrueferCode<const N: usize> {
     code: [usize; N], // no const generics, else we'd put N - 2 here
+}
+
+impl<const N: usize> PrueferCode<N> {
+    pub fn generate(rng: &mut impl rand::Rng) -> Self {
+        let mut code: [usize; N] = [0; N];
+        (0..(N - 2)).for_each(|i| code[i] = rng.gen_range(0..N));
+        Self { code }
+    }
+
+    pub fn code(&self) -> &[usize] {
+        &self.code[..(N - 2)]
+    }
+    pub fn entries(&self) -> impl Iterator<Item = PrueferCodeEntry> + '_ {
+        self.code().iter().enumerate().map(|(i, p)| {
+            PrueferCodeEntry { i, parent: *p }
+        })
+    }
 }
 
 impl<const N: usize> core::fmt::Display for PrueferCode<N> {
@@ -25,18 +44,6 @@ impl<const N: usize> az_discrete_opt::log::ShortForm for PrueferCode<N> {
     }
 }
 
-
-impl<const N: usize> PrueferCode<N> {
-    pub fn generate(rng: &mut impl rand::Rng) -> Self {
-        let mut code: [usize; N] = [0; N];
-        (0..(N - 2)).for_each(|i| code[i] = rng.gen_range(0..N));
-        Self { code }
-    }
-
-    pub fn code(&self) -> &[usize] {
-        &self.code[..(N - 2)]
-    }
-}
 
 impl<const N: usize> From<&PrueferCode<N>> for Tree<N> {
     fn from(value: &PrueferCode<N>) -> Self {

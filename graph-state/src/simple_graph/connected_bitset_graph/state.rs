@@ -261,7 +261,7 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
 
 #[cfg(test)]
 mod test {
-    use az_discrete_opt::space::{State, StateActionSpace};
+    use az_discrete_opt::space::{StateSpace, StateActionSpace};
 
     use super::*;
     use crate::simple_graph::{bitset_graph::BitsetGraph, edge::Edge};

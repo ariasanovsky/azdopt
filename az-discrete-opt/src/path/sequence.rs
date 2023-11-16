@@ -8,6 +8,10 @@ pub struct ActionSequence {
 }
 
 impl ActionPath for ActionSequence {
+    fn new() -> Self {
+        Self { actions: Vec::new() }
+    }
+
     fn len(&self) -> usize {
         self.actions.len()
     }
@@ -19,7 +23,10 @@ impl ActionPath for ActionSequence {
 
 unsafe impl<Space: StateActionSpace> ActionPathFor<Space> for ActionSequence {}
 
-impl<'a, Space: StateActionSpace> TreeNodeFor<Space> for MutRefNode<'a, Space::State, ActionSequence> {
+impl<'a, Space: StateActionSpace, P> TreeNodeFor<Space> for MutRefNode<'a, Space::State, P>
+where
+    P: ActionPathFor<Space>,
+{
     fn apply_action(&mut self, action: &<Space as StateActionSpace>::Action) {
         let Self { state, path } = self;
         let index = Space::index(action);
