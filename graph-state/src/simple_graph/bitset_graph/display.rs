@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::{simple_graph::edge::Edge, bitset::bitset::Bitset};
 
-use super::{state::Action, BitsetGraph};
+use super::{BitsetGraph, space::action::AddOrDeleteEdge};
 
 impl<const N: usize> Display for BitsetGraph<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -19,13 +19,13 @@ impl<const N: usize> Display for BitsetGraph<N> {
     }
 }
 
-impl Display for Action {
+impl Display for AddOrDeleteEdge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Action::Add(e) => {
+            AddOrDeleteEdge::Add(e) => {
                 write!(f, "add {}", e)
             }
-            Action::Delete(e) => {
+            AddOrDeleteEdge::Delete(e) => {
                 write!(f, "delete {}", e)
             }
         }

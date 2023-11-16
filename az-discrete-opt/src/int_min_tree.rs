@@ -2,18 +2,11 @@ use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 // use core::num::NonZeroUsize;
-use crate::{
-    iq_min_tree::ActionMultiset,
-    state::{cost::Cost, Action, State},
-};
+use crate::{state::cost::Cost, space::StateActionSpace, tree_node::{TreeNode, TreeNodeFor}, path::ActionPathFor};
 
-pub struct INTMinTree {
+pub struct INTMinTree<P> {
     root_data: INTStateData,
-    data: Vec<BTreeMap<ActionMultiset, StateDataKind>>,
-}
-
-pub trait __INTStateDiagnostic {
-    fn __actions(&self) -> Vec<usize>;
+    data: Vec<BTreeMap<P, StateDataKind>>,
 }
 
 pub enum StateDataKind {
@@ -21,9 +14,9 @@ pub enum StateDataKind {
     Active { data: INTStateData },
 }
 
-enum EndNodeAndLevel<'a> {
+enum EndNodeAndLevel<'a, P> {
     NewNodeNewLevel,
-    NewNodeOldLevel(&'a mut BTreeMap<ActionMultiset, StateDataKind>),
+    NewNodeOldLevel(&'a mut BTreeMap<P, StateDataKind>),
     OldExhaustedNode { c_t_star: f32 },
 }
 
@@ -32,52 +25,77 @@ struct INTTransition<'a> {
     a_i_plus_one: usize,
 }
 
-impl INTMinTree {
-    pub fn new<S: State>(root_predictions: &[f32], cost: f32, root: &S) -> Self {
+impl<P> INTMinTree<P> {
+    pub fn new<Space>(
+        root_predictions: &[f32],
+        cost: f32,
+        root: &Space::State,
+    ) -> Self
+    where
+        Space: StateActionSpace,
+    {
         Self {
-            root_data: INTStateData::new(root_predictions, cost, root),
+            root_data: INTStateData::new::<Space>(root_predictions, cost, root),
             data: Vec::new(),
         }
     }
 
-    pub fn par_new_trees<S: State, const N: usize, const A: usize, C>(
-        root_predictions: &[[f32; A]; N],
-        costs: &[C; N],
-        roots: &[S; N],
-    ) -> [Self; N]
+    pub fn par_new_trees<Space, const B: usize, const A: usize, C>(
+        prob_0: &[[f32; A]; B],
+        c_0: &[C; B],
+        s_0: &[Space::State; B],
+    ) -> [Self; B]
     where
-        S: Send + Sync + Clone,
-        C: Sync + Cost<f32>,
+        Space: StateActionSpace,
+        Space::State: Sync,
         Self: Send,
+        C: Cost<f32> + Sync,
+        // N: TreeNode<State = Space::State, Path = P> + Sync,
+        // N::Action: Action<N>,
     {
-        let mut trees: [MaybeUninit<Self>; N] = MaybeUninit::uninit_array();
-        (&mut trees, root_predictions, costs, roots)
+        let mut trees: [MaybeUninit<Self>; B] = MaybeUninit::uninit_array();
+        (&mut trees, prob_0, c_0, s_0)
             .into_par_iter()
             .for_each(|(t, root_predictions, cost, root)| {
-                t.write(Self::new(root_predictions, cost.cost(), root));
+                t.write(Self::new::<Space>(root_predictions, cost.cost(), root));
             });
         unsafe { MaybeUninit::array_assume_init(trees) }
     }
 
-    pub fn replant<S: State>(&mut self, root_predictions: &[f32], cost: f32, root: &S) {
-        self.data.clear();
-        self.root_data = INTStateData::new(root_predictions, cost, root);
-    }
+    // pub fn replant<N>(&mut self, root_predictions: &[f32], cost: f32, root: &S)
+    // where
+    //     N: TreeNode<Path = P>,
+    //     N::Action: Action<N>,
+    // {
+    //     self.data.clear();
+    //     self.root_data = INTStateData::new(root_predictions, cost, root);
+    // }
 
-    pub fn simulate_once<'a, S>(&'a mut self, s_0: &mut S) -> INTTransitions<'a>
+    pub fn simulate_once<'a, Space>(
+        &'a mut self,
+        n_0: &mut (impl TreeNode<Path = P> + TreeNodeFor<Space>),
+    ) -> INTTransitions<'a, P>
     where
-        S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
-        S::Actions: Eq + core::fmt::Display,
+        // Space::Action: Action<Space>,
+        Space: StateActionSpace,
+        P: ActionPathFor<Space> + Ord,
+        // N: TreeNode<Path = P> + TreeNodeFor<Space>,
+        // N: TreeNode<Path = P>,
+        // N::Action: Action<N>,
+        // N::Path: Ord,
     {
         let Self { root_data, data } = self;
         let a_1 = root_data.best_action();
-        let action_1 = unsafe { S::Actions::from_index_unchecked(a_1) };
-        let s_i = s_0;
-        unsafe { s_i.act_unchecked(&action_1) };
-        let mut p_i = ActionMultiset::new(a_1);
+        let action_1 = Space::from_index(a_1);
+        let n_i = n_0;
+        n_i.apply_action(&action_1);
+        // n_i.apply_action(&action_1);
+        // unsafe { n_i.state().act_unchecked(&action_1) };
+        // let p_i = p_0;
+        // p_i.push(&action_1);
         let mut transitions: Vec<INTTransition> = vec![];
 
-        for data in data.iter_mut() {
+        for (_depth, data) in data.iter_mut().enumerate() {
             // Polonius case III: https://github.com/rust-lang/rfcs/blob/master/text/2094-nll.md#problem-case-3-conditional-control-flow-across-functions
             /* isomorphic to
             enum PreviouslyExhaustedValue {
@@ -88,7 +106,7 @@ impl INTMinTree {
             }
             */
             let previously_exhausted_value: Option<Option<f32>> =
-                data.get(&p_i).map(|data| match data {
+                data.get(n_i.path()).map(|data| match data {
                     StateDataKind::Exhausted { c_t_star } => Some(*c_t_star),
                     StateDataKind::Active { data: _ } => None,
                 });
@@ -99,7 +117,6 @@ impl INTMinTree {
                         a_1,
                         root_data,
                         transitions,
-                        p_t: p_i,
                         end,
                     };
                 }
@@ -110,60 +127,79 @@ impl INTMinTree {
                         a_1,
                         root_data,
                         transitions,
-                        p_t: p_i,
                         end,
                     };
                 }
             }
-            let state_data = match data.get_mut(&p_i) {
+            let state_data = match data.get_mut(n_i.path()) {
                 Some(StateDataKind::Active { data }) => data,
                 _ => unreachable!("this should be unreachable"),
             };
             let a_i_plus_one = state_data.best_action();
-            let action_i_plus_1 = unsafe { S::Actions::from_index_unchecked(a_i_plus_one) };
+            let action_i_plus_1 = Space::from_index(a_i_plus_one);
 
-            debug_assert_eq!(action_i_plus_1.index(), a_i_plus_one);
-            debug_assert!(s_i.actions().any(|a| action_i_plus_1 == a));
+            // dbg!(a_i_plus_one);
+            debug_assert_eq!(Space::index(&action_i_plus_1), a_i_plus_one);
+            // debug_assert!(
+            //     n_i.state().actions().any(|a| action_i_plus_1 == a),
+            //     "self = {}, action_i_plus_1 = {action_i_plus_1}, actions = {:?}\ndepth = {_depth}",
+            //     n_i.state(),
+            //     n_i.state().actions().map(|a| a.index()).collect::<Vec<_>>(),
+            // );
+
+            // debug_assert!(
+            //     s_i.actions().any(|a| action_i_plus_1 == a),
+            //     "self = {s_i}, action_i_plus_1 = {action_i_plus_1}, actions = {:?}\np_i = {p_i:?}\ndepth = {_depth}",
+            //     s_i.actions().map(|a| a.index()).collect::<Vec<_>>(),
+            // );
 
             transitions.push(INTTransition {
                 data_i: state_data,
                 a_i_plus_one,
             });
-            s_i.act(&action_i_plus_1);
-            p_i.push(a_i_plus_one);
+            n_i.apply_action(&action_i_plus_1);
         }
         INTTransitions {
             a_1,
             transitions,
-            p_t: p_i,
+            // p_t: p_i,
             root_data,
             end: EndNodeAndLevel::NewNodeNewLevel,
         }
     }
 
-    pub fn par_simulate_once<'a, S, const N: usize>(
-        trees: &'a mut [Self; N],
-        s_0: &mut [S; N],
-    ) -> [INTTransitions<'a>; N]
+    // todo! refactor/deprecate
+    pub(crate) fn _par_simulate_once<'a, Space, N, const B: usize>(
+        trees: &'a mut [Self; B],
+        n_0: &mut [N; B],
+    ) -> [INTTransitions<'a, P>; B]
     where
-        S: Send + core::fmt::Display + core::fmt::Debug + State,
-        S::Actions: Eq + core::fmt::Display,
-        // S: State + core::fmt::Display, //+ Cost + core::fmt::Display + __INTStateDiagnostic
-        // S::Actions: Eq + core::fmt::Display,
+        Space: StateActionSpace,
+        P: ActionPathFor<Space> + Ord,
+        Self: Send,
+        N: TreeNode<Path = P> + TreeNodeFor<Space> + Send,
+        P: Ord,
+        INTTransitions<'a, P>: Send,
     {
-        let mut trans: [MaybeUninit<INTTransitions>; N] = MaybeUninit::uninit_array();
-        // let foo = trees.par_iter();
-        // let bar = s_0.par_iter_mut();
-        (&mut trans, trees, s_0)
+        let mut trans: [MaybeUninit<INTTransitions<P>>; B] = MaybeUninit::uninit_array();
+        // let foo = trans.into_par_iter();
+        (&mut trans, trees, n_0)
             .into_par_iter()
-            .for_each(|(trans, t, s)| {
-                trans.write(t.simulate_once(s));
+            .for_each(|(trans, t, n_0)| {
+                trans.write(t.simulate_once(n_0));
             });
         unsafe { MaybeUninit::array_assume_init(trans) }
     }
 
-    pub fn insert_node_at_next_level(&mut self, node: UpdatedNode) {
-        let level = BTreeMap::from([(node.p_t, node.data_t)]);
+    pub fn insert_node_at_next_level(
+        &mut self,
+        un_t: UpdatedNode,
+        p_t: &P,
+    )
+    where
+        P: Ord + Clone,
+    {
+        let level = BTreeMap::from([(p_t.clone(), un_t.data_t)]);
         self.data.push(level);
     }
 
@@ -182,39 +218,48 @@ pub trait INTState {
     fn actions(&self) -> Vec<usize>;
 }
 
-pub struct INTTransitions<'a> {
+pub struct INTTransitions<'a, P> {
     a_1: usize,
     root_data: &'a mut INTStateData,
     transitions: Vec<INTTransition<'a>>,
-    p_t: ActionMultiset,
-    end: EndNodeAndLevel<'a>,
+    // p_t: P,
+    end: EndNodeAndLevel<'a, P>,
 }
 
 pub struct UpdatedNode {
-    p_t: ActionMultiset,
+    // p_t: P,
     data_t: StateDataKind,
 }
 
-impl<'a> INTTransitions<'a> {
-    pub fn update_existing_nodes(
+impl<'a, P> INTTransitions<'a, P> {
+    pub fn update_existing_nodes<N, Space>(
         self,
         c_t: &impl Cost<f32>,
-        s_t: &impl State,
+        s_t: &Space::State,
+        // s_t: &impl State,
+        p_t: &P,
         probs_t: &[f32],
         g_star_theta_s_t: &[f32],
-    ) -> Option<UpdatedNode> {
+    ) -> Option<UpdatedNode>
+    where
+        Space: StateActionSpace,
+        P: ActionPathFor<Space> + Ord,
+        N: TreeNode<Path = P, State = Space::State>,
+        P: Ord + Clone,
+        // N::Action: Action<N>,
+    {
         debug_assert_eq!(g_star_theta_s_t.len(), 1);
         let INTTransitions {
             a_1,
             transitions,
-            p_t,
+            // p_t,
             root_data,
             end,
         } = self;
         let (h_star_theta_s_t, node): (f32, _) = match end {
             EndNodeAndLevel::NewNodeNewLevel => {
                 // let data_t = INTStateData::new(probs_t, c_t.cost(), s_t);
-                let (h_star_theta_s_t, data_t) = match s_t.is_terminal() {
+                let (h_star_theta_s_t, data_t) = match Space::is_terminal(s_t) {
                     true => (
                         0.0,
                         StateDataKind::Exhausted {
@@ -224,29 +269,29 @@ impl<'a> INTTransitions<'a> {
                     false => (
                         g_star_theta_s_t[0],
                         StateDataKind::Active {
-                            data: INTStateData::new(probs_t, c_t.cost(), s_t),
+                            data: INTStateData::new::<Space>(probs_t, c_t.cost(), s_t),
                         },
                     ),
                 };
-                let node = UpdatedNode { p_t, data_t };
+                let node = UpdatedNode { /* p_t,*/ data_t };
                 (h_star_theta_s_t, Some(node))
             }
             EndNodeAndLevel::NewNodeOldLevel(t) => {
-                let data = match s_t.is_terminal() {
+                let data = match Space::is_terminal(s_t) {
                     true => StateDataKind::Exhausted {
                         c_t_star: c_t.cost(),
                     },
                     false => {
-                        let data = INTStateData::new(probs_t, c_t.cost(), s_t);
+                        let data = INTStateData::new::<Space>(probs_t, c_t.cost(), s_t);
                         StateDataKind::Active { data }
                     }
                 };
                 // t.insert(p_t, data).unwrap();
-                let _i = t.insert(p_t, data);
+                let _i = t.insert(p_t.clone(), data);
                 debug_assert!(_i.is_none(), "this node should not already exist");
                 // todo!();
                 // let node = UnupdatedNode::OldLevel(t.get_mut(&p_t).unwrap());
-                let h_star_theta_s_t = match s_t.is_terminal() {
+                let h_star_theta_s_t = match Space::is_terminal(s_t) {
                     true => 0.0,
                     false => g_star_theta_s_t[0],
                 };
@@ -274,10 +319,6 @@ impl<'a> INTTransitions<'a> {
         });
         root_data.update(a_1, &mut c_star_theta_i);
         node
-    }
-
-    pub fn last_path(&self) -> &ActionMultiset {
-        todo!()
     }
 }
 
@@ -323,13 +364,21 @@ impl INTStateData {
         actions
     }
 
-    pub fn new<S: State>(probs: &[f32], cost: f32, state: &S) -> Self {
-        let p_sum = state.actions().map(|a| probs[a.index()]).sum::<f32>();
-        let mut actions = state
-            .actions()
+    pub fn new<Space>(
+        probs: &[f32],
+        cost: f32,
+        state: &Space::State,
+    ) -> Self
+    where
+        Space: StateActionSpace,
+        // N: TreeNode<State = Space::State>,
+        // N::Action: Action<N>,
+    {
+        let p_sum = Space::actions(state).map(|a| probs[a]).sum::<f32>();// = N::Action::actions(state).map(|a| probs[a]).sum::<f32>();
+        let mut actions = Space::actions(state)
             .map(|a| {
-                let p = probs[a.index()] / p_sum;
-                INTActionData::new(a.index(), p)
+                let p = probs[a] / p_sum;
+                INTActionData::new(a, p)
             })
             .collect::<Vec<_>>();
         actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));

@@ -1,4 +1,4 @@
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Edge {
     pub max: usize,
     pub min: usize,
@@ -7,11 +7,12 @@ pub struct Edge {
 impl core::fmt::Debug for Edge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self { max, min } = self;
-        f.debug_map().entry(&"max", max).entry(&"min", min).finish()
+        // f.debug_map().entry(&"max", max).entry(&"min", min).finish()
+        f.debug_list().entry(max).entry(min).finish()
     }
 }
 
-impl az_discrete_opt::state::cost::CostsOneEach for Edge {}
+// impl az_discrete_opt::state::cost::CostsOneEach for Edge {}
 
 impl Edge {
     pub const fn new(u: usize, v: usize) -> Self {
@@ -72,8 +73,8 @@ mod test {
     fn colex_position_of_edges_on_ten_vertices_are_correct() {
         let edges = (0..10).flat_map(|v| (0..v).map(move |u| Edge::new(v, u)));
         edges.enumerate().for_each(|(i, e)| {
-            debug_assert_eq!(e.colex_position(), i);
-            debug_assert_eq!(Edge::from_colex_position(i), e);
+            assert_eq!(e.colex_position(), i);
+            assert_eq!(Edge::from_colex_position(i), e);
         });
     }
 }

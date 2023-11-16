@@ -196,13 +196,13 @@ mod tests {
     // #[test]
     // fn constant_zero_function_is_not_a_permutation() {
     //     let f: [usize; 4] = [0; 4];
-    //     debug_assert!(PermutationAndInverse::new(&f).is_err())
+    //     assert!(PermutationAndInverse::new(&f).is_err())
     // }
 
     // #[test]
     // fn identity_function_is_a_permutation() {
     //     let f: [usize; 4] = [0, 1, 2, 3];
-    //     debug_assert_eq!(
+    //     assert_eq!(
     //         PermutationAndInverse::new(&f).unwrap(),
     //         PermutationAndInverse {
     //             permutation: [0, 1, 2, 3],
@@ -225,7 +225,7 @@ mod tests {
             .into_iter()
             .map(|(u, v)| Edge::new(sigma[*u], sigma[*v]))
             .collect::<Vec<_>>();
-        debug_assert_eq!(&graph.cut_edges().collect::<Vec<_>>(), &cut_edges)
+        assert_eq!(&graph.cut_edges().collect::<Vec<_>>(), &cut_edges)
     }
 
     fn old_and_new_cut_edge_methods_are_identical<const N: usize>(graph: &ConnectedBitsetGraph<N>) {
@@ -239,7 +239,7 @@ mod tests {
             std::cmp::Ordering::Equal => a.min.cmp(&b.min),
             s => s,
         });
-        debug_assert_eq!(
+        assert_eq!(
             cut_edges, new_cut_edges,
             "graph:\n{graph}\ncut_edges: {cut_edges:?}\nnew_cut_edges: {new_cut_edges:?}",
         )

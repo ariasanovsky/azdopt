@@ -1,9 +1,9 @@
-use core::mem::MaybeUninit;
+// use core::mem::MaybeUninit;
 use std::collections::VecDeque;
 
-use az_discrete_opt::state::StateNode;
+// use az_discrete_opt::state::StateNode;
 use faer::{Faer, Mat};
-use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
+// use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::bitset::{primitive::B32, bitset::Bitset};
 
@@ -58,15 +58,15 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         true
     }
 
-    pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
-        // todo! size asserts, move to `StateNode`
-        let mut states: [MaybeUninit<StateNode<Self>>; BATCH] = MaybeUninit::uninit_array();
-        states.par_iter_mut().for_each(|s| {
-            let mut rng = rand::thread_rng();
-            s.write(StateNode::new(Self::generate(p, &mut rng), time));
-        });
-        unsafe { MaybeUninit::array_assume_init(states) }
-    }
+    // pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
+    //     // todo! size asserts, move to `StateNode`
+    //     let mut states: [MaybeUninit<StateNode<Self>>; BATCH] = MaybeUninit::uninit_array();
+    //     states.par_iter_mut().for_each(|s| {
+    //         let mut rng = rand::thread_rng();
+    //         s.write(StateNode::new(Self::generate(p, &mut rng), time));
+    //     });
+    //     unsafe { MaybeUninit::array_assume_init(states) }
+    // }
 
     pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self {
         loop {
@@ -165,7 +165,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
     }
 
     pub fn adjacency_matrix(&self) -> Mat<f64> {
-        let mut a = Mat::zeros(N, N);
+        let mut a = faer::Mat::zeros(N, N);
+        const ZERO: f64 = 0.0000001;
+        for i in 0..N {
+            a[(i, i)] = ZERO;
+        }
         for (v, n) in self.neighborhoods.iter().enumerate() {
             for u in n.iter() {
                 a[(v, u)] = 1.0;
@@ -319,7 +323,7 @@ mod tests {
             .try_into()
             .unwrap();
         let graph = graph.to_connected().unwrap();
-        debug_assert_eq!(graph.matching_number(), 2);
+        assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]
@@ -329,7 +333,7 @@ mod tests {
             .try_into()
             .unwrap();
         let graph = graph.to_connected().unwrap();
-        debug_assert_eq!(graph.matching_number(), 2);
+        assert_eq!(graph.matching_number(), 2);
     }
 
     #[test]
@@ -359,6 +363,36 @@ mod tests {
         .try_into()
         .unwrap();
         let graph = graph.to_connected().unwrap();
-        debug_assert_eq!(graph.matching_number(), 9);
+        assert_eq!(graph.matching_number(), 9);
     }
+
+    // #[test]
+    // fn path_on_three_vertices_has_correct_eigenvalues_regardless_of_permutation() {
+    //     let all_edges = [
+    //         [(1, 0), (2, 0)],
+    //         [(2, 1), (1, 0)],
+    //         [(2, 1), (2, 0)],
+    //     ];
+    //     let correct_eigenvalues = [2.0f64.sqrt(), 0., -2.0f64.sqrt()];
+    //     for edges in all_edges {
+    //         let graph: ConnectedBitsetGraph<3> = edges.as_ref().try_into().unwrap();
+    //         let a = graph.adjacency_matrix();
+    //         // let mut a = faer::Mat::zeros(3, 3);
+    //         // for (v, u) in edges.iter() {
+    //         //     a[(*v, *u)] = 1.0;
+    //         //     a[(*u, *v)] = 1.0;
+    //         // }
+    //         let eigs_complex: Vec<faer::complex_native::c64> = a.eigenvalues();
+    //         let mut eigs_real = eigs_complex
+    //             .iter()
+    //             .map(|e| e.re)
+    //             .collect::<Vec<_>>();
+    //         eigs_real.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    //         let error = correct_eigenvalues.iter().zip(eigs_real.iter()).map(|(a, b)| (a - b).powi(2)).sum::<f64>();
+    //         assert!(
+    //             error < 1e-10,
+    //             "error = {error}\nedges = {edges:?}\na = {a:?}\neigs = {eigs_complex:?}\neigs = {eigs_real:?}",
+    //         );
+    //     }
+    // }
 }

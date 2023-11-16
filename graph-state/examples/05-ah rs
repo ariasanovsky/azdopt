@@ -114,7 +114,7 @@ fn main() {
             logs[0]
                 .next_root()
                 .state()
-                .to_graph6()
+                .graph6()
                 .iter()
                 .map(|&b| b as char)
                 .collect::<String>()

@@ -4,13 +4,15 @@ use super::ConnectedBitsetGraph;
 
 impl<const N: usize> ShortForm for ConnectedBitsetGraph<N> {
     fn short_form(&self) -> String {
-        let graph6 = self.to_graph6();
+        let graph6 = self.graph6();
         String::from_utf8(graph6).unwrap()
     }
 }
 
 impl<const N: usize> ConnectedBitsetGraph<N> {
-    pub fn to_graph6(&self) -> Vec<u8> {
+    /// g6 standard: http://users.cecs.anu.edu.au/~bdm/data/formats.html
+    /// http://users.cecs.anu.edu.au/~bdm/data/formats.txt
+    pub fn graph6(&self) -> Vec<u8> {
         let mut graph6: Vec<u8> = Vec::new();
 
         // Add the number of vertices to the graph6 string
@@ -50,12 +52,11 @@ mod test {
     fn complete_graph_on_two_vertices_has_correct_g6_string() {
         let graph: BitsetGraph<2> = [(0, 1)].as_ref().try_into().unwrap();
         let g6 = graph.to_graph6();
-        debug_assert_eq!(&g6, &[b'A', b'_'])
+        assert_eq!(&g6, &[b'A', b'_'])
     }
 
     #[test]
     fn the_two_regular_graphs_on_order_eight_from_the_g6_standard_have_correct_g6_strings() {
-        // g6 standard: http://users.cecs.anu.edu.au/~bdm/data/formats.html
         let edges: [Vec<(usize, usize)>; 3] = [
             vec![(0, 4), (4, 1), (1, 5), (5, 0), (2, 6), (6, 3), (3, 7), (7, 2)],
             vec![(0, 4), (4, 1), (1, 6), (6, 3), (3, 7), (7, 2), (2, 5), (5, 0)],
@@ -67,6 +68,6 @@ mod test {
         });
         let rhs = graphs.map(|graph| graph.to_graph6());
         let g6 = [b"G?r@`_", b"G?qa`_", b"GCQR@O"];
-        debug_assert_eq!(&rhs, &g6)
+        assert_eq!(&rhs, &g6)
     }
 }
