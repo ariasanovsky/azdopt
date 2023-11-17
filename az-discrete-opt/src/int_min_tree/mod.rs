@@ -2,13 +2,18 @@
 use std::{collections::BTreeMap, mem::MaybeUninit};
 
 // use core::num::NonZeroUsize;
-use crate::{state::cost::Cost, space::StateActionSpace, tree_node::{TreeNode, TreeNodeFor}, path::ActionPathFor};
+use crate::{state::cost::Cost, space::{StateActionSpace, ActionSpace}, tree_node::{TreeNode, TreeNodeFor}, path::ActionPathFor, int_min_tree::transition::TransitionKind};
+
+use self::transition::INTTransition;
+
+pub mod transition;
 
 pub struct INTMinTree<P> {
     root_data: INTStateData,
     data: Vec<BTreeMap<P, StateDataKind>>,
 }
 
+#[derive(Debug)]
 pub enum StateDataKind {
     Exhausted { c_t_star: f32 },
     Active { data: INTStateData },
@@ -18,11 +23,6 @@ enum EndNodeAndLevel<'a, P> {
     NewNodeNewLevel,
     NewNodeOldLevel(&'a mut BTreeMap<P, StateDataKind>),
     OldExhaustedNode { c_t_star: f32 },
-}
-
-struct INTTransition<'a> {
-    data_i: &'a mut INTStateData,
-    a_i_plus_one: usize,
 }
 
 impl<P> INTMinTree<P> {
@@ -35,7 +35,7 @@ impl<P> INTMinTree<P> {
         Space: StateActionSpace,
     {
         Self {
-            root_data: INTStateData::new::<Space>(root_predictions, cost, root),
+            root_data: INTStateData::new::<Space>(root_predictions, cost, root).unwrap(),
             data: Vec::new(),
         }
     }
@@ -107,19 +107,19 @@ impl<P> INTMinTree<P> {
     {
         let Self { root_data, data } = self;
         debug_assert_eq!(
-            root_data.actions.len(),
+            root_data.visited_actions.len(),
             Space::actions(n_0.state()).count(),
             // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
         );
-        let a_1 = root_data.best_action();
-        let action_1 = Space::from_index(a_1);
+        let a_1 = root_data.best_action().unwrap();
+        let action_1 = Space::from_index(a_1.index());
         let n_i = n_0;
         n_i.apply_action(&action_1);
         // n_i.apply_action(&action_1);
         // unsafe { n_i.state().act_unchecked(&action_1) };
         // let p_i = p_0;
         // p_i.push(&action_1);
-        let mut transitions: Vec<INTTransition> = vec![];
+        let mut transitions: Vec<_> = vec![];
 
         for (_depth, data) in data.iter_mut().enumerate() {
             // Polonius case III: https://github.com/rust-lang/rfcs/blob/master/text/2094-nll.md#problem-case-3-conditional-control-flow-across-functions
@@ -141,7 +141,6 @@ impl<P> INTMinTree<P> {
                     let end = EndNodeAndLevel::OldExhaustedNode { c_t_star };
                     return INTTransitions {
                         a_1,
-                        root_data,
                         transitions,
                         end,
                     };
@@ -151,7 +150,6 @@ impl<P> INTMinTree<P> {
                     let end = EndNodeAndLevel::NewNodeOldLevel(data);
                     return INTTransitions {
                         a_1,
-                        root_data,
                         transitions,
                         end,
                     };
@@ -162,15 +160,15 @@ impl<P> INTMinTree<P> {
                 _ => unreachable!("this should be unreachable"),
             };
             debug_assert_eq!(
-                state_data.actions.len(),
+                state_data.visited_actions.len(),
                 Space::actions(n_i.state()).count(),
                 // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
             );
-            let a_i_plus_one = state_data.best_action();
-            let action_i_plus_1 = Space::from_index(a_i_plus_one);
+            let a_i_plus_one = state_data.best_action().unwrap();
+            let action_i_plus_1 = Space::from_index(a_i_plus_one.index());
 
             // dbg!(a_i_plus_one);
-            debug_assert_eq!(Space::index(&action_i_plus_1), a_i_plus_one);
+            debug_assert_eq!(Space::index(&action_i_plus_1), a_i_plus_one.index());
             // debug_assert!(
             //     n_i.state().actions().any(|a| action_i_plus_1 == a),
             //     "self = {}, action_i_plus_1 = {action_i_plus_1}, actions = {:?}\ndepth = {_depth}",
@@ -184,17 +182,12 @@ impl<P> INTMinTree<P> {
             //     s_i.actions().map(|a| a.index()).collect::<Vec<_>>(),
             // );
 
-            transitions.push(INTTransition {
-                data_i: state_data,
-                a_i_plus_one,
-            });
+            transitions.push(a_i_plus_one);
             n_i.apply_action(&action_i_plus_1);
         }
         INTTransitions {
             a_1,
             transitions,
-            // p_t: p_i,
-            root_data,
             end: EndNodeAndLevel::NewNodeNewLevel,
         }
     }
@@ -250,10 +243,8 @@ pub trait INTState {
 }
 
 pub struct INTTransitions<'a, P> {
-    a_1: usize,
-    root_data: &'a mut INTStateData,
+    a_1: INTTransition<'a>,
     transitions: Vec<INTTransition<'a>>,
-    // p_t: P,
     end: EndNodeAndLevel<'a, P>,
 }
 
@@ -283,8 +274,6 @@ impl<'a, P> INTTransitions<'a, P> {
         let INTTransitions {
             a_1,
             transitions,
-            // p_t,
-            root_data,
             end,
         } = self;
         let (h_star_theta_s_t, node): (f32, _) = match end {
@@ -300,7 +289,7 @@ impl<'a, P> INTTransitions<'a, P> {
                     false => (
                         g_star_theta_s_t[0],
                         StateDataKind::Active {
-                            data: INTStateData::new::<Space>(probs_t, c_t.cost(), s_t),
+                            data: INTStateData::new::<Space>(probs_t, c_t.cost(), s_t).unwrap(),
                         },
                     ),
                 };
@@ -314,7 +303,7 @@ impl<'a, P> INTTransitions<'a, P> {
                     },
                     false => {
                         let data = INTStateData::new::<Space>(probs_t, c_t.cost(), s_t);
-                        StateDataKind::Active { data }
+                        StateDataKind::Active { data: data.unwrap() }
                     }
                 };
                 // t.insert(p_t, data).unwrap();
@@ -336,19 +325,14 @@ impl<'a, P> INTTransitions<'a, P> {
 
         // todo! also backpropagate exhaustion
         let mut c_star_theta_i = c_t.cost() - h_star_theta_s_t.max(0.0);
-        transitions.into_iter().rev().for_each(|t_i| {
-            let INTTransition {
-                data_i,
-                // c_i,
-                a_i_plus_one,
-            } = t_i;
+        transitions.into_iter().rev().for_each(|a_i_plus_one| {
             // let g_star_theta_i = c_i - c_star_theta_i;
-            let c_i = data_i.c_s;
-            data_i.update(a_i_plus_one, &mut c_star_theta_i);
-            c_star_theta_i = c_star_theta_i.min(c_i);
+            let c_i_star = a_i_plus_one.c_i_star();
+            a_i_plus_one.update(c_star_theta_i);
+            c_star_theta_i = c_star_theta_i.min(c_i_star);
             // ");
         });
-        root_data.update(a_1, &mut c_star_theta_i);
+        a_1.update(c_star_theta_i);
         node
     }
 }
@@ -365,8 +349,9 @@ impl<'a, P> INTTransitions<'a, P> {
 #[derive(Debug)]
 pub struct INTStateData {
     n_s: usize,
-    c_s: f32,
-    actions: Vec<INTActionData>,
+    c_star: f32,
+    visited_actions: Vec<INTVisitedActionData>,
+    unvisited_actions: Vec<INTUnvisitedActionData>,
 }
 
 impl INTStateData {
@@ -375,12 +360,14 @@ impl INTStateData {
         debug_assert_eq!(values.len(), 1);
         let Self {
             n_s,
-            c_s: _,
-            actions,
+            c_star: _,
+            visited_actions,
+            unvisited_actions,
         } = self;
+        todo!();
         let n_s = *n_s as f32;
         let mut value = 0.0;
-        actions.iter().filter(|a| a.n_sa != 0).for_each(|a| {
+        visited_actions.iter().filter(|a| a.n_sa != 0).for_each(|a| {
             let n_sa = a.n_sa as f32;
             let q_sa = a.g_sa_sum / n_sa;
             probs[a.a] = n_sa / n_s;
@@ -394,45 +381,102 @@ impl INTStateData {
         probs: &[f32],
         cost: f32,
         state: &Space::State,
-    ) -> Self
+    ) -> Option<Self>
     where
         Space: StateActionSpace,
         // N: TreeNode<State = Space::State>,
         // N::Action: Action<N>,
     {
-        let p_sum = Space::actions(state).map(|a| probs[a]).sum::<f32>();// = N::Action::actions(state).map(|a| probs[a]).sum::<f32>();
-        let mut actions = Space::actions(state)
-            .map(|a| {
-                let p = probs[a] / p_sum;
-                INTActionData::new(a, p)
-            })
-            .collect::<Vec<_>>();
-        actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
-        debug_assert!(
-            !Space::is_terminal(state),
-            "actions = {actions:?}, probs = {probs:?}, p_sum = {p_sum}",
-        );
-        Self {
-            n_s: 0,
-            c_s: cost,
-            actions,
+        if Space::is_terminal(state) {
+            return None;
         }
+        let p_sum = Space::actions(state).map(|a| probs[a]).sum::<f32>();
+        let mut unvisited_actions = Space::actions(state)
+            .map(|a| INTUnvisitedActionData { a, p_sa: probs[a] / p_sum})
+            .collect::<Vec<_>>();
+        unvisited_actions.sort_by(|a, b| a.p_sa.partial_cmp(&b.p_sa).unwrap());
+        // let mut actions = Space::actions(state)
+        //     .map(|a| {
+        //         let p = probs[a] / p_sum;
+        //         INTVisitedActionData::new(a, p)
+        //     })
+        //     .collect::<Vec<_>>();
+        // actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
+        // debug_assert!(
+        //     !Space::is_terminal(state),
+        //     "actions = {actions:?}, probs = {probs:?}, p_sum = {p_sum}",
+        // );
+        // Self {
+        //     n_s: 0,
+        //     c_s: cost,
+        //     visited_actions: actions,
+        // }
+        Some(Self {
+            n_s: 0,
+            c_star: cost,
+            visited_actions: vec![],
+            unvisited_actions,
+        })
     }
 
-    pub fn best_action(&self) -> usize {
+    pub fn best_action(&mut self) -> Option<INTTransition> {
         let Self {
             n_s: _,
-            c_s: _,
-            actions,
+            c_star: _,
+            visited_actions,
+            unvisited_actions,
         } = self;
-        actions[0].a
+        let upper_estimate = |p_sa: f32, n_s: usize, n_sa: usize| {
+            let n_s = n_s as f32;
+            let n_sa = n_sa as f32;
+            let p_sa = p_sa;
+            let c_puct = C_PUCT;
+            let u_sa = c_puct * p_sa * (n_s.sqrt() / n_sa);
+            u_sa
+        };
+        visited_actions.iter_mut().for_each(|a| {
+            let INTVisitedActionData {
+                a: _,
+                p_sa,
+                n_sa,
+                g_sa_sum: _,
+                u_sa,
+            } = a;
+            *u_sa = upper_estimate(*p_sa, self.n_s, *n_sa);
+        });
+        visited_actions.sort_by(|a, b| a.u_sa.partial_cmp(&b.u_sa).unwrap());
+        let best_visited_action_estimate: Option<f32> = visited_actions.last().map(|a| a.u_sa);
+        let best_unvisited_action_estimate: Option<f32> = unvisited_actions.last().map(|a| {
+            let INTUnvisitedActionData { a: _, p_sa, } = a;
+            upper_estimate(*p_sa, self.n_s, 0)
+        });
+        let kind = match (best_visited_action_estimate, best_unvisited_action_estimate) {
+            (None, None) => None,
+            (None, Some(_)) => Some(TransitionKind::LastUnvisitedAction),
+            (Some(_), None) => Some(TransitionKind::LastVisitedAction),
+            (Some(v), Some(u)) => Some(match v.partial_cmp(&u).unwrap() {
+                std::cmp::Ordering::Less => TransitionKind::LastUnvisitedAction,
+                std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => TransitionKind::LastVisitedAction,
+            })
+        };
+        kind.map(|kind| INTTransition {
+            data_i: transition::StateDataKindMutRef::Active { data: self },
+            kind,
+        })
     }
 
-    pub fn update(&mut self, a_i_plus_one: usize, c_star_theta_i_plus_one: &mut f32) {
-        let Self { n_s, c_s, actions } = self;
+    pub fn _update(&mut self, a_i_plus_one: usize, c_star_theta_i_plus_one: &mut f32) {
+        todo!("deprecated? why was c_star &mut???");
+        let Self {
+            n_s,
+            c_star: c_s,
+            visited_actions,
+            unvisited_actions,
+         } = self;
+         todo!();
         let g_star_theta_i = *c_s - *c_star_theta_i_plus_one;
         *n_s += 1;
-        let action_data = actions.iter_mut().find(|a| a.a == a_i_plus_one).unwrap();
+        let action_data = visited_actions.iter_mut().find(|a| a.a == a_i_plus_one).unwrap();
         action_data.update(g_star_theta_i);
         self.update_upper_estimates();
         self.sort_actions();
@@ -441,10 +485,11 @@ impl INTStateData {
     fn update_upper_estimates(&mut self) {
         let Self {
             n_s,
-            c_s: _,
-            actions,
+            c_star: _,
+            visited_actions,
+            unvisited_actions: _
         } = self;
-        actions
+        visited_actions
             .iter_mut()
             .for_each(|a| a.update_upper_estimate(*n_s));
     }
@@ -452,15 +497,16 @@ impl INTStateData {
     fn sort_actions(&mut self) {
         let Self {
             n_s: _,
-            c_s: _,
-            actions,
+            c_star: _,
+            visited_actions,
+            unvisited_actions: _
         } = self;
-        actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
+        visited_actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
     }
 }
 
 #[derive(Debug)]
-struct INTActionData {
+struct INTVisitedActionData {
     a: usize,
     p_sa: f32,
     n_sa: usize,
@@ -468,10 +514,16 @@ struct INTActionData {
     u_sa: f32,
 }
 
+#[derive(Debug)]
+struct INTUnvisitedActionData {
+    a: usize,
+    p_sa: f32,
+}
+
 const C_PUCT_0: f32 = 10.0;
 const C_PUCT: f32 = 10.0;
 
-impl INTActionData {
+impl INTVisitedActionData {
     pub(crate) fn new(a: usize, p_a: f32) -> Self {
         Self {
             a,
@@ -504,12 +556,12 @@ impl INTActionData {
         } = self;
         debug_assert_ne!(n_s, 0);
         let n_sa = (*n_sa + 1) as f32;
-        let q_sa = *g_sa_sum / n_sa;
+        let g_sa = *g_sa_sum / n_sa;
         let n_s = n_s as f32;
         let p_sa = *p_sa;
-        *u_sa = q_sa / n_sa + C_PUCT * p_sa * (n_s.sqrt() / n_sa);
+        *u_sa = g_sa + C_PUCT * p_sa * (n_s.sqrt() / n_sa);
         println!(
-            "{u_sa} = {q_sa} / {n_sa} + {C_PUCT} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
+            "{u_sa} = {g_sa_sum} / {n_sa} + {C_PUCT} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
         );
         if true {
 
