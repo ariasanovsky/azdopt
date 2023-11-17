@@ -40,6 +40,27 @@ impl<P> INTMinTree<P> {
         }
     }
 
+    pub fn print_counts(&self)
+    where
+        P: core::fmt::Debug,
+    {
+        let Self { root_data, data } = self;
+        println!("root_data.n_s = {}", root_data.n_s);
+        for (i, level) in data.iter().enumerate() {
+            println!("level {}:", i);
+            for (p, data) in level {
+                match data {
+                    StateDataKind::Exhausted { c_t_star } => {
+                        println!("  {:?}: exhausted, c_t_star = {}", p, c_t_star);
+                    }
+                    StateDataKind::Active { data } => {
+                        println!("  {:?}: active, n_s = {}", p, data.n_s);
+                    }
+                }
+            }
+        }
+    }
+
     // pub fn par_new_trees<Space, const B: usize, const A: usize, C>(
     //     prob_0: &[[f32; A]; B],
     //     c_0: &[C; B],
@@ -73,7 +94,7 @@ impl<P> INTMinTree<P> {
 
     pub fn simulate_once<'a, Space>(
         &'a mut self,
-        n_0: &mut (impl TreeNode<Path = P> + TreeNodeFor<Space>),
+        n_0: &mut (impl TreeNode<Path = P, State = Space::State> + TreeNodeFor<Space>),
     ) -> INTTransitions<'a, P>
     where
         // Space::Action: Action<Space>,
@@ -85,6 +106,11 @@ impl<P> INTMinTree<P> {
         // N::Path: Ord,
     {
         let Self { root_data, data } = self;
+        debug_assert_eq!(
+            root_data.actions.len(),
+            Space::actions(n_0.state()).count(),
+            // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
+        );
         let a_1 = root_data.best_action();
         let action_1 = Space::from_index(a_1);
         let n_i = n_0;
@@ -135,6 +161,11 @@ impl<P> INTMinTree<P> {
                 Some(StateDataKind::Active { data }) => data,
                 _ => unreachable!("this should be unreachable"),
             };
+            debug_assert_eq!(
+                state_data.actions.len(),
+                Space::actions(n_i.state()).count(),
+                // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
+            );
             let a_i_plus_one = state_data.best_action();
             let action_i_plus_1 = Space::from_index(a_i_plus_one);
 
@@ -358,12 +389,6 @@ impl INTStateData {
         values[0] = value / n_s;
     }
 
-    fn __actions(&self) -> Vec<usize> {
-        let mut actions = self.actions.iter().map(|a| a.a).collect::<Vec<_>>();
-        actions.sort();
-        actions
-    }
-
     // todo! refactor to `Option<Self>` and cut the `is_terminal` checks from `simulate_once`
     pub fn new<Space>(
         probs: &[f32],
@@ -383,6 +408,10 @@ impl INTStateData {
             })
             .collect::<Vec<_>>();
         actions.sort_by(|a, b| b.u_sa.total_cmp(&a.u_sa));
+        debug_assert!(
+            !Space::is_terminal(state),
+            "actions = {actions:?}, probs = {probs:?}, p_sum = {p_sum}",
+        );
         Self {
             n_s: 0,
             c_s: cost,
@@ -439,8 +468,8 @@ struct INTActionData {
     u_sa: f32,
 }
 
-const C_PUCT_0: f32 = 0.5;
-const C_PUCT: f32 = 0.5;
+const C_PUCT_0: f32 = 10.0;
+const C_PUCT: f32 = 10.0;
 
 impl INTActionData {
     pub(crate) fn new(a: usize, p_a: f32) -> Self {
@@ -473,10 +502,17 @@ impl INTActionData {
             g_sa_sum,
             u_sa,
         } = self;
-        let n_sa = (*n_sa).max(1) as f32;
+        debug_assert_ne!(n_s, 0);
+        let n_sa = (*n_sa + 1) as f32;
         let q_sa = *g_sa_sum / n_sa;
         let n_s = n_s as f32;
         let p_sa = *p_sa;
         *u_sa = q_sa / n_sa + C_PUCT * p_sa * (n_s.sqrt() / n_sa);
+        println!(
+            "{u_sa} = {q_sa} / {n_sa} + {C_PUCT} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
+        );
+        if true {
+
+        }
     }
 }

@@ -110,7 +110,6 @@ impl<S, C> SimpleRootLog<S, C> {
         self.short_data.push(short_data);
         self.next_root.clone_from(s);
         self.root_cost.clone_from(cost);
-        self.zero_stagnation();
         self.zero_duration();
         // todo!("what to do with the logged data?")
     }

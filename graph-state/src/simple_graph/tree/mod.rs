@@ -113,7 +113,7 @@ impl<const N: usize> Tree<N> {
 
     pub fn adjacency_matrix(&self) -> faer::Mat<f64> {
         let mut a = faer::Mat::zeros(N, N);
-        const ZERO: f64 = 0.0000001;
+        const ZERO: f64 = 0.0001;
         for i in 0..N {
             a[(i, i)] = ZERO;
         }

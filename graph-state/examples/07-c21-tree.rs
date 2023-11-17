@@ -41,8 +41,8 @@ type ActionVec = [f32; ACTION];
 
 const BATCH: usize = 1;
 
-const HIDDEN_1: usize = 256;
-const HIDDEN_2: usize = 128;
+const HIDDEN_1: usize = 512;
+const HIDDEN_2: usize = 384;
 
 type Core = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -79,7 +79,8 @@ fn main() -> eyre::Result<()> {
 
     let epochs: usize = 250;
     let episodes: usize = 800;
-    let max_tolerated_stagnation = 10;
+    let max_before_resetting_actions = 10;
+    let max_before_resetting_states = 10;
 
     let dev = AutoDevice::default();
     let mut core_model = dev.build_module::<Core, f32>();
@@ -149,6 +150,7 @@ fn main() -> eyre::Result<()> {
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
+        let mut s_0 = s_0.clone();
         // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
@@ -157,7 +159,7 @@ fn main() -> eyre::Result<()> {
         });
         v_t_tensor.copy_from(v_t.flatten());
         prediction_tensor = core_model.forward(v_t_tensor.clone());
-        probs_tensor = logits_model.forward(prediction_tensor.clone());
+        probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let probs: [ActionVec; BATCH] = probs_tensor.array();
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
@@ -204,7 +206,7 @@ fn main() -> eyre::Result<()> {
 
             v_t_tensor.copy_from(v_t.flatten());
             prediction_tensor = core_model.forward(v_t_tensor.clone());
-            probs_tensor = logits_model.forward(prediction_tensor.clone());
+            probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
@@ -224,6 +226,8 @@ fn main() -> eyre::Result<()> {
             });
         }
 
+        trees[0].print_counts();
+        // panic!();
         let mut probs: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
         let mut values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
 
@@ -272,21 +276,21 @@ fn main() -> eyre::Result<()> {
                      * 2.
                      */
                     match log.stagnation() {
-                        Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
+                        Some(stag) if stag > max_before_resetting_states /* && DEBUG_FALSE */ => {
                             // todo! s.reset_with(...);
                             // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                             // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
                             let r = random_state(rng);
                             s_0.clone_from(&r);
-                            log.reset_root(s_0, c_t);
+                            log.reset_root(s_0, &cost(&s_0));
+                            log.zero_stagnation();
                         },
-                        Some(stag) if stag > max_tolerated_stagnation /* && DEBUG_FALSE */ => {
+                        Some(stag) if stag > max_before_resetting_actions /* && DEBUG_FALSE */ => {
                             // todo! s.reset_with(...);
                             // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
                             // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
-                            let r = random_state(rng);
-                            s_0.clone_from(&r);
-                            log.reset_root(s_0, c_t);
+                            s_0.prohibited_actions = s_0.state.entries().map(|e| e.index::<Space>()).collect();
+                            log.reset_root(s_0, &cost(&s_0));
                         },
                         Some(_) => {
                             // todo! should `increment_stagnation` be private?
