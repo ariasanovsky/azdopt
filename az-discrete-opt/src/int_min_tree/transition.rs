@@ -1,4 +1,6 @@
-use super::{StateDataKind, INTStateData};
+use crate::int_min_tree::state_data::action_data::{INTUnvisitedActionData, INTVisitedActionData};
+
+use super::state_data::INTStateData;
 
 #[derive(Debug)]
 pub struct INTTransition<'a> {
@@ -24,20 +26,81 @@ impl<'a> INTTransition<'a> {
         }
     }
 
-    pub fn update(&self, c_star_theta_i: f32) {
-        todo!("refactor s.t. `c_star_theta_i` carries the information of whether we are exhausting");
-        todo!("if exhausting, `data_i` is necessarily `Active`");
-        match self.kind {
-            TransitionKind::LastUnvisitedAction => {
-                todo!("remove the last unvisited action");
-                todo!("move it into the visited actions");
-                todo!()
-            },
-            TransitionKind::LastVisitedAction => {
-                todo!()
-            },
+    pub(crate) fn cascade_update(&mut self, c_star_i_plus_one: &mut f32) -> bool {
+        let Self { data_i, kind } = self;
+        let exhausted = match data_i {
+            StateDataKindMutRef::Exhausted { c_t_star: _ } => unreachable!("cascade update only applies to exhausted states"),
+            StateDataKindMutRef::Active { data } => {
+                let INTStateData {
+                    n_s,
+                    c_star,
+                    visited_actions,
+                    unvisited_actions,
+                } = data;
+                *n_s += 1;
+                *c_star_i_plus_one = c_star_i_plus_one.min(*c_star);
+                *c_star = *c_star_i_plus_one;
+                match kind {
+                    TransitionKind::LastUnvisitedAction => {
+                        // remove the last unvisited action from `data`
+                        let crate::int_min_tree::state_data::action_data::INTUnvisitedActionData { a, p_sa } = unvisited_actions.pop().expect("no unvisited actions");
+                    },
+                    TransitionKind::LastVisitedAction => {
+                        let crate::int_min_tree::state_data::action_data::INTVisitedActionData {
+                            a: _,
+                            p_sa: _,
+                            n_sa: _,
+                            g_sa_sum: _,
+                            u_sa: _,
+                        } = visited_actions.pop().expect("no visited actions");
+                    }
+                }
+                visited_actions.is_empty() && unvisited_actions.is_empty()
+            }
+        };
+        // we only sort during `best_action` calls
+        if exhausted {
+            *data_i = StateDataKindMutRef::Exhausted { c_t_star: *c_star_i_plus_one };
         }
-        todo!("sort the visited actions")
+        exhausted
+    }
+
+    pub(crate) fn update(&mut self, c_star_theta_i_plus_one: &mut f32) {
+        let Self { data_i, kind } = self;
+        match data_i {
+            StateDataKindMutRef::Exhausted { c_t_star: _ } => unreachable!("updating here implies we took an action from an exhausted state"),
+            StateDataKindMutRef::Active { data } => {
+                let INTStateData {
+                    n_s,
+                    c_star,
+                    visited_actions,
+                    unvisited_actions,
+                } = data;
+                *n_s += 1;
+                match kind {
+                    TransitionKind::LastUnvisitedAction => {
+                        // remove the last unvisited action from `data` to move it to `visited_actions`
+                        let INTUnvisitedActionData { a, p_sa } = unvisited_actions.pop().expect("no unvisited actions");
+                        let visited_action_data = INTVisitedActionData {
+                            a,
+                            p_sa,
+                            n_sa: 1,
+                            g_sa_sum: *c_star - *c_star_theta_i_plus_one,
+                            u_sa: 0.0,
+                        };
+                        // `u_sa` in an invalid state, but we'll update it before sorting
+                        visited_actions.push(visited_action_data);
+                    }
+                    TransitionKind::LastVisitedAction => {
+                        let visited_action = visited_actions.last_mut().expect("no visited actions");
+                        visited_action.update(*c_star - *c_star_theta_i_plus_one);
+                        // `u_sa` in an invalid state, but we'll update it before sorting
+                    }
+                }
+                *c_star = c_star_theta_i_plus_one.min(*c_star);
+                *c_star_theta_i_plus_one = *c_star;
+            }
+        }
     }
 
     pub fn c_i_star(&self) -> f32 {
