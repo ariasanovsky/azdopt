@@ -6,13 +6,13 @@ use rayon::prelude::*;
 
 use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
 
-use az_discrete_opt::{int_min_tree::{INTMinTree, INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
+use az_discrete_opt::{int_min_tree::{INTMinTree, simulate_once::INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
     tree::{PrueferCode, space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce},
 };
-use rand::{rngs::ThreadRng, Rng};
+use rand::rngs::ThreadRng;
 
 use chrono::prelude::*;
 
@@ -41,8 +41,8 @@ type ActionVec = [f32; ACTION];
 
 const BATCH: usize = 1;
 
-const HIDDEN_1: usize = 512;
-const HIDDEN_2: usize = 384;
+const HIDDEN_1: usize = 64;
+const HIDDEN_2: usize = 64;
 
 type Core = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -79,7 +79,7 @@ fn main() -> eyre::Result<()> {
 
     let epochs: usize = 250;
     let episodes: usize = 800;
-    let max_before_resetting_actions = 10;
+    let max_before_resetting_actions = 5;
     let max_before_resetting_states = 10;
 
     let dev = AutoDevice::default();
@@ -89,10 +89,10 @@ fn main() -> eyre::Result<()> {
     let mut opt = Adam::new(
         &core_model,
         AdamConfig {
-            lr: 1e-2,
-            betas: [0.5, 0.25],
-            eps: 1e-6,
-            weight_decay: Some(WeightDecay::Decoupled(1e-2)),
+            lr: 1e-3,
+            betas: [0.9, 0.999],
+            eps: 1e-8,
+            weight_decay: Some(WeightDecay::L2(100.)),// Some(WeightDecay::Decoupled(1e-6)),
         },
     );
 
@@ -150,17 +150,20 @@ fn main() -> eyre::Result<()> {
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
-        let mut s_0 = s_0.clone();
         // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
         (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
             s.write_vec::<Space>(v)
         });
+        println!("s_0[0] = {:?}", s_0[0]);
+        println!("c_0[0] = {:?}", episode_c_t[0]);
+        println!("v_0[0] = {:?}", v_t[0]);
         v_t_tensor.copy_from(v_t.flatten());
         prediction_tensor = core_model.forward(v_t_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let probs: [ActionVec; BATCH] = probs_tensor.array();
+        println!("probs: {:?}", probs);
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
             (&mut trees, &probs, &episode_c_t, &s_0)
@@ -171,6 +174,7 @@ fn main() -> eyre::Result<()> {
             // Tree::par_new_trees::<Space, BATCH, ACTION, _>(&probs, &episode_c_t, &s_0);
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
+        panic!();
 
         let mut grads = core_model.alloc_grads();
         for episode in 1..=episodes {
@@ -210,7 +214,7 @@ fn main() -> eyre::Result<()> {
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
-            let mut nodes: [Option<az_discrete_opt::int_min_tree::UpdatedNode>; BATCH] =
+            let mut nodes: [Option<_>; BATCH] =
                 core::array::from_fn(|_| None);
             (&mut nodes, transitions, &episode_c_t, &s_t, &p_t, &values, &probs)
                 .into_par_iter()
@@ -219,14 +223,14 @@ fn main() -> eyre::Result<()> {
                     *n = trans.update_existing_nodes::<Node, Space>(c_t, s_t, p_t, probs_t, v);
                 });
             // insert nodes into trees
-            (&mut trees, nodes, &p_t).into_par_iter().for_each(|(t, n, p_t)| {
+            (&mut trees, nodes).into_par_iter().for_each(|(t, n)| {
                 if let Some(n) = n {
-                    t.insert_node_at_next_level(n, p_t);
+                    t.insert_node_at_next_level(n);
                 }
             });
         }
 
-        trees[0].print_counts();
+        // trees[0].print_counts();
         // panic!();
         let mut probs: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
         let mut values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
@@ -236,6 +240,7 @@ fn main() -> eyre::Result<()> {
             .for_each(|(t, p, v)| {
                 t.observe(p, v);
             });
+        println!("values: {:?}", values);
         observed_probabilities_tensor.copy_from(probs.flatten());
         observed_values_tensor.copy_from(values.flatten());
 
@@ -258,6 +263,7 @@ fn main() -> eyre::Result<()> {
         grads = value_loss.backward();
 
         all_losses.push((entropy, mse));
+        dbg!(&all_losses);
         opt.update(&mut core_model, &grads)
             .expect("optimizer failed");
         core_model.zero_grads(&mut grads);
