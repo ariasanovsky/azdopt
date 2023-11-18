@@ -129,53 +129,6 @@ impl RamseyState {
         }
     }
 
-    fn generate_random<R: rand::Rng>(t: usize, rng: &mut R) -> Self {
-        let mut edges: [[bool; E]; C] = [[false; E]; C];
-        let mut neighborhoods: [[u32; N]; C] = [[0; N]; C];
-        let mut colors: [MaybeUninit<Color>; E] = unsafe { MaybeUninit::uninit().assume_init() };
-        let mut available_actions: [[bool; E]; C] = [[true; E]; C];
-        let edge_iterator = (0..N).flat_map(|v| (0..v).map(move |u| (u, v)));
-        edge_iterator
-            .zip(colors.iter_mut())
-            .enumerate()
-            .for_each(|(i, ((u, v), color))| {
-                let c = rng.gen_range(0..C);
-                edges[c][i] = true;
-                available_actions[c][i] = false;
-                neighborhoods[c][u] |= 1 << v;
-                neighborhoods[c][v] |= 1 << u;
-                color.write(Color(c));
-            });
-        let colors: [Color; E] = unsafe { transmute(colors) };
-        Self::new(colors, edges, neighborhoods, available_actions, t)
-    }
-
-    // pub fn par_generate_batch<const BATCH: usize>(t: usize) -> [Self; BATCH] {
-    //     let mut states: [MaybeUninit<Self>; BATCH] = MaybeUninit::uninit_array();
-    //     states.par_iter_mut().for_each(|s| {
-    //         s.write(RamseyState::generate_random(t, &mut rand::thread_rng()));
-    //     });
-    //     let b: [Self; BATCH] = unsafe { MaybeUninit::array_assume_init(states) };
-    //     // b.iter().for_each(|s| {
-    //     //     s.check_for_inconsistencies();
-    //     // });
-    //     b
-    // }
-
-    // pub fn par_generate_vecs<const BATCH: usize>(states: &[Self; BATCH]) -> [StateVec; BATCH] {
-    //     // states.iter().for_each(|s| {
-    //     //     s.check_for_inconsistencies();
-    //     // });
-    //     let mut state_vecs: [MaybeUninit<StateVec>; BATCH] = MaybeUninit::uninit_array();
-    //     states
-    //         .par_iter()
-    //         .zip_eq(state_vecs.par_iter_mut())
-    //         .for_each(|(s, v)| {
-    //             v.write(s.to_vec());
-    //         });
-    //     unsafe { MaybeUninit::array_assume_init(state_vecs) }
-    // }
-
     pub fn to_vec(&self) -> StateVec {
         let Self {
             colors: _,

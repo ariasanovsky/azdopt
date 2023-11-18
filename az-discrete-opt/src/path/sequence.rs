@@ -9,7 +9,9 @@ pub struct ActionSequence {
 
 impl ActionPath for ActionSequence {
     fn new() -> Self {
-        Self { actions: Vec::new() }
+        Self {
+            actions: Vec::new(),
+        }
     }
 
     fn len(&self) -> usize {
@@ -18,6 +20,19 @@ impl ActionPath for ActionSequence {
 
     unsafe fn push_unchecked(&mut self, action: usize) {
         self.actions.push(action)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.actions.is_empty()
+    }
+
+    fn push<Space>(&mut self, action: &Space::Action)
+    where
+        Space: StateActionSpace,
+        Self: ActionPathFor<Space>,
+    {
+        let index = Space::index(action);
+        unsafe { self.push_unchecked(index) }
     }
 }
 

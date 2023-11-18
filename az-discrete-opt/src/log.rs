@@ -1,10 +1,3 @@
-use core::mem::MaybeUninit;
-
-// use rayon::prelude::{
-//     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-//     IntoParallelRefMutIterator, ParallelIterator,
-// };
-
 use crate::iq_min_tree::{ActionMultiset, Transitions};
 
 pub struct SimpleRootLog<S, C = f32> {
@@ -175,7 +168,11 @@ pub struct ShortRootData<C = f32> {
 
 impl<C: core::fmt::Debug> core::fmt::Debug for ShortRootData<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { short_form, cost, duration} = self;
+        let Self {
+            short_form,
+            cost,
+            duration,
+        } = self;
         f.debug_map()
             .entry(&"short_form", short_form)
             .entry(&"cost", cost)

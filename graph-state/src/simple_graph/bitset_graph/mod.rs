@@ -1,6 +1,5 @@
-
 use crate::bitset::primitive::B32;
-use crate::bitset::bitset::Bitset;
+use crate::bitset::Bitset;
 
 use super::edge::Edge;
 

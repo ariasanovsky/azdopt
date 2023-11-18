@@ -1,10 +1,4 @@
-
-
-// // use crate::{state::{State, Action}, path::ActionPathFor};
-
-// // pub mod prohibitions;
-
-use crate::{space::StateActionSpace, path::ActionPathFor};
+use crate::{path::ActionPathFor, space::StateActionSpace};
 
 pub trait TreeNode {
     type State;
@@ -15,8 +9,7 @@ pub trait TreeNode {
     fn apply_action<Space>(&mut self, action: &Space::Action)
     where
         Space: StateActionSpace<State = Self::State>,
-        Self::Path: ActionPathFor<Space>,
-    ;
+        Self::Path: ActionPathFor<Space>;
 }
 
 pub struct MutRefNode<'a, S, P> {
@@ -47,7 +40,7 @@ impl<'a, S, P> TreeNode for MutRefNode<'a, S, P> {
     where
         Space: StateActionSpace<State = Self::State>,
         Self::Path: ActionPathFor<Space>,
-     {
+    {
         let Self { state, path } = self;
         let index = Space::index(action);
         unsafe { path.push_unchecked(index) }

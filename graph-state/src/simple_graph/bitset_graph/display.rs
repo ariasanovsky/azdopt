@@ -1,8 +1,8 @@
 use core::fmt::Display;
 
-use crate::{simple_graph::edge::Edge, bitset::bitset::Bitset};
+use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
-use super::{BitsetGraph, space::action::AddOrDeleteEdge};
+use super::{space::action::AddOrDeleteEdge, BitsetGraph};
 
 impl<const N: usize> Display for BitsetGraph<N> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

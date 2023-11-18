@@ -27,14 +27,19 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
     }
 
     fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
-        state.code().iter().enumerate().map(|(i, p)| {
-            let before = 0..*p;
-            let after = *p+1..N;
-            before.chain(after).map(move |new_parent| PrueferCodeEntry {
-                i,
-                parent: new_parent,
+        state
+            .code()
+            .iter()
+            .enumerate()
+            .flat_map(|(i, p)| {
+                let before = 0..*p;
+                let after = *p + 1..N;
+                before.chain(after).map(move |new_parent| PrueferCodeEntry {
+                    i,
+                    parent: new_parent,
+                })
             })
-        }).flatten().map(|a| Self::index(&a))
+            .map(|a| Self::index(&a))
     }
 
     fn write_vec(state: &Self::State, vec: &mut [f32]) {

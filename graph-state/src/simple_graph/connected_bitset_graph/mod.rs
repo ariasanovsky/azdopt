@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use faer::{Faer, Mat};
 // use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
-use crate::bitset::{primitive::B32, bitset::Bitset};
+use crate::bitset::{primitive::B32, Bitset};
 
 use super::{bitset_graph::BitsetGraph, edge::Edge};
 

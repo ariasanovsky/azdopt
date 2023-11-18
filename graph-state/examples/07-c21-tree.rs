@@ -4,13 +4,24 @@
 
 use rayon::prelude::*;
 
-use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
+use std::{
+    io::Write,
+    mem::MaybeUninit,
+    path::{Path, PathBuf},
+};
 
-use az_discrete_opt::{int_min_tree::{INTMinTree, simulate_once::INTTransitions, state_data::UpperEstimateData}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
+use az_discrete_opt::{
+    int_min_tree::{simulate_once::INTTransitions, state_data::UpperEstimateData, INTMinTree},
+    log::{ShortRootData, SimpleRootLog},
+    path::{set::ActionSet, ActionPath},
+    space::{ActionSpace, StateSpace, StateSpaceVec},
+    state::{cost::Cost, prohibit::WithProhibitions},
+    tree_node::MutRefNode,
+};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
-    tree::{PrueferCode, space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce},
+    tree::{space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce, PrueferCode},
 };
 use rand::rngs::ThreadRng;
 
@@ -30,8 +41,6 @@ type Tree = INTMinTree<P>;
 type Trans<'a> = INTTransitions<'a, P>;
 type C = Conjecture2Dot1Cost;
 type Log = SimpleRootLog<S, C>;
-
-const DEBUG_FALSE: bool = false;
 
 const ACTION: usize = N * (N - 2);
 const RAW_STATE: usize = N * (N - 2);
@@ -92,7 +101,7 @@ fn main() -> eyre::Result<()> {
             lr: 1e-3,
             betas: [0.9, 0.999],
             eps: 1e-8,
-            weight_decay: Some(WeightDecay::L2(100.)),// Some(WeightDecay::Decoupled(1e-6)),
+            weight_decay: Some(WeightDecay::L2(1e-1)), // Some(WeightDecay::Decoupled(1e-6)),
         },
     );
 
@@ -104,18 +113,15 @@ fn main() -> eyre::Result<()> {
     let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
 
     // generate states
-    let random_state = |rng: &mut ThreadRng| {
-        loop {
-            let code = PrueferCode::generate(rng);
-            let prohibited_actions = code.entries().map(|e| e.index::<Space>());
-            let state = WithProhibitions::new(code.clone(), prohibited_actions);
-            if !state.is_terminal::<Space>() {
-                break state;
-            }
+    let random_state = |rng: &mut ThreadRng| loop {
+        let code = PrueferCode::generate(rng);
+        let prohibited_actions = code.entries().map(|e| e.index::<Space>());
+        let state = WithProhibitions::new(code.clone(), prohibited_actions);
+        if !state.is_terminal::<Space>() {
+            break state;
         }
     };
-    let mut s_0: [S; BATCH] =
-        par_init_map(|| rand::thread_rng(), random_state);
+    let mut s_0: [S; BATCH] = par_init_map(|| rand::thread_rng(), random_state);
 
     // calculate costs
     let cost = |s: &S| {
@@ -125,7 +131,13 @@ fn main() -> eyre::Result<()> {
     };
 
     let upper_estimate = |estimate: UpperEstimateData| {
-        let UpperEstimateData { n_s, n_sa, g_sa_sum, p_sa, depth } = estimate;
+        let UpperEstimateData {
+            n_s,
+            n_sa,
+            g_sa_sum,
+            p_sa,
+            depth,
+        } = estimate;
         debug_assert_ne!(n_sa, 0);
         let n_s = n_s as f32;
         let n_sa = n_sa as f32;
@@ -139,16 +151,17 @@ fn main() -> eyre::Result<()> {
     };
 
     let mut episode_c_t: [C; BATCH] = core::array::from_fn(|_| Default::default());
-    (&s_0, &mut episode_c_t).into_par_iter().for_each(|(s_t, c_t)| {
-        let Conjecture2Dot1Cost {
-            matching: m_t,
-            lambda_1: l_1_t,
-        } = c_t;
-        let Conjecture2Dot1Cost { matching, lambda_1 } = cost(s_t);
-        *m_t = matching;
-        *l_1_t = lambda_1;
-    });
-    
+    (&s_0, &mut episode_c_t)
+        .into_par_iter()
+        .for_each(|(s_t, c_t)| {
+            let Conjecture2Dot1Cost {
+                matching: m_t,
+                lambda_1: l_1_t,
+            } = c_t;
+            let Conjecture2Dot1Cost { matching, lambda_1 } = cost(s_t);
+            *m_t = matching;
+            *l_1_t = lambda_1;
+        });
 
     // set logs
     let mut logs: [Log; BATCH] = {
@@ -168,15 +181,17 @@ fn main() -> eyre::Result<()> {
         // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
-        (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
-            s.write_vec::<Space>(v)
-        });
+        (&s_0, &mut v_t)
+            .into_par_iter()
+            .for_each(|(s, v)| s.write_vec::<Space>(v));
         println!("s_0[0] = {:?}", s_0[0]);
         println!("c_0[0] = {:?}", episode_c_t[0]);
         println!("v_0[0] = {:?}", v_t[0]);
         v_t_tensor.copy_from(v_t.flatten());
         prediction_tensor = core_model.forward(v_t_tensor.clone());
-        probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
+        probs_tensor = logits_model
+            .forward(prediction_tensor.clone())
+            .softmax::<Axis<1>>();
         let probs: [ActionVec; BATCH] = probs_tensor.array();
         println!("probs: {:?}", probs);
         let mut trees: [Tree; BATCH] = {
@@ -200,16 +215,19 @@ fn main() -> eyre::Result<()> {
             // todo! tuck away the MU?
             let transitions: [Trans; BATCH] = {
                 let mut transitions: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
-                (&mut trees, &mut transitions, &mut s_t, &mut p_t).into_par_iter().for_each(|(t, trans, s, p)| {
-                    let mut n_0 = MutRefNode::new(s, p);
-                    trans.write(t.simulate_once::<Space>(&mut n_0, &upper_estimate));
-                });
+                (&mut trees, &mut transitions, &mut s_t, &mut p_t)
+                    .into_par_iter()
+                    .for_each(|(t, trans, s_t, p_t)| {
+                        trans.write(t.simulate_once::<Space>(s_t, p_t, &upper_estimate));
+                    });
                 // todo!();
                 unsafe { MaybeUninit::array_assume_init(transitions) }
-            };// Tree::par_simulate_once(&mut trees, &mut n_t);
-            (&s_t, &mut episode_c_t).into_par_iter().for_each(|(s_t, c_t)| {
-                *c_t = cost(s_t);
-            });
+            }; // Tree::par_simulate_once(&mut trees, &mut n_t);
+            (&s_t, &mut episode_c_t)
+                .into_par_iter()
+                .for_each(|(s_t, c_t)| {
+                    *c_t = cost(s_t);
+                });
 
             (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
                 s_t.write_vec::<Space>(v_t);
@@ -223,17 +241,18 @@ fn main() -> eyre::Result<()> {
 
             v_t_tensor.copy_from(v_t.flatten());
             prediction_tensor = core_model.forward(v_t_tensor.clone());
-            probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
+            probs_tensor = logits_model
+                .forward(prediction_tensor.clone())
+                .softmax::<Axis<1>>();
             let probs = probs_tensor.array();
             let values = value_model.forward(prediction_tensor.clone()).array();
 
-            let mut nodes: [Option<_>; BATCH] =
-                core::array::from_fn(|_| None);
-            (&mut nodes, transitions, &episode_c_t, &s_t, &p_t, &values, &probs)
+            let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
+            (&mut nodes, transitions, &episode_c_t, &s_t, &values, &probs)
                 .into_par_iter()
-                .for_each(|(n, trans, c_t, s_t, p_t, v, probs_t)| {
+                .for_each(|(n, trans, c_t, s_t, v, probs_t)| {
                     // let c = m.len() as f32 + *l as f32;
-                    *n = trans.update_existing_nodes::<Node, Space>(c_t, s_t, p_t, probs_t, v);
+                    *n = trans.update_existing_nodes::<Node, Space>(c_t, s_t, probs_t, v);
                 });
             // insert nodes into trees
             (&mut trees, nodes).into_par_iter().for_each(|(t, n)| {
@@ -257,9 +276,9 @@ fn main() -> eyre::Result<()> {
         observed_probabilities_tensor.copy_from(probs.flatten());
         observed_values_tensor.copy_from(values.flatten());
 
-        (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
-            s.write_vec::<Space>(v)
-        });
+        (&s_0, &mut v_t)
+            .into_par_iter()
+            .for_each(|(s, v)| s.write_vec::<Space>(v));
         let root_tensor = dev.tensor(v_t);
         let traced_predictions = core_model.forward(root_tensor.trace(grads));
         let predicted_logits = logits_model.forward(traced_predictions);

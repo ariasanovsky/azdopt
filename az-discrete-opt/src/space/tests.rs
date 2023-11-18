@@ -1,4 +1,10 @@
-use crate::{path::{sequence::ActionSequence, ActionPath}, int_min_tree::{INTMinTree, state_data::{UpperEstimateData, INTStateData, action_data::INTUnvisitedActionData}}, tree_node::MutRefNode};
+use crate::{
+    int_min_tree::{
+        state_data::{action_data::INTUnvisitedActionData, INTStateData, UpperEstimateData},
+        INTMinTree,
+    },
+    path::{sequence::ActionSequence, ActionPath},
+};
 
 use super::StateActionSpace;
 
@@ -48,10 +54,11 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
             n if n == N => vec![0],
             n if n == -N => vec![1],
             _ => vec![0, 1],
-        }.into_iter()
+        }
+        .into_iter()
     }
 
-    fn write_vec(state: &Self::State, vec: &mut [f32]) {
+    fn write_vec(_state: &Self::State, _vec: &mut [f32]) {
         todo!()
     }
 }
@@ -61,13 +68,13 @@ fn transitions_for_minimizing_n_square_are_correct() {
     type Space = MinimizeNSquared<5>;
     type P = ActionSequence;
     type S = Interval<5>;
-    type A = PlusOrMinusOne;
+    // type A = PlusOrMinusOne;
     type Tree = INTMinTree<P>;
-    
+
     let state_to_prediction_index = |s: &S| match s {
         Interval(n) => (*n + 5) as usize,
     };
-    
+
     let prediction = |s: &S| {
         let predictions: [[f32; 2]; 11] = [
             [0.05, 0.95],
@@ -91,18 +98,20 @@ fn transitions_for_minimizing_n_square_are_correct() {
     };
 
     let upper_estimate = |estimate: UpperEstimateData| {
-        let UpperEstimateData { n_s: _, n_sa, g_sa_sum: _, p_sa, depth: _ } = estimate;
+        let UpperEstimateData {
+            n_s: _,
+            n_sa,
+            g_sa_sum: _,
+            p_sa,
+            depth: _,
+        } = estimate;
         debug_assert_ne!(n_sa, 0);
         p_sa
     };
 
     let s_0: S = Interval(-3);
-    
-    let mut tree = Tree::new::<Space>(
-        &prediction(&s_0),
-        cost(&s_0),
-        &s_0,
-    );
+
+    let mut tree = Tree::new::<Space>(&prediction(&s_0), cost(&s_0), &s_0);
     let correct_root_data = INTStateData {
         n_s: 0,
         c_star: 9.0,
@@ -110,15 +119,15 @@ fn transitions_for_minimizing_n_square_are_correct() {
         unvisited_actions: vec![
             INTUnvisitedActionData { a: 0, p_sa: 0.25 },
             INTUnvisitedActionData { a: 1, p_sa: 0.75 },
-        ]
+        ],
     };
     assert_eq!(&tree.root_data, &correct_root_data);
     assert!(tree.data.is_empty());
 
     let mut s_t = s_0.clone();
     let mut p_t = P::new();
-    let mut n_0 = MutRefNode::new(&mut s_t, &mut p_t);
-    let mut transitions = tree.simulate_once::<Space>(&mut n_0, &upper_estimate);
+    // let mut n_0 = MutRefNode::new(&mut s_t, &mut p_t);
+    let mut transitions = tree.simulate_once::<Space>(&mut s_t, &mut p_t, &upper_estimate);
     // dbg!(&transitions, &s_t, &p_t);
     // transitions.update_existing_nodes(c_t, s_t, p_t, probs_t, g_star_theta_s_t)
     todo!("assert eq")

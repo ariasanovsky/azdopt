@@ -1,24 +1,14 @@
+use crate::bitset::Bitset;
+
 use bit_iter::BitIter;
-use num_traits::{Unsigned, WrappingShl, PrimInt, WrappingSub};
-
-use super::bitset::Bitset;
-
-// pub trait PrimitiveBitset {
-//     type U: Unsigned;
-//     fn from_bits(bits: Self::U) -> Self;
-// }
-
-// #[derive(Clone)]
-// pub struct B64 {
-//     bits: u64,
-// }
+use num_traits::{PrimInt, Unsigned, WrappingShl, WrappingSub};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PrimitiveBitset<T: Unsigned> {
+pub struct PrimitiveBitset<T> {
     bits: T,
 }
 
-impl<T: Unsigned> PrimitiveBitset<T> {
+impl<T> PrimitiveBitset<T> {
     pub const fn from_bits(bits: T) -> Self {
         Self { bits }
     }
@@ -117,8 +107,14 @@ impl NumBits for u64 {
 
 impl<T> Bitset for PrimitiveBitset<T>
 where
-    T: Unsigned + PrimInt + NumBits + WrappingShl + WrappingSub + core::ops::BitAndAssign
-        + core::ops::BitOrAssign + core::ops::BitXorAssign,
+    T: Unsigned
+        + PrimInt
+        + NumBits
+        + WrappingShl
+        + WrappingSub
+        + core::ops::BitAndAssign
+        + core::ops::BitOrAssign
+        + core::ops::BitXorAssign,
     BitIter<T>: From<T> + Iterator<Item = usize>,
 {
     const MAX: u32 = T::NUM_BITS - 1;
@@ -131,11 +127,15 @@ where
     }
 
     unsafe fn singleton_unchecked(n: u32) -> Self {
-        Self { bits: T::one().wrapping_shl(n) }
+        Self {
+            bits: T::one().wrapping_shl(n),
+        }
     }
 
     unsafe fn range_to_unchecked(n: u32) -> Self {
-        Self { bits: T::one().wrapping_shl(n).wrapping_sub(&T::one()) }
+        Self {
+            bits: T::one().wrapping_shl(n).wrapping_sub(&T::one()),
+        }
     }
 
     unsafe fn contains_unchecked(&self, n: u32) -> bool {
@@ -160,7 +160,7 @@ where
     where
         Self::Bits: Clone,
     {
-        BitIter::from(self.bits.clone())
+        BitIter::from(self.bits)
     }
 
     unsafe fn add_unchecked(&mut self, n: u32) {
