@@ -39,10 +39,10 @@ const STATE: usize = RAW_STATE + ACTION;
 type NodeVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 512;
+const BATCH: usize = 1;
 
-const HIDDEN_1: usize = 512;
-const HIDDEN_2: usize = 384;
+const HIDDEN_1: usize = 64;
+const HIDDEN_2: usize = 64;
 
 type Core = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -89,10 +89,10 @@ fn main() -> eyre::Result<()> {
     let mut opt = Adam::new(
         &core_model,
         AdamConfig {
-            lr: 1e-2,
-            betas: [0.5, 0.25],
-            eps: 1e-6,
-            weight_decay: Some(WeightDecay::Decoupled(1e-2)),
+            lr: 1e-3,
+            betas: [0.9, 0.999],
+            eps: 1e-8,
+            weight_decay: Some(WeightDecay::L2(100.)),// Some(WeightDecay::Decoupled(1e-6)),
         },
     );
 
@@ -150,17 +150,20 @@ fn main() -> eyre::Result<()> {
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
-        let mut s_0 = s_0.clone();
         // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
         (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
             s.write_vec::<Space>(v)
         });
+        println!("s_0[0] = {:?}", s_0[0]);
+        println!("c_0[0] = {:?}", episode_c_t[0]);
+        println!("v_0[0] = {:?}", v_t[0]);
         v_t_tensor.copy_from(v_t.flatten());
         prediction_tensor = core_model.forward(v_t_tensor.clone());
         probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
         let probs: [ActionVec; BATCH] = probs_tensor.array();
+        println!("probs: {:?}", probs);
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
             (&mut trees, &probs, &episode_c_t, &s_0)
@@ -171,6 +174,7 @@ fn main() -> eyre::Result<()> {
             // Tree::par_new_trees::<Space, BATCH, ACTION, _>(&probs, &episode_c_t, &s_0);
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
+        panic!();
 
         let mut grads = core_model.alloc_grads();
         for episode in 1..=episodes {
@@ -236,6 +240,7 @@ fn main() -> eyre::Result<()> {
             .for_each(|(t, p, v)| {
                 t.observe(p, v);
             });
+        println!("values: {:?}", values);
         observed_probabilities_tensor.copy_from(probs.flatten());
         observed_values_tensor.copy_from(values.flatten());
 
