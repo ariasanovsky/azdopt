@@ -1,4 +1,6 @@
 pub mod axioms;
+#[cfg(test)]
+mod tests;
 
 pub trait StateActionSpace {
     type State;

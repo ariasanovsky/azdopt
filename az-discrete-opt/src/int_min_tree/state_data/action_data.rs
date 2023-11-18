@@ -1,6 +1,6 @@
 // const C_PUCT: f32 = 100.0;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct INTVisitedActionData {
     pub(crate) a: usize,
     pub(crate) p_sa: f32,
@@ -9,7 +9,7 @@ pub(crate) struct INTVisitedActionData {
     pub(crate) u_sa: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct INTUnvisitedActionData {
     pub(crate) a: usize,
     pub(crate) p_sa: f32,

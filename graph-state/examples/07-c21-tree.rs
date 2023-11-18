@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
 
-use az_discrete_opt::{int_min_tree::{INTMinTree, simulate_once::INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
+use az_discrete_opt::{int_min_tree::{INTMinTree, simulate_once::INTTransitions, state_data::UpperEstimateData}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
@@ -123,6 +123,21 @@ fn main() -> eyre::Result<()> {
         let tree = T::from(&s.state);
         tree.conjecture_2_1_cost()
     };
+
+    let upper_estimate = |estimate: UpperEstimateData| {
+        let UpperEstimateData { n_s, n_sa, g_sa_sum, p_sa, depth } = estimate;
+        debug_assert_ne!(n_sa, 0);
+        let n_s = n_s as f32;
+        let n_sa = n_sa as f32;
+        let c_puct = 1.0;
+        let g_sa = g_sa_sum / n_sa;
+        let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
+        // println!(
+        //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
+        // );
+        u_sa
+    };
+
     let mut episode_c_t: [C; BATCH] = core::array::from_fn(|_| Default::default());
     (&s_0, &mut episode_c_t).into_par_iter().for_each(|(s_t, c_t)| {
         let Conjecture2Dot1Cost {
@@ -174,8 +189,6 @@ fn main() -> eyre::Result<()> {
             // Tree::par_new_trees::<Space, BATCH, ACTION, _>(&probs, &episode_c_t, &s_0);
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
-        panic!();
-
         let mut grads = core_model.alloc_grads();
         for episode in 1..=episodes {
             if episode % 100 == 0 {
@@ -189,7 +202,7 @@ fn main() -> eyre::Result<()> {
                 let mut transitions: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
                 (&mut trees, &mut transitions, &mut s_t, &mut p_t).into_par_iter().for_each(|(t, trans, s, p)| {
                     let mut n_0 = MutRefNode::new(s, p);
-                    trans.write(t.simulate_once::<Space>(&mut n_0));
+                    trans.write(t.simulate_once::<Space>(&mut n_0, &upper_estimate));
                 });
                 // todo!();
                 unsafe { MaybeUninit::array_assume_init(transitions) }

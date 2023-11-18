@@ -1,15 +1,17 @@
 use std::collections::BTreeMap;
 
-use crate::{tree_node::{TreeNode, TreeNodeFor}, space::StateActionSpace, path::ActionPathFor};
+use crate::{tree_node::TreeNode, space::StateActionSpace, path::ActionPathFor};
 
-use super::{transition::INTTransition, INTMinTree, state_data::StateDataKind};
+use super::{transition::INTTransition, INTMinTree, state_data::{StateDataKind, UpperEstimateData}};
 
+#[derive(Debug)]
 pub(crate) enum EndNodeAndLevel<'a, P> {
     NewNodeNewLevel,
     NewNodeOldLevel(&'a mut BTreeMap<P, StateDataKind>),
     OldExhaustedNode { c_t_star: f32 },
 }
 
+#[derive(Debug)]
 pub struct INTTransitions<'a, P> {
     pub(crate) a_1: INTTransition<'a>,
     pub(crate) transitions: Vec<INTTransition<'a>>,
@@ -19,24 +21,21 @@ pub struct INTTransitions<'a, P> {
 impl<P> INTMinTree<P> {
     pub fn simulate_once<'a, Space>(
         &'a mut self,
-        n_0: &mut (impl TreeNode<Path = P, State = Space::State> + TreeNodeFor<Space>),
+        n_0: &mut impl TreeNode<Path = P, State = Space::State>,
+        upper_estimate: &impl Fn(UpperEstimateData) -> f32,
     ) -> INTTransitions<'a, P>
     where
         // Space::Action: Action<Space>,
         Space: StateActionSpace,
         P: ActionPathFor<Space> + Ord,
-        // N: TreeNode<Path = P> + TreeNodeFor<Space>,
-        // N: TreeNode<Path = P>,
-        // N::Action: Action<N>,
-        // N::Path: Ord,
     {
         let Self { root_data, data } = self;
-        debug_assert_eq!(
-            root_data.visited_actions.len(),
-            Space::actions(n_0.state()).count(),
-            // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
-        );
-        let a_1 = root_data.best_action().unwrap();
+        // debug_assert_eq!(
+        //     root_data.visited_actions.len(),
+        //     Space::actions(n_0.state()).count(),
+        //     // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
+        // );
+        let a_1 = root_data.best_action(upper_estimate).unwrap();
         let action_1 = Space::from_index(a_1.index());
         let n_i = n_0;
         n_i.apply_action(&action_1);
@@ -89,7 +88,7 @@ impl<P> INTMinTree<P> {
                 Space::actions(n_i.state()).count(),
                 // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
             );
-            let a_i_plus_one = state_data.best_action().unwrap();
+            let a_i_plus_one = state_data.best_action(upper_estimate).unwrap();
             let action_i_plus_1 = Space::from_index(a_i_plus_one.index());
 
             // dbg!(a_i_plus_one);

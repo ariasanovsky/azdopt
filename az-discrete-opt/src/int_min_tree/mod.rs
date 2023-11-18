@@ -9,9 +9,10 @@ pub mod simulate_once;
 pub mod state_data;
 pub mod update;
 
+#[derive(Debug)]
 pub struct INTMinTree<P> {
-    root_data: INTStateData,
-    data: Vec<BTreeMap<P, StateDataKind>>,
+    pub(crate) root_data: INTStateData,
+    pub(crate) data: Vec<BTreeMap<P, StateDataKind>>,
 }
 
 impl<P> INTMinTree<P> {

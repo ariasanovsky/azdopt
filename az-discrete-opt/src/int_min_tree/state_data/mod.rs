@@ -48,12 +48,20 @@ impl StateDataKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct INTStateData {
     pub(crate) n_s: usize,
     pub(crate) c_star: f32,
     pub(crate) visited_actions: Vec<INTVisitedActionData>,
     pub(crate) unvisited_actions: Vec<INTUnvisitedActionData>,
+}
+
+pub struct UpperEstimateData {
+    pub n_s: usize,
+    pub n_sa: usize,
+    pub g_sa_sum: f32,
+    pub p_sa: f32,
+    pub depth: usize,
 }
 
 impl INTStateData {
@@ -80,27 +88,30 @@ impl INTStateData {
         values[0] = value / n_s;
     }
 
-    pub fn best_action(&mut self) -> Option<INTTransition> {
+    pub fn best_action(
+        &mut self,
+        upper_estimate: &impl Fn(UpperEstimateData) -> f32,
+    ) -> Option<INTTransition> {
         let Self {
             n_s: _,
             c_star: _,
             visited_actions,
             unvisited_actions,
         } = self;
-        let upper_estimate = |g_sa_sum: f32, p_sa: f32, n_s: usize, n_sa: usize| {
-            debug_assert_ne!(n_s, 0);
-            debug_assert_ne!(n_sa, 0);
-            let n_s = n_s as f32;
-            let n_sa = n_sa as f32;
-            let p_sa = p_sa;
-            let c_puct = C_PUCT;
-            let g_sa = g_sa_sum / n_sa;
-            let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
-            // println!(
-            //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
-            // );
-            u_sa
-        };
+        // let upper_estimate = |g_sa_sum: f32, p_sa: f32, n_s: usize, n_sa: usize| {
+        //     debug_assert_ne!(n_s, 0);
+        //     debug_assert_ne!(n_sa, 0);
+        //     let n_s = n_s as f32;
+        //     let n_sa = n_sa as f32;
+        //     let p_sa = p_sa;
+        //     let c_puct = C_PUCT;
+        //     let g_sa = g_sa_sum / n_sa;
+        //     let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
+        //     // println!(
+        //     //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
+        //     // );
+        //     u_sa
+        // };
         visited_actions.iter_mut().for_each(|a| {
             let INTVisitedActionData {
                 a: _,
@@ -109,13 +120,27 @@ impl INTStateData {
                 g_sa_sum,
                 u_sa,
             } = a;
-            *u_sa = upper_estimate(*g_sa_sum, *p_sa, self.n_s, *n_sa);
+            let est_data = UpperEstimateData {
+                n_s: self.n_s,
+                n_sa: *n_sa,
+                g_sa_sum: *g_sa_sum,
+                p_sa: *p_sa,
+                depth: 0,
+            };
+            *u_sa = upper_estimate(est_data);
         });
         visited_actions.sort_by(|a, b| a.u_sa.partial_cmp(&b.u_sa).unwrap());
         let best_visited_action_estimate: Option<f32> = visited_actions.last().map(|a| a.u_sa);
         let best_unvisited_action_estimate: Option<f32> = unvisited_actions.last().map(|a| {
             let INTUnvisitedActionData { a: _, p_sa, } = a;
-            upper_estimate(0.0, *p_sa, self.n_s, 1)
+            let est_data = UpperEstimateData {
+                n_s: self.n_s,
+                n_sa: 1,
+                g_sa_sum: 0.0,
+                p_sa: *p_sa,
+                depth: 0,
+            };
+            upper_estimate(est_data)
         });
         // dbg!(best_visited_action_estimate, best_unvisited_action_estimate);
         let kind = match (best_visited_action_estimate, best_unvisited_action_estimate) {
