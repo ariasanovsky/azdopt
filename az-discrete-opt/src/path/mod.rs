@@ -11,6 +11,7 @@ pub trait ActionPath {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    fn clear(&mut self);
     /// # Safety
     /// `action` must be a valid index for `Space`
     unsafe fn push_unchecked(&mut self, action: usize);

@@ -127,7 +127,8 @@ fn transitions_for_minimizing_n_square_are_correct() {
     let mut s_t = s_0.clone();
     let mut p_t = P::new();
     // let mut n_0 = MutRefNode::new(&mut s_t, &mut p_t);
-    let mut transitions = tree.simulate_once::<Space>(&mut s_t, &mut p_t, &upper_estimate);
+    let mut transitions = vec![];
+    let mut end = tree.simulate_once::<Space>(&mut s_t, &mut p_t, &mut transitions, &upper_estimate);
     // dbg!(&transitions, &s_t, &p_t);
     // transitions.update_existing_nodes(c_t, s_t, p_t, probs_t, g_star_theta_s_t)
     todo!("assert eq")

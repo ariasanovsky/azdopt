@@ -7,27 +7,26 @@ use crate::{
     path::ActionPathFor,
     space::StateActionSpace,
     state::cost::Cost,
-    tree_node::TreeNode,
 };
 
+use super::transition::INTTransition;
+
 impl<'a, P> INTTransitions<'a, P> {
-    pub fn update_existing_nodes<N, Space>(
+    pub fn update_existing_nodes<Space>(
         self,
         c_t: &impl Cost<f32>,
         s_t: &Space::State,
         probs_t: &[f32],
         g_star_theta_s_t: &[f32],
+        transitions: &mut [INTTransition<'a>],
     ) -> Option<NewTreeLevel<P>>
     where
         Space: StateActionSpace,
         P: ActionPathFor<Space> + Ord,
-        N: TreeNode<Path = P, State = Space::State>,
         P: Ord + Clone,
-        // N::Action: Action<N>,
     {
         debug_assert_eq!(g_star_theta_s_t.len(), 1);
         let INTTransitions {
-            mut transitions,
             end,
             p_t,
         } = self;
@@ -77,23 +76,28 @@ impl<'a, P> INTTransitions<'a, P> {
         let (a_1, transitions) = transitions
             .split_first_mut()
             .expect("there should be at least one transition");
-        let mut transitions = transitions.iter_mut().rev();
+        let transitions = transitions.iter_mut().rev();
         // a cascade begins if the transition s_{t-1} -[a_t]-> s_t has s_t exhausted (necessarily, s_{t-1} is active)
         // since a_t leads to an exhausted node, we update s_{t-1}'s action data by removing a_t
         // if this exhausts s_{t-1}, s_{t-1} is marked as exhausted and the cascade continues
         // during the cascade, we
+        // todo! debug the cascade
         let mut c_i_star = match c_t_star {
-            CStarEndState::Terminal(c_t_star) => {
-                let mut c_i_star = c_t_star;
-                for a_i_plus_one in transitions.by_ref() {
-                    if !a_i_plus_one.cascade_update(&mut c_i_star) {
-                        break;
-                    }
-                }
-                c_i_star
-            }
-            CStarEndState::Active(c_t_star) => c_t_star,
+            CStarEndState::Terminal(c) => c,
+            CStarEndState::Active(c) => c,
         };
+        // let mut c_i_star = match c_t_star {
+        //     CStarEndState::Terminal(c_t_star) => {
+        //         let mut c_i_star = c_t_star;
+        //         for a_i_plus_one in transitions.by_ref() {
+        //             if !a_i_plus_one.cascade_update(&mut c_i_star) {
+        //                 break;
+        //             }
+        //         }
+        //         c_i_star
+        //     }
+        //     CStarEndState::Active(c_t_star) => c_t_star,
+        // };
         transitions.for_each(|a_i_plus_one| {
             a_i_plus_one.update(&mut c_i_star);
         });

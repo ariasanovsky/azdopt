@@ -17,7 +17,6 @@ pub(crate) enum EndNodeAndLevel<'a, P> {
 
 #[derive(Debug)]
 pub struct INTTransitions<'a, P> {
-    pub(crate) transitions: Vec<INTTransition<'a>>,
     pub(crate) end: EndNodeAndLevel<'a, P>,
     pub(crate) p_t: &'a P,
 }
@@ -25,28 +24,30 @@ pub struct INTTransitions<'a, P> {
 impl<P> INTMinTree<P> {
     pub fn simulate_once<'a, Space>(
         &'a mut self,
-        s_0: &mut Space::State,
-        p_0: &'a mut P,
+        root_state: &mut Space::State,
+        cleared_path: &'a mut P,
+        cleared_transitions: &mut Vec<INTTransition<'a>>,
         upper_estimate: &impl Fn(UpperEstimateData) -> f32,
     ) -> INTTransitions<'a, P>
     where
-        // Space::Action: Action<Space>,
         Space: StateActionSpace,
         P: ActionPathFor<Space> + Ord,
     {
         let Self { root_data, data } = self;
-        // debug_assert_eq!(
-        //     root_data.visited_actions.len(),
-        //     Space::actions(n_0.state()).count(),
-        //     // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
-        // );
+        // dbg!();
+        debug_assert_eq!(
+            root_data.len(),
+            Space::actions(root_state).count(),
+            // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
+        );
         let a_1 = root_data.best_action(upper_estimate).unwrap();
         let action_1 = Space::from_index(a_1.index());
-        let s_i = s_0;
-        let p_i = p_0;
+        let s_i = root_state;
+        let p_i = cleared_path;
         Space::act(s_i, &action_1);
         p_i.push(&action_1);
-        let mut transitions: Vec<_> = vec![a_1];
+        cleared_transitions.push(a_1);
+        let transitions = cleared_transitions;
 
         for data in data.iter_mut() {
             // Polonius case III: https://github.com/rust-lang/rfcs/blob/master/text/2094-nll.md#problem-case-3-conditional-control-flow-across-functions
@@ -67,7 +68,6 @@ impl<P> INTMinTree<P> {
                 Some(Some(c_t_star)) => {
                     let end = EndNodeAndLevel::OldExhaustedNode { c_t_star };
                     return INTTransitions {
-                        transitions,
                         end,
                         p_t: p_i,
                     };
@@ -76,7 +76,6 @@ impl<P> INTMinTree<P> {
                 None => {
                     let end = EndNodeAndLevel::NewNodeOldLevel(data);
                     return INTTransitions {
-                        transitions,
                         end,
                         p_t: p_i,
                     };
@@ -86,11 +85,11 @@ impl<P> INTMinTree<P> {
                 Some(StateDataKind::Active { data }) => data,
                 _ => unreachable!("this should be unreachable"),
             };
-            debug_assert_eq!(
-                state_data.visited_actions.len(),
-                Space::actions(s_i).count(),
-                // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
-            );
+            // debug_assert_eq!(
+            //     state_data.len(),
+            //     Space::actions(s_i).count(),
+            //     // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
+            // );
             let a_i_plus_one = state_data.best_action(upper_estimate).unwrap();
             let action_i_plus_1 = Space::from_index(a_i_plus_one.index());
 
@@ -113,7 +112,6 @@ impl<P> INTMinTree<P> {
             p_i.push(&action_i_plus_1);
         }
         INTTransitions {
-            transitions,
             end: EndNodeAndLevel::NewNodeNewLevel,
             p_t: p_i,
         }

@@ -32,6 +32,7 @@ impl<'a> INTTransition<'a> {
     }
 
     pub(crate) fn cascade_update(&mut self, c_star_i_plus_one: &mut f32) -> bool {
+        dbg!();
         let Self { data_i, kind } = self;
         let exhausted = match data_i {
             StateDataKindMutRef::Exhausted { c_t_star: _ } => {

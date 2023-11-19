@@ -20,7 +20,9 @@ impl StateDataKind {
         if Space::is_terminal(state) {
             return Self::Exhausted { c_t_star: cost };
         }
-        let p_sum = Space::actions(state).map(|a| probs[a]).sum::<f32>();
+        let mut c = 0;
+        let p_sum = Space::actions(state).map(|a| { c += 1; probs[a] }).sum::<f32>();
+        debug_assert_ne!(c, 0);
         let mut unvisited_actions = Space::actions(state)
             .map(|a| INTUnvisitedActionData {
                 a,
@@ -61,6 +63,10 @@ pub struct UpperEstimateData {
 }
 
 impl INTStateData {
+    pub fn len(&self) -> usize {
+        self.visited_actions.len() + self.unvisited_actions.len()
+    }
+    
     pub fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
         probs.fill(0.0);
         debug_assert_eq!(values.len(), 1);

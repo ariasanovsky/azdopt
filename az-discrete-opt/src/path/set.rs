@@ -27,6 +27,10 @@ impl ActionPath for ActionSet {
         self.actions.is_empty()
     }
 
+    fn clear(&mut self) {
+        self.actions.clear();
+    }
+
     fn push<Space>(&mut self, action: &Space::Action)
     where
         Space: crate::space::StateActionSpace,
