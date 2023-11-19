@@ -145,7 +145,7 @@ fn main() -> eyre::Result<()> {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
         let cost = tree.conjecture_2_1_cost();
-        if cost.cost() < 5.8 {
+        if cost.cost() < 5.5 {
             println!("cost = {cost:?}");
             println!("evaluates to: {}", cost.cost());
             println!("s = {s:?}");
@@ -164,7 +164,7 @@ fn main() -> eyre::Result<()> {
         debug_assert_ne!(n_sa, 0);
         let n_s = n_s as f32;
         let n_sa = n_sa as f32;
-        let c_puct = 1.0;
+        let c_puct = 10.0;
         let g_sa = g_sa_sum / n_sa;
         let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
         // println!(
@@ -349,6 +349,7 @@ fn main() -> eyre::Result<()> {
             let cross_entropy =
                 cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
             let entropy = cross_entropy.array();
+            println!("entropy: {:?}", entropy);
             let mut gradients = cross_entropy.backward();
             core_optimizer.update(&mut core_model, &gradients)
                 .expect("optimizer failed");
@@ -360,6 +361,7 @@ fn main() -> eyre::Result<()> {
             let predicted_values = value_model.forward(traced_predictions);
             let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
             let mse = value_loss.array();
+            println!("mse: {:?}", mse);
             let mut gradients = value_loss.backward();
             core_optimizer.update(&mut core_model, &gradients)
                 .expect("optimizer failed");
@@ -367,26 +369,28 @@ fn main() -> eyre::Result<()> {
         }
         if logits_and_cross {
             let root_tensor = dev.tensor(v_t);
-            let traced_predictions = core_model.forward(root_tensor.leaky_traced());
-            let predicted_logits = logits_model.forward(traced_predictions);
+            let traced_predictions = core_model.forward(root_tensor);
+            let predicted_logits = logits_model.forward(traced_predictions.leaky_traced());
             let cross_entropy =
                 cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
             let entropy = cross_entropy.array();
+            println!("entropy: {:?}", entropy);
             let mut gradients = cross_entropy.backward();
             logits_optimizer.update(&mut logits_model, &gradients)
                 .expect("optimizer failed");
-            core_model.zero_grads(&mut gradients);
+            logits_model.zero_grads(&mut gradients);
         }
         if value_and_mse {
             let root_tensor = dev.tensor(v_t);
-            let traced_predictions = core_model.forward(root_tensor.leaky_traced());
-            let predicted_values = value_model.forward(traced_predictions);
+            let traced_predictions = core_model.forward(root_tensor);
+            let predicted_values = value_model.forward(traced_predictions.leaky_traced());
             let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
             let mse = value_loss.array();
+            println!("mse: {:?}", mse);
             let mut gradients = value_loss.backward();
             value_optimizer.update(&mut value_model, &gradients)
                 .expect("optimizer failed");
-            core_model.zero_grads(&mut gradients);
+            value_model.zero_grads(&mut gradients);
         }
         // dbg!(&gradients);
         
