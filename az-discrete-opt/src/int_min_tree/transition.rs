@@ -32,6 +32,7 @@ impl<'a> INTTransition<'a> {
     }
 
     pub(crate) fn cascade_update(&mut self, c_star_i_plus_one: &mut f32) -> bool {
+        todo!("when used in `update_existing_nodes`, we seem to remove all actions from a state but do not mark it exhausted; to investigate");
         dbg!();
         let Self { data_i, kind } = self;
         let exhausted = match data_i {
@@ -41,13 +42,15 @@ impl<'a> INTTransition<'a> {
             StateDataKindMutRef::Active { data } => {
                 let INTStateData {
                     n_s,
-                    c_star,
+                    c_s,
+                    c_s_star,
                     visited_actions,
                     unvisited_actions,
                 } = data;
                 *n_s += 1;
-                *c_star_i_plus_one = c_star_i_plus_one.min(*c_star);
-                *c_star = *c_star_i_plus_one;
+                // *c_star_i_plus_one = c_star_i_plus_one.min(*c_s);
+                *c_star_i_plus_one = c_star_i_plus_one.min(*c_s_star);
+                *c_s_star = *c_star_i_plus_one;
                 match kind {
                     TransitionKind::LastUnvisitedAction => {
                         // remove the last unvisited action from `data`
@@ -87,7 +90,8 @@ impl<'a> INTTransition<'a> {
             StateDataKindMutRef::Active { data } => {
                 let INTStateData {
                     n_s,
-                    c_star,
+                    c_s,
+                    c_s_star,
                     visited_actions,
                     unvisited_actions,
                 } = data;
@@ -101,7 +105,8 @@ impl<'a> INTTransition<'a> {
                             a,
                             p_sa,
                             n_sa: 1,
-                            g_sa_sum: *c_star - *c_star_theta_i_plus_one,
+                            g_sa_sum: *c_s_star - *c_star_theta_i_plus_one,
+                            // g_sa_sum: *c_s - *c_star_theta_i_plus_one,
                             u_sa: 0.0,
                         };
                         // `u_sa` in an invalid state, but we'll update it before sorting
@@ -110,20 +115,14 @@ impl<'a> INTTransition<'a> {
                     TransitionKind::LastVisitedAction => {
                         let visited_action =
                             visited_actions.last_mut().expect("no visited actions");
-                        visited_action.update(*c_star - *c_star_theta_i_plus_one);
+                        visited_action.update(*c_s - *c_star_theta_i_plus_one);
                         // `u_sa` in an invalid state, but we'll update it before sorting
                     }
                 }
-                *c_star = c_star_theta_i_plus_one.min(*c_star);
-                *c_star_theta_i_plus_one = *c_star;
+                // *c_star_theta_i_plus_one = c_star_theta_i_plus_one.min(*c_s);
+                *c_star_theta_i_plus_one = c_star_theta_i_plus_one.min(*c_s_star);
+                *c_s_star = *c_star_theta_i_plus_one;
             }
-        }
-    }
-
-    pub fn c_i_star(&self) -> f32 {
-        match &self.data_i {
-            StateDataKindMutRef::Exhausted { c_t_star } => *c_t_star,
-            StateDataKindMutRef::Active { data } => data.c_star,
         }
     }
 }

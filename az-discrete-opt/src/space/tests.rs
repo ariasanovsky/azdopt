@@ -114,7 +114,8 @@ fn transitions_for_minimizing_n_square_are_correct() {
     let mut tree = Tree::new::<Space>(&prediction(&s_0), cost(&s_0), &s_0);
     let correct_root_data = INTStateData {
         n_s: 0,
-        c_star: 9.0,
+        c_s: 9.0,
+        c_s_star: 9.0,
         visited_actions: vec![],
         unvisited_actions: vec![
             INTUnvisitedActionData { a: 0, p_sa: 0.25 },
@@ -128,7 +129,7 @@ fn transitions_for_minimizing_n_square_are_correct() {
     let mut p_t = P::new();
     // let mut n_0 = MutRefNode::new(&mut s_t, &mut p_t);
     let mut transitions = vec![];
-    let mut end = tree.simulate_once::<Space>(&mut s_t, &mut p_t, &mut transitions, &upper_estimate);
+    let _end = tree.simulate_once::<Space>(&mut s_t, &mut p_t, &mut transitions, &upper_estimate);
     // dbg!(&transitions, &s_t, &p_t);
     // transitions.update_existing_nodes(c_t, s_t, p_t, probs_t, g_star_theta_s_t)
     todo!("assert eq")

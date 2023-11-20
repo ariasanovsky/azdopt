@@ -32,7 +32,8 @@ impl StateDataKind {
         unvisited_actions.sort_by(|a, b| a.p_sa.partial_cmp(&b.p_sa).unwrap());
         let data = INTStateData {
             n_s: 0,
-            c_star: cost,
+            c_s: cost,
+            c_s_star: cost,
             visited_actions: vec![],
             unvisited_actions,
         };
@@ -49,7 +50,8 @@ impl StateDataKind {
 #[derive(Debug, PartialEq)]
 pub struct INTStateData {
     pub(crate) n_s: usize,
-    pub(crate) c_star: f32,
+    pub(crate) c_s: f32,
+    pub(crate) c_s_star: f32,
     pub(crate) visited_actions: Vec<INTVisitedActionData>,
     pub(crate) unvisited_actions: Vec<INTUnvisitedActionData>,
 }
@@ -72,7 +74,8 @@ impl INTStateData {
         debug_assert_eq!(values.len(), 1);
         let Self {
             n_s,
-            c_star: _,
+            c_s: _,
+            c_s_star: _,
             visited_actions,
             unvisited_actions: _,
         } = self;
@@ -100,24 +103,11 @@ impl INTStateData {
     ) -> Option<INTTransition> {
         let Self {
             n_s: _,
-            c_star: _,
+            c_s: _,
+            c_s_star: _,
             visited_actions,
             unvisited_actions,
         } = self;
-        // let upper_estimate = |g_sa_sum: f32, p_sa: f32, n_s: usize, n_sa: usize| {
-        //     debug_assert_ne!(n_s, 0);
-        //     debug_assert_ne!(n_sa, 0);
-        //     let n_s = n_s as f32;
-        //     let n_sa = n_sa as f32;
-        //     let p_sa = p_sa;
-        //     let c_puct = C_PUCT;
-        //     let g_sa = g_sa_sum / n_sa;
-        //     let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
-        //     // println!(
-        //     //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
-        //     // );
-        //     u_sa
-        // };
         visited_actions.iter_mut().for_each(|a| {
             let INTVisitedActionData {
                 a: _,
