@@ -12,7 +12,7 @@ use std::{
 
 use az_discrete_opt::{
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
-    log::{ShortRootData, SimpleRootLog},
+    log::{RootCandidateData, NextEpochRoot},
     path::{set::ActionSet, ActionPath},
     space::{ActionSpace, StateSpace, StateSpaceVec},
     state::{cost::Cost, prohibit::WithProhibitions},
@@ -38,7 +38,7 @@ type P = ActionSet;
 
 type Tree = INTMinTree<P>;
 type C = Conjecture2Dot1Cost;
-type Log = SimpleRootLog<S, C>;
+// type Log = SimpleRootLog<S, C>;
 
 const ACTION: usize = N * (N - 2);
 const RAW_STATE: usize = N * (N - 2);
@@ -134,33 +134,7 @@ fn main() -> eyre::Result<()> {
     // observation arrays
     let mut observed_probabilities: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
     let mut observed_values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
-    // generate states
-    let default_prohibitions = |s: &RawState| {
-        s.entries().map(|e| e.index::<Space>()).collect::<Vec<_>>()
-    };
-    let random_state = |rng: &mut ThreadRng| loop {
-        let code = PrueferCode::generate(rng);
-        let prohibited_actions = default_prohibitions(&code);
-        let state = WithProhibitions::new(code.clone(), prohibited_actions);
-        if !state.is_terminal::<Space>() {
-            break state;
-        }
-    };
-    let mut s_0: [S; BATCH] = par_init_map(|| rand::thread_rng(), random_state);
-
-    // calculate costs
-    let cost = |s: &S| {
-        type T = graph_state::simple_graph::tree::Tree<N>;
-        let tree = T::from(&s.state);
-        let cost = tree.conjecture_2_1_cost();
-        if cost.cost() < 100.0 {
-            println!("\tcost = {cost:?}");
-            println!("\tevaluates to: {}", cost.cost());
-            println!("\ts = {s:?}");
-        }
-        cost
-    };
-
+    
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
             n_s,
@@ -180,39 +154,73 @@ fn main() -> eyre::Result<()> {
         // );
         u_sa
     };
-
-    let mut c_t: [C; BATCH] = core::array::from_fn(|_| Default::default());
-    (&s_0, &mut c_t)
-        .into_par_iter()
-        .for_each(|(s_t, c_t)| {
-            let Conjecture2Dot1Cost {
-                matching: m_t,
-                lambda_1: l_1_t,
-            } = c_t;
-            let Conjecture2Dot1Cost { matching, lambda_1 } = cost(s_t);
-            *m_t = matching;
-            *l_1_t = lambda_1;
-        });
-
-    // set logs
-    let mut logs: [Log; BATCH] = {
-        let mut logs: [MaybeUninit<Log>; BATCH] = MaybeUninit::uninit_array();
-        (&mut logs, &s_0, &c_t)
-            .into_par_iter()
-            .for_each(|(l, s, cost)| {
-                l.write(Log::new(cost, s));
-            });
-        unsafe { MaybeUninit::array_assume_init(logs) }
+    
+    // generate states
+    let default_prohibitions = |s: &RawState| {
+        s.entries().map(|e| e.index::<Space>()).collect::<Vec<_>>()
     };
+    let random_state = |rng: &mut ThreadRng| loop {
+        let code = PrueferCode::generate(rng);
+        let prohibited_actions = default_prohibitions(&code);
+        let state = WithProhibitions::new(code.clone(), prohibited_actions);
+        if !state.is_terminal::<Space>() {
+            break state;
+        }
+    };
+    // let mut s_0: [S; BATCH] = par_init_map(|| rand::thread_rng(), random_state);
+    // calculate costs
+    let cost = |s: &S| {
+        type T = graph_state::simple_graph::tree::Tree<N>;
+        let tree = T::from(&s.state);
+        let cost = tree.conjecture_2_1_cost();
+        if cost.cost() < 100.0 {
+            println!("\tcost = {cost:?}");
+            println!("\tevaluates to: {}", cost.cost());
+            println!("\ts = {s:?}");
+        }
+        cost
+    };
+    let (
+        mut s_0,
+        mut c_t,
+        mut next_root,
+    ): (
+        [S; BATCH],
+        [C; BATCH],
+        [NextEpochRoot<S, C>; BATCH],
+    ) = {
+        let mut s_0: [MaybeUninit<S>; BATCH] = MaybeUninit::uninit_array();
+        let mut c_t: [MaybeUninit<C>; BATCH] = MaybeUninit::uninit_array();
+        let mut next_root: [MaybeUninit<NextEpochRoot<S, C>>; BATCH] = MaybeUninit::uninit_array();
+        (&mut s_0, &mut c_t, &mut next_root)
+            .into_par_iter()
+            .for_each_init(
+                || rand::thread_rng(),
+                |rng, (s_t, c_t, next_root)| {
+                    let s = random_state(rng);
+                    let c = cost(&s);
+                    next_root.write(NextEpochRoot::new(s.clone(), c.clone()));
+                    s_t.write(s);
+                    c_t.write(c);
+                },
+            );
+        (
+            unsafe { MaybeUninit::array_assume_init(s_0) },
+            unsafe { MaybeUninit::array_assume_init(c_t) },
+            unsafe { MaybeUninit::array_assume_init(next_root) },
+        )
+    };
+    
     let mut argmin =
-        logs
-        .iter()
-        .map(|log| log.short_data())
+        next_root
+        .par_iter()
+        .map(|log| log.current_candidate())
         .max_by(|a, b| {
             a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
         }).unwrap();
 
     let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
+    let mut candidate_data: [Vec<RootCandidateData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
@@ -270,10 +278,12 @@ fn main() -> eyre::Result<()> {
                 s_t.write_vec::<Space>(v_t);
             });
 
-            (&mut logs, &s_t, &c_t)
+            (&mut next_root, &mut candidate_data, &s_t, &c_t)
                 .into_par_iter()
-                .for_each(|(l, s_t, c_t)| {
-                    l.update(s_t, c_t);
+                .for_each(|(l, candidate_data, s_t, c_t)| {
+                    if let Some(data) = l.post_episode_update(s_t, c_t) {
+                        candidate_data.push(data);
+                    }
                 });
             // copy tree root state vectors into tensor
             // propagate through core model
@@ -293,7 +303,6 @@ fn main() -> eyre::Result<()> {
             (&mut nodes, ends, &c_t, &s_t, &predicted_values, &predicted_probabilities, &mut transitions)
                 .into_par_iter()
                 .for_each(|(n, end, c_t, s_t, v, probs_t, trans)| {
-                    // let c = m.len() as f32 + *l as f32;
                     *n = end.update_existing_nodes::<Space>(c_t, s_t, probs_t, v, trans);
                 });
             // insert nodes into trees
@@ -379,72 +388,23 @@ fn main() -> eyre::Result<()> {
         all_losses.push((entropy, mse));
         println!("all_losses: {all_losses:?}");
 
-        let mut short_data: [Vec<ShortRootData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
-        (&mut logs, &mut s_0, &mut c_t, &mut short_data)
+        (&mut next_root, &mut s_0, &mut c_t, &mut candidate_data)
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
-                |rng, (log, s_0, c_t, d)| {
-                    /* at the end of an epoch:
-                     * 1. check for stagnation
-                         * a. if stagnated, randomize root
-                         * b. else, reset to a random time
-                     * 2.
-                     */
-                    match log.stagnation() {
-                        Some(stag) if stag > max_before_resetting_states /* && DEBUG_FALSE */ => {
-                            // todo! s.reset_with(...);
-                            // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
-                            // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
-                            let r = random_state(rng);
-                            s_0.clone_from(&r);
-                            log.reset_root(s_0, &cost(&s_0));
-                            log.zero_stagnation();
-                        },
-                        Some(stag) if stag > max_before_resetting_actions /* && DEBUG_FALSE */ => {
-                            // todo! s.reset_with(...);
-                            // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
-                            // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
-                            s_0.prohibited_actions = s_0.state.entries().map(|e| e.index::<Space>()).collect();
-                            log.reset_root(s_0, &cost(&s_0));
-                        },
-                        Some(_) => {
-                            // todo! should `increment_stagnation` be private?
-                            // maybe an `empty epoch` method is needed?
-                            // return a `Vec` of serializable data to write to file instead of storing?
-                            log.increment_stagnation();
-                            // let t = rng.gen_range(1..=max_time);
-                            // log.next_root_mut().reset(t);
-                            // s_0.reset(t);
-                        },
-                        None => {
-                            log.zero_stagnation();
-                            // let t = rng.gen_range(1..=max_time);
-                            // log.next_root_mut().reset(t);
-                            s_0.clone_from(log.next_root());
-                        },
-                    }
-                    if (*s_0).is_terminal::<Space>() {
-                        let default_prohibitions = default_prohibitions(&s_0.state);
-                        *s_0 = WithProhibitions::new(s_0.state.clone(), default_prohibitions);
-                        if (*s_0).is_terminal::<Space>() {
-                            let r = random_state(rng);
-                            s_0.clone_from(&r);
-                            log.reset_root(s_0, &cost(&s_0));
-                        }
-                    }
-                    c_t.clone_from(log.root_cost());
-                    log.empty_root_data(d);
-                },
+                |rng, (next_root, s_0, c_t, d)| {
+                    todo!()
+                }
             );
-        let epoch_argmin = logs.par_iter().map(|log| log.short_data()).max_by(|a, b| {
+        todo!("
+        let epoch_argmin = logs.par_iter().map(|log| log.short_data()).max_by(|a, b| {{
             a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
-        }).unwrap();
-        if epoch_argmin.cost().cost() < argmin.cost().cost() {
+        }}).unwrap();
+        if epoch_argmin.cost().cost() < argmin.cost().cost() {{
             argmin = epoch_argmin;
-            println!("new min = {}", argmin.cost().cost());
-            println!("argmin  = {argmin:?}");
-        }
+            println!(\"new min = {{}}\", argmin.cost().cost());
+            println!(\"argmin  = {argmin:?}\");
+        }}");
         // write {short_data:?} to out_dir/epoch{epoch}.json
         let epoch_path = out_dir.join(format!("epoch{epoch}")).with_extension("json");
         let mut epoch_file =
@@ -452,7 +412,7 @@ fn main() -> eyre::Result<()> {
         // we print format!("{short_data:?}") to the file
         // we are not using serde lol
         epoch_file
-            .write_all(format!("{short_data:?}").as_bytes())
+            .write_all(format!("{candidate_data:?}").as_bytes())
             .wrap_err("failed to write epoch file")?;
     }
     dbg!(&out_dir);
