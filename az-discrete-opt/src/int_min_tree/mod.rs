@@ -4,28 +4,25 @@ use crate::space::StateActionSpace;
 
 use self::state_data::{INTStateData, StateDataKind};
 
-pub mod transition;
 pub mod simulate_once;
 pub mod state_data;
+pub mod transition;
 pub mod update;
 
+#[derive(Debug)]
 pub struct INTMinTree<P> {
-    root_data: INTStateData,
-    data: Vec<BTreeMap<P, StateDataKind>>,
+    pub(crate) root_data: INTStateData,
+    pub(crate) data: Vec<BTreeMap<P, StateDataKind>>,
 }
 
 impl<P> INTMinTree<P> {
-    pub fn new<Space>(
-        root_predictions: &[f32],
-        cost: f32,
-        root: &Space::State,
-    ) -> Self
+    pub fn new<Space>(root_predictions: &[f32], cost: f32, root: &Space::State) -> Self
     where
         Space: StateActionSpace,
     {
         Self {
             root_data: match StateDataKind::new::<Space>(root_predictions, cost, root) {
-                StateDataKind::Exhausted { c_t_star } => panic!("root is terminal"),
+                StateDataKind::Exhausted { c_t_star: _ } => panic!("root is terminal"),
                 StateDataKind::Active { data } => data,
             },
             data: Vec::new(),
@@ -53,10 +50,7 @@ impl<P> INTMinTree<P> {
         }
     }
 
-    pub fn insert_node_at_next_level(
-        &mut self,
-        level_t: NewTreeLevel<P>,
-    )
+    pub fn insert_node_at_next_level(&mut self, level_t: NewTreeLevel<P>)
     where
         P: Ord + Clone,
     {
@@ -76,4 +70,3 @@ pub struct NewTreeLevel<P> {
     pub(crate) p_t: P,
     pub(crate) data_t: StateDataKind,
 }
-

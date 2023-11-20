@@ -1,4 +1,7 @@
-use crate::{simple_graph::edge::Edge, bitset::{primitive::B32, bitset::Bitset}};
+use crate::{
+    bitset::{primitive::B32, Bitset},
+    simple_graph::edge::Edge,
+};
 
 use super::ConnectedBitsetGraph;
 
@@ -27,9 +30,20 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         let mut inserted_into: [usize; N] = [0; N];
         let mut explored_vertices = unsafe { B32::singleton_unchecked(0) };
         let mut new_vertices = self.neighborhoods[0].clone();
-        dbg!(&new_vertices, &explored_vertices, &inserted_into, &active_block_indices);
+        dbg!(
+            &new_vertices,
+            &explored_vertices,
+            &inserted_into,
+            &active_block_indices
+        );
         while let Some(v) = new_vertices.remove_max() {
-            dbg!(v, &new_vertices, &explored_vertices, &inserted_into, &active_block_indices);
+            dbg!(
+                v,
+                &new_vertices,
+                &explored_vertices,
+                &inserted_into,
+                &active_block_indices
+            );
             debug_assert!(!explored_vertices.contains(v).unwrap());
             let neighbors: &B32 = &self.neighborhoods[v as usize];
             let unexplored_neighbors = neighbors.minus(&explored_vertices);
@@ -40,7 +54,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             if explored_neighbors.is_singleton() {
                 let u = unsafe { explored_neighbors.max_unchecked() } as usize;
                 let u_i = inserted_into[u];
-                let mut block_positions_below = blocks[u_i as usize].block_positions_below.clone();
+                let mut block_positions_below = blocks[u_i].block_positions_below.clone();
                 let v_i = blocks.len() as u32;
                 debug_assert!(!block_positions_below.contains(v_i).unwrap());
                 unsafe { block_positions_below.add_or_remove_unchecked(v_i) };

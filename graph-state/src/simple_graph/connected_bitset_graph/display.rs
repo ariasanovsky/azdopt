@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::bitset::bitset::Bitset;
+use crate::bitset::Bitset;
 
 use super::ConnectedBitsetGraph;
 

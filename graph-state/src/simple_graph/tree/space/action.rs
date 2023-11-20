@@ -32,9 +32,11 @@ impl core::fmt::Display for PrueferCodeEntry {
 
 #[cfg(test)]
 mod tests {
-    use az_discrete_opt::space::{StateSpace, ActionSpace};
+    use az_discrete_opt::space::{ActionSpace, StateSpace};
 
-    use crate::simple_graph::tree::{PrueferCode, space::modify_any_entry::ModifyAnyPrueferCodeEntry};
+    use crate::simple_graph::tree::{
+        space::modify_any_entry::ModifyAnyPrueferCodeEntry, PrueferCode,
+    };
 
     use super::PrueferCodeEntry;
 
@@ -44,7 +46,8 @@ mod tests {
             [0, 0, 0], // extra 2 entries should be irrelevant
             [1, 1, 1],
             [2, 2, 2],
-        ].map(|code| PrueferCode::<3> { code });
+        ]
+        .map(|code| PrueferCode::<3> { code });
         let correct_actions = [
             [
                 // (0, 0),
@@ -61,15 +64,16 @@ mod tests {
                 (0, 1),
                 // (0, 2),
             ],
-        ].map(|actions| {
-            actions.map(|(i, parent)| PrueferCodeEntry { i, parent })
-        });
+        ]
+        .map(|actions| actions.map(|(i, parent)| PrueferCodeEntry { i, parent }));
         type Space = ModifyAnyPrueferCodeEntry<3>;
         type Action = PrueferCodeEntry;
         for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
-            let actions: Vec<PrueferCodeEntry> = code.actions::<Space>().into_iter().map(|i| {
-                Action::from_index::<Space>(i)
-            }).collect();
+            let actions: Vec<PrueferCodeEntry> = code
+                .actions::<Space>()
+                .into_iter()
+                .map(|i| Action::from_index::<Space>(i))
+                .collect();
             assert_eq!(actions, correct_actions);
             // todo!();
         }

@@ -1,4 +1,4 @@
-use crate::{space::StateActionSpace, tree_node::{TreeNodeFor, MutRefNode}};
+use crate::space::StateActionSpace;
 
 use super::{ActionPath, ActionPathFor};
 
@@ -9,7 +9,9 @@ pub struct ActionSequence {
 
 impl ActionPath for ActionSequence {
     fn new() -> Self {
-        Self { actions: Vec::new() }
+        Self {
+            actions: Vec::new(),
+        }
     }
 
     fn len(&self) -> usize {
@@ -19,19 +21,23 @@ impl ActionPath for ActionSequence {
     unsafe fn push_unchecked(&mut self, action: usize) {
         self.actions.push(action)
     }
+
+    fn is_empty(&self) -> bool {
+        self.actions.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.actions.clear();
+    }
+
+    fn push<Space>(&mut self, action: &Space::Action)
+    where
+        Space: StateActionSpace,
+        Self: ActionPathFor<Space>,
+    {
+        let index = Space::index(action);
+        unsafe { self.push_unchecked(index) }
+    }
 }
 
 unsafe impl<Space: StateActionSpace> ActionPathFor<Space> for ActionSequence {}
-
-impl<'a, Space: StateActionSpace, P> TreeNodeFor<Space> for MutRefNode<'a, Space::State, P>
-where
-    P: ActionPathFor<Space>,
-{
-    fn apply_action(&mut self, action: &<Space as StateActionSpace>::Action) {
-        // todo!("pass in a Fn that updates a");
-        let Self { state, path } = self;
-        let index = Space::index(action);
-        unsafe { path.push_unchecked(index) }
-        Space::act(state, action)
-    }
-}

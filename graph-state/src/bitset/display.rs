@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::bitset::bitset::Bitset;
+use crate::bitset::Bitset;
 
 impl Display for super::primitive::B32 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -4,13 +4,23 @@
 
 use rayon::prelude::*;
 
-use std::{path::{Path, PathBuf}, io::Write, mem::MaybeUninit};
+use std::{
+    io::Write,
+    mem::MaybeUninit,
+    path::{Path, PathBuf},
+};
 
-use az_discrete_opt::{int_min_tree::{INTMinTree, simulate_once::INTTransitions}, log::{SimpleRootLog, ShortRootData}, path::{set::ActionSet, ActionPath}, state::{prohibit::WithProhibitions, cost::Cost}, tree_node::MutRefNode, space::{ActionSpace, StateActionSpace, StateSpaceVec, StateSpace}};
+use az_discrete_opt::{
+    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
+    log::{ShortRootData, SimpleRootLog},
+    path::{set::ActionSet, ActionPath},
+    space::{ActionSpace, StateSpace, StateSpaceVec},
+    state::{cost::Cost, prohibit::WithProhibitions},
+};
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
     connected_bitset_graph::Conjecture2Dot1Cost,
-    tree::{PrueferCode, space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce},
+    tree::{space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce, PrueferCode},
 };
 use rand::rngs::ThreadRng;
 
@@ -24,14 +34,11 @@ type Space = ModifyEachPrueferCodeEntriesExactlyOnce<N>;
 type RawState = PrueferCode<N>;
 type S = WithProhibitions<RawState>;
 type P = ActionSet;
-type Node<'a> = MutRefNode<'a, S, P>;
+// type Node<'a> = MutRefNode<'a, S, P>;
 
 type Tree = INTMinTree<P>;
-type Trans<'a> = INTTransitions<'a, P>;
 type C = Conjecture2Dot1Cost;
 type Log = SimpleRootLog<S, C>;
-
-const DEBUG_FALSE: bool = false;
 
 const ACTION: usize = N * (N - 2);
 const RAW_STATE: usize = N * (N - 2);
@@ -39,23 +46,27 @@ const STATE: usize = RAW_STATE + ACTION;
 type NodeVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 1;
+const BATCH: usize = 64;
 
 const HIDDEN_1: usize = 64;
 const HIDDEN_2: usize = 64;
 
-type Core = (
-    (Linear<STATE, HIDDEN_1>, ReLU),
-    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    // Linear<HIDDEN_2, PREDICTION>,
-);
+// type Core = (
+//     (Linear<STATE, HIDDEN_1>, ReLU),
+//     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
+//     // Linear<HIDDEN_2, PREDICTION>,
+// );
 
 type Logits = (
+    (Linear<STATE, HIDDEN_1>, ReLU),
+    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     Linear<HIDDEN_2, ACTION>,
     // Softmax,
 );
 
 type Valuation = (
+    (Linear<STATE, HIDDEN_1>, ReLU),
+    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     Linear<HIDDEN_2, 1>,
     // Linear<HIDDEN_2, 3>,
 );
@@ -78,149 +89,212 @@ fn main() -> eyre::Result<()> {
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
 
     let epochs: usize = 250;
-    let episodes: usize = 800;
+    let episodes: usize = 100;
     let max_before_resetting_actions = 5;
     let max_before_resetting_states = 10;
 
     let dev = AutoDevice::default();
-    let mut core_model = dev.build_module::<Core, f32>();
+    // let mut core_model = dev.build_module::<Core, f32>();
     let mut logits_model = dev.build_module::<Logits, f32>();
     let mut value_model = dev.build_module::<Valuation, f32>();
-    let mut opt = Adam::new(
-        &core_model,
-        AdamConfig {
-            lr: 1e-3,
-            betas: [0.9, 0.999],
-            eps: 1e-8,
-            weight_decay: Some(WeightDecay::L2(100.)),// Some(WeightDecay::Decoupled(1e-6)),
-        },
-    );
+    
+    let logits_config = AdamConfig {
+        lr: 0.02,
+        betas: [0.9, 0.999],
+        eps: 1e-8,
+        weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
+    };
+    let value_config = AdamConfig {
+        lr: 0.002,
+        betas: [0.9, 0.999],
+        eps: 1e-8,
+        weight_decay: None, //Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
+    };
+    // let mut core_optimizer = Adam::new(&core_model, config.clone());
+    let mut logits_optimizer = Adam::new(&logits_model, logits_config.clone());
+    let mut value_optimizer = Adam::new(&value_model, value_config);
 
+    // gradients
+    let mut logits_gradients = logits_model.alloc_grads();
+    let mut value_gradients = value_model.alloc_grads();
+    
     // we initialize tensors to 0 and fill them as needed, minimizing allocations
-    let mut v_t_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
-    let mut prediction_tensor: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
-    let mut probs_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
+    // input to model
+    let mut state_vector_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
+    // prediction tensors
+    // let mut last_core_layer_prediction: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
+    let mut predicted_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
+    let mut predicted_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
+    // observation tensors
     let mut observed_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
     let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
-
+    // prediction arrays
+    let mut predicted_probabilities: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
+    let mut predicted_values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
+    // observation arrays
+    let mut observed_probabilities: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
+    let mut observed_values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
     // generate states
-    let random_state = |rng: &mut ThreadRng| {
-        loop {
-            let code = PrueferCode::generate(rng);
-            let prohibited_actions = code.entries().map(|e| e.index::<Space>());
-            let state = WithProhibitions::new(code.clone(), prohibited_actions);
-            if !state.is_terminal::<Space>() {
-                break state;
-            }
+    let default_prohibitions = |s: &RawState| {
+        s.entries().map(|e| e.index::<Space>()).collect::<Vec<_>>()
+    };
+    let random_state = |rng: &mut ThreadRng| loop {
+        let code = PrueferCode::generate(rng);
+        let prohibited_actions = default_prohibitions(&code);
+        let state = WithProhibitions::new(code.clone(), prohibited_actions);
+        if !state.is_terminal::<Space>() {
+            break state;
         }
     };
-    let mut s_0: [S; BATCH] =
-        par_init_map(|| rand::thread_rng(), random_state);
+    let mut s_0: [S; BATCH] = par_init_map(|| rand::thread_rng(), random_state);
 
     // calculate costs
     let cost = |s: &S| {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
-        tree.conjecture_2_1_cost()
+        let cost = tree.conjecture_2_1_cost();
+        if cost.cost() < 100.0 {
+            println!("\tcost = {cost:?}");
+            println!("\tevaluates to: {}", cost.cost());
+            println!("\ts = {s:?}");
+        }
+        cost
     };
-    let mut episode_c_t: [C; BATCH] = core::array::from_fn(|_| Default::default());
-    (&s_0, &mut episode_c_t).into_par_iter().for_each(|(s_t, c_t)| {
-        let Conjecture2Dot1Cost {
-            matching: m_t,
-            lambda_1: l_1_t,
-        } = c_t;
-        let Conjecture2Dot1Cost { matching, lambda_1 } = cost(s_t);
-        *m_t = matching;
-        *l_1_t = lambda_1;
-    });
-    
+
+    let upper_estimate = |estimate: UpperEstimateData| {
+        let UpperEstimateData {
+            n_s,
+            n_sa,
+            g_sa_sum,
+            p_sa,
+            depth: _,
+        } = estimate;
+        debug_assert_ne!(n_sa, 0);
+        let n_s = n_s as f32;
+        let n_sa = n_sa as f32;
+        let c_puct = 10.0;
+        let g_sa = g_sa_sum / n_sa;
+        let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
+        // println!(
+        //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
+        // );
+        u_sa
+    };
+
+    let mut c_t: [C; BATCH] = core::array::from_fn(|_| Default::default());
+    (&s_0, &mut c_t)
+        .into_par_iter()
+        .for_each(|(s_t, c_t)| {
+            let Conjecture2Dot1Cost {
+                matching: m_t,
+                lambda_1: l_1_t,
+            } = c_t;
+            let Conjecture2Dot1Cost { matching, lambda_1 } = cost(s_t);
+            *m_t = matching;
+            *l_1_t = lambda_1;
+        });
 
     // set logs
     let mut logs: [Log; BATCH] = {
         let mut logs: [MaybeUninit<Log>; BATCH] = MaybeUninit::uninit_array();
-        (&mut logs, &s_0, &episode_c_t)
+        (&mut logs, &s_0, &c_t)
             .into_par_iter()
             .for_each(|(l, s, cost)| {
                 l.write(Log::new(cost, s));
             });
         unsafe { MaybeUninit::array_assume_init(logs) }
     };
-    //Log::par_new_logs(&s_0, &episode_c_t);
+    let mut argmin =
+        logs
+        .iter()
+        .map(|log| log.short_data())
+        .max_by(|a, b| {
+            a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
+        }).unwrap();
 
+    let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
-        (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
-            s.write_vec::<Space>(v)
-        });
-        println!("s_0[0] = {:?}", s_0[0]);
-        println!("c_0[0] = {:?}", episode_c_t[0]);
-        println!("v_0[0] = {:?}", v_t[0]);
-        v_t_tensor.copy_from(v_t.flatten());
-        prediction_tensor = core_model.forward(v_t_tensor.clone());
-        probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
-        let probs: [ActionVec; BATCH] = probs_tensor.array();
-        println!("probs: {:?}", probs);
+        (&s_0, &mut v_t)
+            .into_par_iter()
+            .for_each(|(s, v)| s.write_vec::<Space>(v));
+        // println!("s_0[0] = {:?}", s_0[0]);
+        // println!("c_0[0] = {:?}", c_t[0]);
+        // println!("v_0[0] = {:?}", v_t[0]);
+        state_vector_tensor.copy_from(v_t.flatten());
+        // last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
+        predicted_probabilities_tensor = logits_model
+            .forward(state_vector_tensor.clone())
+            .softmax::<Axis<1>>();
+        predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
+        // println!("probs: {:?}", predicted_probabilities);
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-            (&mut trees, &probs, &episode_c_t, &s_0)
+            (&mut trees, &predicted_probabilities, &c_t, &s_0)
                 .into_par_iter()
                 .for_each(|(t, root_predictions, cost, root)| {
                     t.write(Tree::new::<Space>(root_predictions, cost.cost(), root));
                 });
-            // Tree::par_new_trees::<Space, BATCH, ACTION, _>(&probs, &episode_c_t, &s_0);
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
-        panic!();
-
-        let mut grads = core_model.alloc_grads();
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
             let mut s_t = s_0.clone();
             // todo! (perf) init once and clear each episode
-            let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
+            let mut transitions: [_; BATCH] = core::array::from_fn(|_| vec![]);
             // todo! tuck away the MU?
-            let transitions: [Trans; BATCH] = {
-                let mut transitions: [MaybeUninit<Trans>; BATCH] = MaybeUninit::uninit_array();
-                (&mut trees, &mut transitions, &mut s_t, &mut p_t).into_par_iter().for_each(|(t, trans, s, p)| {
-                    let mut n_0 = MutRefNode::new(s, p);
-                    trans.write(t.simulate_once::<Space>(&mut n_0));
+            let ends: [_; BATCH] = {
+                let mut ends: [_; BATCH] = MaybeUninit::uninit_array();
+                (&mut trees, &mut transitions, &mut s_t, &mut p_t, &mut ends)
+                    .into_par_iter()
+                    .for_each(|(t, trans, s_t, p_t, end)| {
+                        p_t.clear();
+                        trans.clear();
+                        end.write(t.simulate_once::<Space>(s_t, p_t, trans, &upper_estimate));
+                    });
+                unsafe { MaybeUninit::array_assume_init(ends) }
+            };
+            (&s_t, &mut c_t)
+                .into_par_iter()
+                .for_each(|(s_t, c_t)| {
+                    *c_t = cost(s_t);
                 });
-                // todo!();
-                unsafe { MaybeUninit::array_assume_init(transitions) }
-            };// Tree::par_simulate_once(&mut trees, &mut n_t);
-            (&s_t, &mut episode_c_t).into_par_iter().for_each(|(s_t, c_t)| {
-                *c_t = cost(s_t);
-            });
 
             (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
                 s_t.write_vec::<Space>(v_t);
             });
 
-            (&mut logs, &s_t, &episode_c_t)
+            (&mut logs, &s_t, &c_t)
                 .into_par_iter()
                 .for_each(|(l, s_t, c_t)| {
                     l.update(s_t, c_t);
                 });
-
-            v_t_tensor.copy_from(v_t.flatten());
-            prediction_tensor = core_model.forward(v_t_tensor.clone());
-            probs_tensor = logits_model.forward(prediction_tensor.clone()).softmax::<Axis<1>>();
-            let probs = probs_tensor.array();
-            let values = value_model.forward(prediction_tensor.clone()).array();
-
-            let mut nodes: [Option<_>; BATCH] =
-                core::array::from_fn(|_| None);
-            (&mut nodes, transitions, &episode_c_t, &s_t, &p_t, &values, &probs)
+            // copy tree root state vectors into tensor
+            // propagate through core model
+            state_vector_tensor.copy_from(v_t.flatten());
+            // last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
+            // calculate predicted probabilities
+            // copy predicted probabilities into to host
+            predicted_probabilities_tensor = logits_model
+                .forward(state_vector_tensor.clone())
+                .softmax::<Axis<1>>();
+            predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
+            // calculate predicted values
+            // copy predicted values into host
+            predicted_values_tensor = value_model.forward(state_vector_tensor.clone());
+            predicted_values_tensor.copy_into(predicted_values.flatten_mut());
+            let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
+            (&mut nodes, ends, &c_t, &s_t, &predicted_values, &predicted_probabilities, &mut transitions)
                 .into_par_iter()
-                .for_each(|(n, trans, c_t, s_t, p_t, v, probs_t)| {
+                .for_each(|(n, end, c_t, s_t, v, probs_t, trans)| {
                     // let c = m.len() as f32 + *l as f32;
-                    *n = trans.update_existing_nodes::<Node, Space>(c_t, s_t, p_t, probs_t, v);
+                    *n = end.update_existing_nodes::<Space>(c_t, s_t, probs_t, v, trans);
                 });
             // insert nodes into trees
             (&mut trees, nodes).into_par_iter().for_each(|(t, n)| {
@@ -230,47 +304,83 @@ fn main() -> eyre::Result<()> {
             });
         }
 
-        // trees[0].print_counts();
-        // panic!();
-        let mut probs: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
-        let mut values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
-
-        (&trees, &mut probs, &mut values)
+        (&trees, &mut observed_probabilities, &mut observed_values)
             .into_par_iter()
             .for_each(|(t, p, v)| {
                 t.observe(p, v);
             });
-        println!("values: {:?}", values);
-        observed_probabilities_tensor.copy_from(probs.flatten());
-        observed_values_tensor.copy_from(values.flatten());
+        // println!("values: {:?}", observed_values);
+        observed_probabilities_tensor.copy_from(observed_probabilities.flatten());
+        observed_values_tensor.copy_from(observed_values.flatten());
 
-        (&s_0, &mut v_t).into_par_iter().for_each(|(s, v)| {
-            s.write_vec::<Space>(v)
-        });
-        let root_tensor = dev.tensor(v_t);
-        let traced_predictions = core_model.forward(root_tensor.trace(grads));
-        let predicted_logits = logits_model.forward(traced_predictions);
+        (&s_0, &mut v_t)
+            .into_par_iter()
+            .for_each(|(s, v)| s.write_vec::<Space>(v));
+        
+        // let (
+        //     (
+        //         a,
+        //         c,
+        //     ),
+        //     (
+        //         b,
+        //         d,
+        //     )
+        // ) = &core_model;
+        // let dfdx::nn::modules::Linear {
+        //     weight,
+        //     bias,
+        // } = a;
+        // let core_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
+        // let (
+        //     (a, _),
+        //     (b, _),
+        //     c,
+        // ) = &logits_model;
+        // let dfdx::nn::modules::Linear {
+        //     weight,
+        //     bias,
+        // } = a;
+        // let logits_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
+        // let (
+        //     (a, _),
+        //     (b, _),
+        //     c,
+        // ) = &value_model;
+        // let dfdx::nn::modules::Linear {
+        //     weight,
+        //     bias,
+        // } = a;
+        // let value_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
+        // dbg!(logits_mean, value_mean);
+        
+        // update probability predictions
+        state_vector_tensor.copy_from(v_t.flatten());
+        let predicted_logits_traced = logits_model.forward(state_vector_tensor.clone().traced(logits_gradients));
         let cross_entropy =
-            cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
+            cross_entropy_with_logits_loss(predicted_logits_traced, observed_probabilities_tensor.clone());
         let entropy = cross_entropy.array();
-        grads = cross_entropy.backward();
-
-        let root_tensor = dev.tensor(v_t);
-        let traced_predictions = core_model.forward(root_tensor.trace(grads));
-        let predicted_values = value_model.forward(traced_predictions);
-        let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
-        let mse = value_loss.array();
-        grads = value_loss.backward();
-
-        all_losses.push((entropy, mse));
-        dbg!(&all_losses);
-        opt.update(&mut core_model, &grads)
+        logits_gradients = cross_entropy.backward();
+        logits_optimizer.update(&mut logits_model, &logits_gradients)
             .expect("optimizer failed");
-        core_model.zero_grads(&mut grads);
+        logits_model.zero_grads(&mut logits_gradients);
+        
+        // update mean max gain prediction
+        // todo! unnecessary copy?
+        state_vector_tensor.copy_from(v_t.flatten());
+        let predicted_values_traced = value_model.forward(state_vector_tensor.clone().traced(value_gradients));
+        let value_loss = mse_loss(predicted_values_traced, observed_values_tensor.clone());
+        let mse = value_loss.array();
+        value_gradients = value_loss.backward();
+        value_optimizer.update(&mut value_model, &value_gradients)
+            .expect("optimizer failed");
+        value_model.zero_grads(&mut value_gradients);
+        
+        all_losses.push((entropy, mse));
+        println!("all_losses: {all_losses:?}");
 
         let mut short_data: [Vec<ShortRootData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
-
-        (&mut logs, &mut s_0, &mut episode_c_t, &mut short_data)
+        (&mut logs, &mut s_0, &mut c_t, &mut short_data)
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
@@ -314,10 +424,27 @@ fn main() -> eyre::Result<()> {
                             s_0.clone_from(log.next_root());
                         },
                     }
+                    if (*s_0).is_terminal::<Space>() {
+                        let default_prohibitions = default_prohibitions(&s_0.state);
+                        *s_0 = WithProhibitions::new(s_0.state.clone(), default_prohibitions);
+                        if (*s_0).is_terminal::<Space>() {
+                            let r = random_state(rng);
+                            s_0.clone_from(&r);
+                            log.reset_root(s_0, &cost(&s_0));
+                        }
+                    }
                     c_t.clone_from(log.root_cost());
                     log.empty_root_data(d);
                 },
             );
+        let epoch_argmin = logs.par_iter().map(|log| log.short_data()).max_by(|a, b| {
+            a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
+        }).unwrap();
+        if epoch_argmin.cost().cost() < argmin.cost().cost() {
+            argmin = epoch_argmin;
+            println!("new min = {}", argmin.cost().cost());
+            println!("argmin  = {argmin:?}");
+        }
         // write {short_data:?} to out_dir/epoch{epoch}.json
         let epoch_path = out_dir.join(format!("epoch{epoch}")).with_extension("json");
         let mut epoch_file =

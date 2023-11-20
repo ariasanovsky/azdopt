@@ -1,10 +1,3 @@
-use core::mem::MaybeUninit;
-
-// use rayon::prelude::{
-//     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-//     IntoParallelRefMutIterator, ParallelIterator,
-// };
-
 use crate::iq_min_tree::{ActionMultiset, Transitions};
 
 pub struct SimpleRootLog<S, C = f32> {
@@ -130,6 +123,18 @@ impl<S, C> SimpleRootLog<S, C> {
         self.duration = 0;
     }
 
+    pub fn short_data(&self) -> ShortRootData<C>
+    where
+        S: ShortForm,
+        C: Clone,
+    {
+        ShortRootData {
+            short_form: self.next_root.short_form(),
+            cost: self.root_cost.clone(),
+            duration: self.duration,
+        }
+    }
+
     pub fn empty_root_data(&mut self, other: &mut Vec<ShortRootData<C>>)
     where
         S: ShortForm,
@@ -173,9 +178,27 @@ pub struct ShortRootData<C = f32> {
     duration: usize,
 }
 
+impl<C> ShortRootData<C> {
+    pub fn short_form(&self) -> &str {
+        &self.short_form
+    }
+    
+    pub fn cost(&self) -> &C {
+        &self.cost
+    }
+
+    pub fn duration(&self) -> usize {
+        self.duration
+    }
+}
+
 impl<C: core::fmt::Debug> core::fmt::Debug for ShortRootData<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { short_form, cost, duration} = self;
+        let Self {
+            short_form,
+            cost,
+            duration,
+        } = self;
         f.debug_map()
             .entry(&"short_form", short_form)
             .entry(&"cost", cost)

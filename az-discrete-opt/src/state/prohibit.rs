@@ -9,10 +9,7 @@ pub struct WithProhibitions<S> {
 }
 
 impl<S> WithProhibitions<S> {
-    pub fn new(
-        state: S,
-        prohibited_actions: impl IntoIterator<Item = usize>,
-    ) -> Self {
+    pub fn new(state: S, prohibited_actions: impl IntoIterator<Item = usize>) -> Self {
         Self {
             state,
             prohibited_actions: BTreeSet::from_iter(prohibited_actions),
