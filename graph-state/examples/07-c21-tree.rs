@@ -152,7 +152,8 @@ fn main() -> eyre::Result<()> {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
         let cost = tree.conjecture_2_1_cost();
-        if cost.cost() < 5.0 {
+        if cost.cost() < 5.1 {
+            dbg!();
             println!("cost = {cost:?}");
             println!("evaluates to: {}", cost.cost());
             println!("s = {s:?}");
@@ -207,6 +208,7 @@ fn main() -> eyre::Result<()> {
     let mut all_losses: Vec<(f32, f32)> = vec![];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
+        dbg!(epoch);
         // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
@@ -233,9 +235,9 @@ fn main() -> eyre::Result<()> {
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
         for episode in 1..=episodes {
-            if episode % 100 == 0 {
-                println!("==== EPISODE: {episode} ====");
-            }
+            // if episode % 100 == 0 {
+            //     println!("==== EPISODE: {episode} ====");
+            // }
             let mut s_t = s_0.clone();
             // todo! (perf) init once and clear each episode
             let mut transitions: [_; BATCH] = core::array::from_fn(|_| vec![]);
