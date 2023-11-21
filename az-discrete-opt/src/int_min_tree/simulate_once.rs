@@ -61,7 +61,7 @@ impl<P> INTMinTree<P> {
             */
             let previously_exhausted_value: Option<Option<f32>> =
                 data.get(p_i).map(|data| match data {
-                    StateDataKind::Exhausted { c_t_star } => Some(*c_t_star),
+                    StateDataKind::Exhausted { c_t } => Some(*c_t),
                     StateDataKind::Active { data: _ } => None,
                 });
             match previously_exhausted_value {

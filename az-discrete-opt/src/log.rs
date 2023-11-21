@@ -12,10 +12,19 @@ pub enum CandidateKind {
     FoundDuringCurrentEpoch,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Stagnation {
     pub minor_modifications: usize,
     pub epochs: usize,
+}
+
+impl Stagnation {
+    pub fn new() -> Self {
+        Self {
+            minor_modifications: 0,
+            epochs: 0,
+        }
+    }
 }
 
 impl<S, C> NextEpochRoot<S, C> {
@@ -78,7 +87,11 @@ impl<S, C> NextEpochRoot<S, C> {
                 *episodes = 0;
                 (candidate, Some(stag))
             },
-            CandidateKind::FoundDuringCurrentEpoch => (candidate, None),
+            CandidateKind::FoundDuringCurrentEpoch => {
+                *kind = CandidateKind::NotReplacedDuringEpoch(Stagnation::new());
+                *episodes = 0;
+                (candidate, None)
+            }
         }
     }
 

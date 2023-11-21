@@ -41,7 +41,7 @@ impl<'a, P> INTTransitions<'a, P> {
                 let new_data: StateDataKind = StateDataKind::new::<Space>(probs_t, c_t, s_t);
                 // if not terminal, use the model to predict the min cost, should the path continue
                 let c_star = match &new_data {
-                    StateDataKind::Exhausted { c_t_star } => CStarEndState::Terminal(*c_t_star),
+                    StateDataKind::Exhausted { c_t } => CStarEndState::Terminal(*c_t),
                     StateDataKind::Active { data: _ } => {
                         CStarEndState::Active(c_t - g_star_theta_s_t[0].max(0.0))
                     }
@@ -58,7 +58,7 @@ impl<'a, P> INTTransitions<'a, P> {
                 let new_data: StateDataKind = StateDataKind::new::<Space>(probs_t, c_t, s_t);
                 // if not terminal, use the model to predict the min cost, should the path continue
                 let c_star = match &new_data {
-                    StateDataKind::Exhausted { c_t_star } => CStarEndState::Terminal(*c_t_star),
+                    StateDataKind::Exhausted { c_t } => CStarEndState::Terminal(*c_t),
                     StateDataKind::Active { data: _ } => {
                         CStarEndState::Active(c_t - g_star_theta_s_t[0].max(0.0))
                     }

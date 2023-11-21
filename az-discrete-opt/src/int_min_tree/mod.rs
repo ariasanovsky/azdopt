@@ -22,7 +22,7 @@ impl<P> INTMinTree<P> {
     {
         Self {
             root_data: match StateDataKind::new::<Space>(root_predictions, cost, root) {
-                StateDataKind::Exhausted { c_t_star: _ } => panic!("root is terminal"),
+                StateDataKind::Exhausted { c_t: _ } => panic!("root is terminal"),
                 StateDataKind::Active { data } => data,
             },
             data: Vec::new(),
@@ -39,11 +39,11 @@ impl<P> INTMinTree<P> {
             println!("level {}:", i);
             for (p, data) in level {
                 match data {
-                    StateDataKind::Exhausted { c_t_star } => {
-                        println!("  {:?}: exhausted, c_t_star = {}", p, c_t_star)
+                    StateDataKind::Exhausted { c_t } => {
+                        println!("  {p:?}: exhausted, c_t = {c_t}")
                     }
                     StateDataKind::Active { data } => {
-                        println!("  {:?}: active, n_s = {}", p, data.n_s)
+                        println!("  {p:?}: active, n_s = {}", data.n_s)
                     }
                 }
             }
@@ -62,7 +62,7 @@ impl<P> INTMinTree<P> {
         probs.fill(0.0);
         debug_assert_eq!(values.len(), 1);
         let Self { root_data, data: _ } = self;
-        root_data.observe(probs, values);
+        root_data.write_observations(probs, values);
     }
 }
 

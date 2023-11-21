@@ -14,7 +14,7 @@ use std::{
 
 use az_discrete_opt::{
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
-    log::{RootCandidateData, NextEpochRoot, Stagnation},
+    log::{RootCandidateData, NextEpochRoot},
     path::{set::ActionSet, ActionPath},
     space::{ActionSpace, StateSpace, StateSpaceVec},
     state::{cost::Cost, prohibit::WithProhibitions},
@@ -48,7 +48,7 @@ const STATE: usize = RAW_STATE + ACTION;
 type NodeVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 64;
+const BATCH: usize = 512;
 
 const HIDDEN_1: usize = 64;
 const HIDDEN_2: usize = 64;
@@ -101,7 +101,7 @@ fn main() -> eyre::Result<()> {
     let mut value_model = dev.build_module::<Valuation, f32>();
     
     let logits_config = AdamConfig {
-        lr: 0.02,
+        lr: 0.01,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
@@ -148,7 +148,7 @@ fn main() -> eyre::Result<()> {
         debug_assert_ne!(n_sa, 0);
         let n_s = n_s as f32;
         let n_sa = n_sa as f32;
-        let c_puct = 1.0;
+        let c_puct = 1e-1;
         let g_sa = g_sa_sum / n_sa;
         let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
         // println!(
@@ -407,13 +407,12 @@ fn main() -> eyre::Result<()> {
                     let (candidate_data, stagnation) = next_root.end_epoch();
                     d.push(candidate_data);
                     // println!("{}", d.len());
+                    // println!("stagnation: {stagnation:?}");
                     if let Some(stag) = stagnation {
                         if stag.epochs >= max_before_resetting_states {
-                            println!("\n\nRANDOMIZED\n\n");
                             *s_0 = random_state(rng);
                             *next_root = NextEpochRoot::new(s_0.clone(), cost(s_0));
                         } else if stag.epochs == max_before_resetting_actions {
-                            println!("\nSCRUMBLGE\n\n");
                             let prohibited_actions = default_prohibitions(&s_0.state);
                             next_root.make_minor_modification(|s| {
                                 s.prohibited_actions.clear();
