@@ -23,6 +23,11 @@ pub trait ActionPath {
         let index = Space::index(action);
         unsafe { self.push_unchecked(index) }
     }
+    fn actions_taken<Space>(&self) -> impl Iterator<Item = &'_ usize> + '_
+    where
+        Space: StateActionSpace,
+        Self: ActionPathFor<Space>,
+    ;
 }
 
 /// # Safety

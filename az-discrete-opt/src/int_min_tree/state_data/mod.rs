@@ -42,6 +42,13 @@ impl StateDataKind {
         //     unvisited_actions,
         // }
     }
+
+    pub fn cost(&self) -> f32 {
+        match self {
+            Self::Exhausted { c_t } => *c_t,
+            Self::Active { data } => data.c_s,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
