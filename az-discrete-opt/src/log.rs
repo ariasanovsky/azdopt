@@ -1,6 +1,6 @@
 use crate::iq_min_tree::{ActionMultiset, Transitions};
 
-pub struct SimpleRootLog<S, C = f32> {
+pub struct SimpleRootLog<S, C> {
     next_root: S,
     root_cost: C,
     duration: usize,

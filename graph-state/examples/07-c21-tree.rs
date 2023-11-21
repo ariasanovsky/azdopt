@@ -57,11 +57,6 @@ type Logits = (
     Linear<HIDDEN_2, ACTION>,
 );
 
-// type Logits = (
-//     Linear<HIDDEN_2, ACTION>,
-//     // Softmax,
-// );
-
 type Valuation = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
@@ -107,13 +102,11 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    // let mut core_optimizer = Adam::new(&core_model, config.clone());
+    // optimizers
     let mut logits_optimizer = Adam::new(&logits_model, logits_config);
     let mut value_optimizer = Adam::new(&value_model, value_config);
 
     // gradients
-    // let mut gradients = core_model.alloc_grads();
-    // let mut core_gradients_to_value = core_model.alloc_grads();
     let mut logits_gradients = logits_model.alloc_grads();
     let mut value_gradients = value_model.alloc_grads();
     
@@ -121,7 +114,6 @@ fn main() -> eyre::Result<()> {
     // input to model
     let mut state_vector_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
     // prediction tensors
-    let mut last_core_layer_prediction: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
     let mut predicted_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
     let mut predicted_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
     // observation tensors
@@ -234,7 +226,7 @@ fn main() -> eyre::Result<()> {
                 });
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
-        for episode in 1..=episodes {
+        for _episode in 1..=episodes {
             // if episode % 100 == 0 {
             //     println!("==== EPISODE: {episode} ====");
             // }
@@ -310,21 +302,6 @@ fn main() -> eyre::Result<()> {
             .into_par_iter()
             .for_each(|(s, v)| s.write_vec::<Space>(v));
         
-        // let (
-        //     (
-        //         a,
-        //         c,
-        //     ),
-        //     (
-        //         b,
-        //         d,
-        //     )
-        // ) = &core_model;
-        // let dfdx::nn::modules::Linear {
-        //     weight,
-        //     bias,
-        // } = a;
-        // let core_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
         let (
             (a, _),
             _,
@@ -332,7 +309,7 @@ fn main() -> eyre::Result<()> {
         ) = &logits_model;
         let dfdx::nn::modules::Linear {
             weight,
-            bias,
+            bias: _,
         } = a;
         let logits_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
         let (
@@ -342,78 +319,38 @@ fn main() -> eyre::Result<()> {
         ) = &value_model;
         let dfdx::nn::modules::Linear {
             weight,
-            bias,
+            bias: _,
         } = a;
         let value_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
         dbg!(logits_mean, value_mean);
         
-        // if true {
-        //     let root_tensor = dev.tensor(v_t);
-        //     let traced_predictions = core_model.forward(root_tensor.leaky_traced());
-        //     let predicted_logits = logits_model.forward(traced_predictions);
-        //     let cross_entropy =
-        //         cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
-        //     let entropy = cross_entropy.array();
-        //     println!("entropy: {:?}", entropy);
-        //     let mut gradients = cross_entropy.backward();
-        //     core_optimizer.update(&mut core_model, &gradients)
-        //         .expect("optimizer failed");
-        //     core_model.zero_grads(&mut gradients);
-        // }
-        // if core_and_mse {
-        //     let root_tensor = dev.tensor(v_t);
-        //     let traced_predictions = core_model.forward(root_tensor.leaky_traced());
-        //     let predicted_values = value_model.forward(traced_predictions);
-        //     let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
-        //     let mse = value_loss.array();
-        //     println!("mse: {:?}", mse);
-        //     let mut gradients = value_loss.backward();
-        //     core_optimizer.update(&mut core_model, &gradients)
-        //         .expect("optimizer failed");
-        //     core_model.zero_grads(&mut gradients);
-        // }
-        if true {
-            let root_tensor = dev.tensor(v_t);
-            // let traced_predictions = core_model.forward(root_tensor);
-            let predicted_logits = logits_model.forward(root_tensor.traced(logits_gradients));
-            let cross_entropy =
-                cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
-            let entropy = cross_entropy.array();
-            println!("entropy: {:?}", entropy);
-            logits_gradients = cross_entropy.backward();
-            logits_optimizer.update(&mut logits_model, &logits_gradients)
-                .expect("optimizer failed");
-            logits_model.zero_grads(&mut logits_gradients);
-        }
-        if true {
-            let root_tensor = dev.tensor(v_t);
-            // let traced_predictions = core_model.forward(root_tensor);
-            let predicted_values = value_model.forward(root_tensor.traced(value_gradients));
-            let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
-            let mse = value_loss.array();
-            println!("mse: {:?}", mse);
-            value_gradients = value_loss.backward();
-            value_optimizer.update(&mut value_model, &value_gradients)
-                .expect("optimizer failed");
-            value_model.zero_grads(&mut value_gradients);
-        }
-        // dbg!(&gradients);
+        let root_tensor = dev.tensor(v_t);
+        // let traced_predictions = core_model.forward(root_tensor);
+        let predicted_logits = logits_model.forward(root_tensor.traced(logits_gradients));
+        let cross_entropy =
+            cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
+        let entropy = cross_entropy.array();
+        println!("entropy: {:?}", entropy);
+        logits_gradients = cross_entropy.backward();
+        logits_optimizer.update(&mut logits_model, &logits_gradients)
+            .expect("optimizer failed");
+        logits_model.zero_grads(&mut logits_gradients);
         
-        // all_losses.push((entropy, mse));
-        // dbg!(&all_losses);
-
-        // logits_optimizer.update(&mut logits_model, &gradients)
-        //     .expect("optimizer failed");
-        // dbg!();
-        // core_optimizer.update(&mut core_model, &gradients)
-        //     .expect("optimizer failed");
-        // dbg!();
-        // value_optimizer.update(&mut value_model, &gradients)
-        //     .expect("optimizer failed");
-        // core_model.zero_grads(&mut gradients);
+        let root_tensor = dev.tensor(v_t);
+        // let traced_predictions = core_model.forward(root_tensor);
+        let predicted_values = value_model.forward(root_tensor.traced(value_gradients));
+        let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
+        let mse = value_loss.array();
+        println!("mse: {:?}", mse);
+        value_gradients = value_loss.backward();
+        value_optimizer.update(&mut value_model, &value_gradients)
+            .expect("optimizer failed");
+        value_model.zero_grads(&mut value_gradients);
+        
+        all_losses.push((entropy, mse));
+        dbg!(&all_losses);
 
         let mut short_data: [Vec<ShortRootData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
-
         (&mut logs, &mut s_0, &mut c_t, &mut short_data)
             .into_par_iter()
             .for_each_init(
@@ -427,18 +364,14 @@ fn main() -> eyre::Result<()> {
                      */
                     match log.stagnation() {
                         Some(stag) if stag > max_before_resetting_states /* && DEBUG_FALSE */ => {
-                            // todo! s.reset_with(...);
-                            // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
-                            // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
+                            panic!("stagnation: {stag} stagnant");
                             let r = random_state(rng);
                             s_0.clone_from(&r);
                             log.reset_root(s_0, &cost(&s_0));
                             log.zero_stagnation();
                         },
                         Some(stag) if stag > max_before_resetting_actions /* && DEBUG_FALSE */ => {
-                            // todo! s.reset_with(...);
-                            // todo! stop resetting `s`'s prohibited_actions so we can train on roots with prohibited edges
-                            // todo! or perhaps have two thresholds -- one for resetting the time randomly, one later for resetting the prohibited edges
+                            panic!("stagnation: {stag} reset");
                             s_0.prohibited_actions = s_0.state.entries().map(|e| e.index::<Space>()).collect();
                             log.reset_root(s_0, &cost(&s_0));
                         },
