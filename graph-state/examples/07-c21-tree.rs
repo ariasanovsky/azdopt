@@ -50,8 +50,8 @@ type ActionVec = [f32; ACTION];
 
 const BATCH: usize = 512;
 
-const HIDDEN_1: usize = 64;
-const HIDDEN_2: usize = 64;
+const HIDDEN_1: usize = 256;
+const HIDDEN_2: usize = 256;
 
 // type Core = (
 //     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -92,8 +92,8 @@ fn main() -> eyre::Result<()> {
 
     let epochs: usize = 250;
     let episodes: usize = 800;
-    let max_before_resetting_actions = 5;
-    let max_before_resetting_states = 10;
+    let max_before_resetting_actions = 4;
+    let max_before_resetting_states = 8;
 
     let dev = AutoDevice::default();
     // let mut core_model = dev.build_module::<Core, f32>();
@@ -101,16 +101,16 @@ fn main() -> eyre::Result<()> {
     let mut value_model = dev.build_module::<Valuation, f32>();
     
     let logits_config = AdamConfig {
-        lr: 0.01,
+        lr: 4e-2,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
     let value_config = AdamConfig {
-        lr: 0.002,
+        lr: 1e-2,
         betas: [0.9, 0.999],
         eps: 1e-8,
-        weight_decay: None, //Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
+        weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
     // let mut core_optimizer = Adam::new(&core_model, config.clone());
     let mut logits_optimizer = Adam::new(&logits_model, logits_config.clone());
@@ -148,9 +148,9 @@ fn main() -> eyre::Result<()> {
         debug_assert_ne!(n_sa, 0);
         let n_s = n_s as f32;
         let n_sa = n_sa as f32;
-        let c_puct = 1e-1;
+        let c_puct = 1e1;
         let g_sa = g_sa_sum / n_sa;
-        let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
+        let u_sa = g_sa + c_puct * p_sa * (n_s.ln().sqrt() / n_sa);
         // println!(
         //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
         // );
@@ -260,10 +260,10 @@ fn main() -> eyre::Result<()> {
                     });
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
-        for episode in 1..=episodes {
-            if episode % 100 == 0 {
-                println!("==== EPISODE: {episode} ====");
-            }
+        for _episode in 1..=episodes {
+            // if episode % 100 == 0 {
+            //     println!("==== EPISODE: {episode} ====");
+            // }
             let mut s_t = s_0.clone();
             // todo! (perf) init once and clear each episode
             let mut transitions: [_; BATCH] = core::array::from_fn(|_| vec![]);
@@ -410,9 +410,11 @@ fn main() -> eyre::Result<()> {
                     // println!("stagnation: {stagnation:?}");
                     if let Some(stag) = stagnation {
                         if stag.epochs >= max_before_resetting_states {
+                            // panic!("(randomize) stagnation: {stag:?}");
                             *s_0 = random_state(rng);
                             *next_root = NextEpochRoot::new(s_0.clone(), cost(s_0));
                         } else if stag.epochs == max_before_resetting_actions {
+                            // panic!("(reset actions) stagnation: {stag:?}");
                             let prohibited_actions = default_prohibitions(&s_0.state);
                             next_root.make_minor_modification(|s| {
                                 s.prohibited_actions.clear();

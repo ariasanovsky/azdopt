@@ -282,6 +282,10 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             .max_by(|a, b| a.re.partial_cmp(&b.re).unwrap())
             .unwrap()
             .re;
+        assert!(
+            lambda_1 > 1.4,
+            "{a:?}",
+        );
         let matching = self.maximum_matching();
         Conjecture2Dot1Cost { matching, lambda_1 }
     }
