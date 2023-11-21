@@ -2,17 +2,19 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
+use itertools::Itertools;
+use rand_distr::Distribution;
 use rayon::prelude::*;
 
 use std::{
     io::Write,
     mem::MaybeUninit,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, borrow::BorrowMut, ops::{AddAssign, DivAssign},
 };
 
 use az_discrete_opt::{
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
-    log::{RootCandidateData, NextEpochRoot},
+    log::{RootCandidateData, NextEpochRoot, Stagnation},
     path::{set::ActionSet, ActionPath},
     space::{ActionSpace, StateSpace, StateSpaceVec},
     state::{cost::Cost, prohibit::WithProhibitions},
@@ -89,7 +91,7 @@ fn main() -> eyre::Result<()> {
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
 
     let epochs: usize = 250;
-    let episodes: usize = 100;
+    let episodes: usize = 800;
     let max_before_resetting_actions = 5;
     let max_before_resetting_states = 10;
 
@@ -146,7 +148,7 @@ fn main() -> eyre::Result<()> {
         debug_assert_ne!(n_sa, 0);
         let n_s = n_s as f32;
         let n_sa = n_sa as f32;
-        let c_puct = 10.0;
+        let c_puct = 1.0;
         let g_sa = g_sa_sum / n_sa;
         let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
         // println!(
@@ -173,11 +175,11 @@ fn main() -> eyre::Result<()> {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
         let cost = tree.conjecture_2_1_cost();
-        if cost.cost() < 100.0 {
-            println!("\tcost = {cost:?}");
-            println!("\tevaluates to: {}", cost.cost());
-            println!("\ts = {s:?}");
-        }
+        // if cost.cost() < 7.5 {
+        //     println!("\tcost = {cost:?}");
+        //     println!("\tevaluates to: {}", cost.cost());
+        //     println!("\ts = {s:?}");
+        // }
         cost
     };
     let (
@@ -222,6 +224,7 @@ fn main() -> eyre::Result<()> {
     let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
     let mut candidate_data: [Vec<RootCandidateData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
     let mut all_losses: Vec<(f32, f32)> = vec![];
+    const ALPHA: [f64; ACTION] = [0.3; ACTION];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set costs
@@ -242,11 +245,19 @@ fn main() -> eyre::Result<()> {
         // println!("probs: {:?}", predicted_probabilities);
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-            (&mut trees, &predicted_probabilities, &c_t, &s_0)
+            (&mut trees, &mut predicted_probabilities, &c_t, &s_0)
                 .into_par_iter()
-                .for_each(|(t, root_predictions, cost, root)| {
-                    t.write(Tree::new::<Space>(root_predictions, cost.cost(), root));
-                });
+                .for_each_init(
+                    || rand::thread_rng(),
+                    |rng, (t, root_predictions, cost, root)| {
+                        let dir = rand_distr::Dirichlet::new(&ALPHA).unwrap();
+                        let sample = dir.sample(rng);
+                        root_predictions.iter_mut().zip_eq(sample.into_iter()).for_each(|(pi_theta, dir)| {
+                            pi_theta.add_assign(dir as f32);
+                            pi_theta.div_assign(2.);
+                        });
+                        t.write(Tree::new::<Space>(root_predictions, cost.cost(), root));
+                    });
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
         for episode in 1..=episodes {
@@ -388,23 +399,62 @@ fn main() -> eyre::Result<()> {
         all_losses.push((entropy, mse));
         println!("all_losses: {all_losses:?}");
 
-        (&mut next_root, &mut s_0, &mut c_t, &mut candidate_data)
+        (&mut next_root, &mut s_0, &mut candidate_data)
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
-                |rng, (next_root, s_0, c_t, d)| {
-                    todo!()
+                |rng, (next_root, s_0, d)| {
+                    let (candidate_data, stagnation) = next_root.end_epoch();
+                    d.push(candidate_data);
+                    // println!("{}", d.len());
+                    if let Some(stag) = stagnation {
+                        if stag.epochs >= max_before_resetting_states {
+                            println!("\n\nRANDOMIZED\n\n");
+                            *s_0 = random_state(rng);
+                            *next_root = NextEpochRoot::new(s_0.clone(), cost(s_0));
+                        } else if stag.epochs == max_before_resetting_actions {
+                            println!("\nSCRUMBLGE\n\n");
+                            let prohibited_actions = default_prohibitions(&s_0.state);
+                            next_root.make_minor_modification(|s| {
+                                s.prohibited_actions.clear();
+                                s.prohibited_actions.extend(prohibited_actions.iter())
+                            });
+                            s_0.prohibited_actions.clear();
+                            s_0.prohibited_actions.extend(prohibited_actions.iter());
+                        }
+                    } else {
+                        s_0.clone_from(&next_root.current_root());
+                        if (*s_0).is_terminal::<Space>() {
+                            let prohibited_actions = default_prohibitions(&s_0.state);
+                            s_0.prohibited_actions.clear();
+                            s_0.prohibited_actions.extend(prohibited_actions);
+                            if (*s_0).is_terminal::<Space>() {
+                                *s_0 = random_state(rng);
+                            }
+                        }
+                    }
                 }
             );
-        todo!("
-        let epoch_argmin = logs.par_iter().map(|log| log.short_data()).max_by(|a, b| {{
-            a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
-        }}).unwrap();
-        if epoch_argmin.cost().cost() < argmin.cost().cost() {{
+        let epoch_argmin = next_root
+            .par_iter()
+            .map(|log| log.current_candidate())
+            .min_by(|a, b| {
+                a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
+            }).unwrap();
+        if epoch_argmin.cost().cost() < argmin.cost().cost() {
             argmin = epoch_argmin;
-            println!(\"new min = {{}}\", argmin.cost().cost());
-            println!(\"argmin  = {argmin:?}\");
-        }}");
+            println!("new min = {}", argmin.cost().cost());
+            println!("argmin  = {argmin:?}");
+        }
+        // todo!("
+        // let epoch_argmin = logs.par_iter().map(|log| log.short_data()).max_by(|a, b| {{
+        //     a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
+        // }}).unwrap();
+        // if epoch_argmin.cost().cost() < argmin.cost().cost() {{
+        //     argmin = epoch_argmin;
+        //     println!(\"new min = {{}}\", argmin.cost().cost());
+        //     println!(\"argmin  = {{argmin:?}}\");
+        // }}");
         // write {short_data:?} to out_dir/epoch{epoch}.json
         let epoch_path = out_dir.join(format!("epoch{epoch}")).with_extension("json");
         let mut epoch_file =
@@ -414,22 +464,23 @@ fn main() -> eyre::Result<()> {
         epoch_file
             .write_all(format!("{candidate_data:?}").as_bytes())
             .wrap_err("failed to write epoch file")?;
+        candidate_data.par_iter_mut().for_each(|data| data.clear());
     }
     dbg!(&out_dir);
     Ok(())
 }
 
-fn par_init_map<const N: usize, R, T: Send>(
-    init: (impl Fn() -> R + Sync),
-    f: impl Fn(&mut R) -> T + Sync,
-) -> [T; N] {
-    let mut t: [MaybeUninit<T>; N] = MaybeUninit::uninit_array();
-    t.par_iter_mut().for_each(|t| {
-        let mut r = init();
-        t.write(f(&mut r));
-    });
-    unsafe { MaybeUninit::array_assume_init(t) }
-}
+// fn par_init_map<const N: usize, R, T: Send>(
+//     init: (impl Fn() -> R + Sync),
+//     f: impl Fn(&mut R) -> T + Sync,
+// ) -> [T; N] {
+//     let mut t: [MaybeUninit<T>; N] = MaybeUninit::uninit_array();
+//     t.par_iter_mut().for_each(|t| {
+//         let mut r = init();
+//         t.write(f(&mut r));
+//     });
+//     unsafe { MaybeUninit::array_assume_init(t) }
+// }
 
 // trait ParMap<'a>: IntoParallelIterator + 'a {
 //     type Input;

@@ -105,8 +105,8 @@ impl<'a> INTTransition<'a> {
                             a,
                             p_sa,
                             n_sa: 1,
-                            g_sa_sum: *c_s_star - *c_star_theta_i_plus_one,
-                            // g_sa_sum: *c_s - *c_star_theta_i_plus_one,
+                            // g_sa_sum: *c_s_star - *c_star_theta_i_plus_one,
+                            g_sa_sum: *c_s - *c_star_theta_i_plus_one,
                             u_sa: 0.0,
                         };
                         // `u_sa` in an invalid state, but we'll update it before sorting
