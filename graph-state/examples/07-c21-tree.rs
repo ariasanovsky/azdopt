@@ -51,20 +51,21 @@ const BATCH: usize = 64;
 const HIDDEN_1: usize = 64;
 const HIDDEN_2: usize = 64;
 
-type Core = (
+type Logits = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    // Linear<HIDDEN_2, PREDICTION>,
+    Linear<HIDDEN_2, ACTION>,
 );
 
-type Logits = (
-    Linear<HIDDEN_2, ACTION>,
-    // Softmax,
-);
+// type Logits = (
+//     Linear<HIDDEN_2, ACTION>,
+//     // Softmax,
+// );
 
 type Valuation = (
+    (Linear<STATE, HIDDEN_1>, ReLU),
+    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     Linear<HIDDEN_2, 1>,
-    // Linear<HIDDEN_2, 3>,
 );
 
 fn main() -> eyre::Result<()> {
@@ -90,25 +91,31 @@ fn main() -> eyre::Result<()> {
     let max_before_resetting_states = 10;
 
     let dev = AutoDevice::default();
-    let mut core_model = dev.build_module::<Core, f32>();
+    // let mut core_model = dev.build_module::<Core, f32>();
     let mut logits_model = dev.build_module::<Logits, f32>();
     let mut value_model = dev.build_module::<Valuation, f32>();
     
-    let config = AdamConfig {
+    let logits_config = AdamConfig {
+        lr: 5e-2,
+        betas: [0.9, 0.999],
+        eps: 1e-8,
+        weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
+    };
+    let value_config = AdamConfig {
         lr: 1e-3,
         betas: [0.9, 0.999],
         eps: 1e-8,
-        weight_decay: None, //Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
+        weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    let mut core_optimizer = Adam::new(&core_model, config.clone());
-    let mut logits_optimizer = Adam::new(&logits_model, config.clone());
-    let mut value_optimizer = Adam::new(&value_model, config);
+    // let mut core_optimizer = Adam::new(&core_model, config.clone());
+    let mut logits_optimizer = Adam::new(&logits_model, logits_config);
+    let mut value_optimizer = Adam::new(&value_model, value_config);
 
     // gradients
     // let mut gradients = core_model.alloc_grads();
     // let mut core_gradients_to_value = core_model.alloc_grads();
-    // let mut logits_gradients = logits_model.alloc_grads();
-    // let mut value_gradients = value_model.alloc_grads();
+    let mut logits_gradients = logits_model.alloc_grads();
+    let mut value_gradients = value_model.alloc_grads();
     
     // we initialize tensors to 0 and fill them as needed, minimizing allocations
     // input to model
@@ -145,7 +152,7 @@ fn main() -> eyre::Result<()> {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
         let cost = tree.conjecture_2_1_cost();
-        if cost.cost() < 5.5 {
+        if cost.cost() < 5.0 {
             println!("cost = {cost:?}");
             println!("evaluates to: {}", cost.cost());
             println!("s = {s:?}");
@@ -210,9 +217,9 @@ fn main() -> eyre::Result<()> {
         // println!("c_0[0] = {:?}", c_t[0]);
         // println!("v_0[0] = {:?}", v_t[0]);
         state_vector_tensor.copy_from(v_t.flatten());
-        last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
+        // last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
         predicted_probabilities_tensor = logits_model
-            .forward(last_core_layer_prediction)
+            .forward(state_vector_tensor.clone())
             .softmax::<Axis<1>>();
         predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
         // println!("probs: {:?}", predicted_probabilities);
@@ -262,16 +269,16 @@ fn main() -> eyre::Result<()> {
             // copy tree root state vectors into tensor
             // propagate through core model
             state_vector_tensor.copy_from(v_t.flatten());
-            last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
+            // last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
             // calculate predicted probabilities
             // copy predicted probabilities into to host
             predicted_probabilities_tensor = logits_model
-                .forward(last_core_layer_prediction.clone())
+                .forward(state_vector_tensor.clone())
                 .softmax::<Axis<1>>();
             predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
             // calculate predicted values
             // copy predicted values into host
-            predicted_values_tensor = value_model.forward(last_core_layer_prediction);
+            predicted_values_tensor = value_model.forward(state_vector_tensor.clone());
             predicted_values_tensor.copy_into(predicted_values.flatten_mut());
             let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
             (&mut nodes, ends, &c_t, &s_t, &predicted_values, &predicted_probabilities, &mut transitions)
@@ -301,23 +308,25 @@ fn main() -> eyre::Result<()> {
             .into_par_iter()
             .for_each(|(s, v)| s.write_vec::<Space>(v));
         
+        // let (
+        //     (
+        //         a,
+        //         c,
+        //     ),
+        //     (
+        //         b,
+        //         d,
+        //     )
+        // ) = &core_model;
+        // let dfdx::nn::modules::Linear {
+        //     weight,
+        //     bias,
+        // } = a;
+        // let core_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
         let (
-            (
-                a,
-                c,
-            ),
-            (
-                b,
-                d,
-            )
-        ) = &core_model;
-        let dfdx::nn::modules::Linear {
-            weight,
-            bias,
-        } = a;
-        let core_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
-        let (
-            a,
+            (a, _),
+            _,
+            _,
         ) = &logits_model;
         let dfdx::nn::modules::Linear {
             weight,
@@ -325,72 +334,66 @@ fn main() -> eyre::Result<()> {
         } = a;
         let logits_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
         let (
-            a,
+            (a, _),
+            _,
+            _
         ) = &value_model;
         let dfdx::nn::modules::Linear {
             weight,
             bias,
         } = a;
         let value_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
-        dbg!(core_mean, logits_mean, value_mean);
+        dbg!(logits_mean, value_mean);
         
-        let (
-            core_and_cross,
-            core_and_mse,
-            logits_and_cross,
-            value_and_mse,
-        ) = (true, true, true, true);
-
-
-        if core_and_cross {
+        // if true {
+        //     let root_tensor = dev.tensor(v_t);
+        //     let traced_predictions = core_model.forward(root_tensor.leaky_traced());
+        //     let predicted_logits = logits_model.forward(traced_predictions);
+        //     let cross_entropy =
+        //         cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
+        //     let entropy = cross_entropy.array();
+        //     println!("entropy: {:?}", entropy);
+        //     let mut gradients = cross_entropy.backward();
+        //     core_optimizer.update(&mut core_model, &gradients)
+        //         .expect("optimizer failed");
+        //     core_model.zero_grads(&mut gradients);
+        // }
+        // if core_and_mse {
+        //     let root_tensor = dev.tensor(v_t);
+        //     let traced_predictions = core_model.forward(root_tensor.leaky_traced());
+        //     let predicted_values = value_model.forward(traced_predictions);
+        //     let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
+        //     let mse = value_loss.array();
+        //     println!("mse: {:?}", mse);
+        //     let mut gradients = value_loss.backward();
+        //     core_optimizer.update(&mut core_model, &gradients)
+        //         .expect("optimizer failed");
+        //     core_model.zero_grads(&mut gradients);
+        // }
+        if true {
             let root_tensor = dev.tensor(v_t);
-            let traced_predictions = core_model.forward(root_tensor.leaky_traced());
-            let predicted_logits = logits_model.forward(traced_predictions);
+            // let traced_predictions = core_model.forward(root_tensor);
+            let predicted_logits = logits_model.forward(root_tensor.traced(logits_gradients));
             let cross_entropy =
                 cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
             let entropy = cross_entropy.array();
             println!("entropy: {:?}", entropy);
-            let mut gradients = cross_entropy.backward();
-            core_optimizer.update(&mut core_model, &gradients)
+            logits_gradients = cross_entropy.backward();
+            logits_optimizer.update(&mut logits_model, &logits_gradients)
                 .expect("optimizer failed");
-            core_model.zero_grads(&mut gradients);
+            logits_model.zero_grads(&mut logits_gradients);
         }
-        if core_and_mse {
+        if true {
             let root_tensor = dev.tensor(v_t);
-            let traced_predictions = core_model.forward(root_tensor.leaky_traced());
-            let predicted_values = value_model.forward(traced_predictions);
+            // let traced_predictions = core_model.forward(root_tensor);
+            let predicted_values = value_model.forward(root_tensor.traced(value_gradients));
             let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
             let mse = value_loss.array();
             println!("mse: {:?}", mse);
-            let mut gradients = value_loss.backward();
-            core_optimizer.update(&mut core_model, &gradients)
+            value_gradients = value_loss.backward();
+            value_optimizer.update(&mut value_model, &value_gradients)
                 .expect("optimizer failed");
-            core_model.zero_grads(&mut gradients);
-        }
-        if logits_and_cross {
-            let root_tensor = dev.tensor(v_t);
-            let traced_predictions = core_model.forward(root_tensor);
-            let predicted_logits = logits_model.forward(traced_predictions.leaky_traced());
-            let cross_entropy =
-                cross_entropy_with_logits_loss(predicted_logits, observed_probabilities_tensor.clone());
-            let entropy = cross_entropy.array();
-            println!("entropy: {:?}", entropy);
-            let mut gradients = cross_entropy.backward();
-            logits_optimizer.update(&mut logits_model, &gradients)
-                .expect("optimizer failed");
-            logits_model.zero_grads(&mut gradients);
-        }
-        if value_and_mse {
-            let root_tensor = dev.tensor(v_t);
-            let traced_predictions = core_model.forward(root_tensor);
-            let predicted_values = value_model.forward(traced_predictions.leaky_traced());
-            let value_loss = mse_loss(predicted_values, observed_values_tensor.clone());
-            let mse = value_loss.array();
-            println!("mse: {:?}", mse);
-            let mut gradients = value_loss.backward();
-            value_optimizer.update(&mut value_model, &gradients)
-                .expect("optimizer failed");
-            value_model.zero_grads(&mut gradients);
+            value_model.zero_grads(&mut value_gradients);
         }
         // dbg!(&gradients);
         
