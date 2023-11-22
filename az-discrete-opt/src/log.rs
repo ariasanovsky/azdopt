@@ -1,123 +1,133 @@
 use crate::{iq_min_tree::{ActionMultiset, Transitions}, state::cost::Cost};
 
-pub struct NextEpochRoot<S, C> {
-    next_root: S,
-    cost: C,
-    kind: CandidateKind,
-    episodes: usize,
-}
+// pub struct NextEpochRoot<S, C> {
+//     next_root: S,
+//     cost: C,
+//     kind: CandidateKind,
+//     episodes: usize,
+// }
 
-pub enum CandidateKind {
-    NotReplacedDuringEpoch(Stagnation),
-    FoundDuringCurrentEpoch,
-}
+// pub enum CandidateKind {
+//     NotReplacedDuringEpoch(Stagnation),
+//     FoundDuringCurrentEpoch,
+// }
 
-#[derive(Clone, Debug)]
-pub struct Stagnation {
-    pub minor_modifications: usize,
-    pub epochs: usize,
-}
+// #[derive(Clone, Debug)]
+// pub struct Stagnation {
+//     pub minor_modifications: usize,
+//     pub epochs: usize,
+// }
 
-impl Stagnation {
-    pub fn new() -> Self {
-        Self {
-            minor_modifications: 0,
-            epochs: 0,
-        }
-    }
-}
+// impl Stagnation {
+//     pub fn new() -> Self {
+//         Self {
+//             minor_modifications: 0,
+//             epochs: 0,
+//         }
+//     }
+// }
 
-impl<S, C> NextEpochRoot<S, C> {
-    pub fn new(next_root: S, cost: C) -> Self {
-        Self {
-            next_root,
-            cost,
-            kind: CandidateKind::NotReplacedDuringEpoch(Stagnation { minor_modifications: 0, epochs: 0 }),
-            episodes: 0,
-        }
-    }
+// impl<S, C> NextEpochRoot<S, C> {
+//     pub fn new(next_root: S, cost: C) -> Self {
+//         Self {
+//             next_root,
+//             cost,
+//             kind: CandidateKind::NotReplacedDuringEpoch(Stagnation { minor_modifications: 0, epochs: 0 }),
+//             episodes: 0,
+//         }
+//     }
 
-    pub fn current_candidate(&self) -> RootCandidateData<C>
-    where
-        S: ShortForm,
-        C: Cost + Clone,
-    {
-        let Self { next_root, cost, kind: _, episodes } = self;
-        RootCandidateData {
-            short_form: next_root.short_form(),
-            cost: cost.clone(),
-            episodes: *episodes,
-        }
-    }
+//     pub fn current_candidate(&self) -> ArgminData<C>
+//     where
+//         S: ShortForm,
+//         C: Cost + Clone,
+//     {
+//         let Self { next_root, cost, kind: _, episodes } = self;
+//         ArgminData {
+//             short_form: next_root.short_form(),
+//             cost: cost.clone(),
+//             episodes: *episodes,
+//         }
+//     }
 
-    pub fn current_root(&self) -> &S {
-        &self.next_root
-    }
+//     pub fn current_root(&self) -> &S {
+//         &self.next_root
+//     }
 
-    pub fn post_episode_update(&mut self, s_t: &S, c_t: &C) -> Option<RootCandidateData<C>>
-    where
-        S: ShortForm + Clone,
-        C: Cost + Clone,
-    {
-        self.episodes += 1;
-        match self.cost.cost().partial_cmp(&c_t.cost()).expect("costs must be comparable floats") {
-            std::cmp::Ordering::Less | std::cmp::Ordering::Equal => None,
-            std::cmp::Ordering::Greater => {
-                // dbg!();
-                let previous_candidate = self.current_candidate();
-                self.next_root.clone_from(s_t);
-                self.cost.clone_from(c_t);
-                self.kind = CandidateKind::FoundDuringCurrentEpoch;
-                self.episodes = 0;
-                Some(previous_candidate)
-            }
-        }
-    }
+//     pub fn post_episode_update(&mut self, s_t: &S, c_t: &C) -> Option<ArgminData<C>>
+//     where
+//         S: ShortForm + Clone,
+//         C: Cost + Clone,
+//     {
+//         self.episodes += 1;
+//         match self.cost.evaluate().partial_cmp(&c_t.evaluate()).expect("costs must be comparable floats") {
+//             std::cmp::Ordering::Less | std::cmp::Ordering::Equal => None,
+//             std::cmp::Ordering::Greater => {
+//                 // dbg!();
+//                 let previous_candidate = self.current_candidate();
+//                 self.next_root.clone_from(s_t);
+//                 self.cost.clone_from(c_t);
+//                 self.kind = CandidateKind::FoundDuringCurrentEpoch;
+//                 self.episodes = 0;
+//                 Some(previous_candidate)
+//             }
+//         }
+//     }
 
-    pub fn end_epoch(&mut self) -> (RootCandidateData<C>, Option<&Stagnation>)
-    where
-        S: ShortForm,
-        C: Cost + Clone,
-    {
-        let candidate = self.current_candidate();
-        let Self { next_root: _, cost: _, kind, episodes } = self;
-        match kind {
-            CandidateKind::NotReplacedDuringEpoch(stag) => {
-                stag.epochs += 1;
-                *episodes = 0;
-                (candidate, Some(stag))
-            },
-            CandidateKind::FoundDuringCurrentEpoch => {
-                *kind = CandidateKind::NotReplacedDuringEpoch(Stagnation::new());
-                *episodes = 0;
-                (candidate, None)
-            }
-        }
-    }
+//     pub fn end_epoch(&mut self) -> (ArgminData<C>, Option<&Stagnation>)
+//     where
+//         S: ShortForm,
+//         C: Cost + Clone,
+//     {
+//         let candidate = self.current_candidate();
+//         let Self { next_root: _, cost: _, kind, episodes } = self;
+//         match kind {
+//             CandidateKind::NotReplacedDuringEpoch(stag) => {
+//                 stag.epochs += 1;
+//                 *episodes = 0;
+//                 (candidate, Some(stag))
+//             },
+//             CandidateKind::FoundDuringCurrentEpoch => {
+//                 *kind = CandidateKind::NotReplacedDuringEpoch(Stagnation::new());
+//                 *episodes = 0;
+//                 (candidate, None)
+//             }
+//         }
+//     }
 
-    pub fn make_minor_modification(&mut self, f: impl Fn(&mut S)) -> bool {
-        match &mut self.kind {
-            CandidateKind::NotReplacedDuringEpoch(stag) => {
-                f(&mut self.next_root);
-                stag.minor_modifications += 1;
-                true
-            },
-            CandidateKind::FoundDuringCurrentEpoch => false,
-        }
-    }
-}
+//     pub fn make_minor_modification(&mut self, f: impl Fn(&mut S)) -> bool {
+//         match &mut self.kind {
+//             CandidateKind::NotReplacedDuringEpoch(stag) => {
+//                 f(&mut self.next_root);
+//                 stag.minor_modifications += 1;
+//                 true
+//             },
+//             CandidateKind::FoundDuringCurrentEpoch => false,
+//         }
+//     }
+// }
 
 pub trait ShortForm {
     fn short_form(&self) -> String;
 }
 
-pub struct RootCandidateData<C = f32> {
+pub struct ArgminData<C> {
     short_form: String,
     cost: C,
-    episodes: usize,
+    episode: usize,
+    epoch: usize,
 }
 
-impl<C> RootCandidateData<C> {
+impl<C> ArgminData<C> {
+    pub fn new(s: &impl ShortForm, cost: C, episode: usize, epoch: usize) -> Self {
+        Self {
+            short_form: s.short_form(),
+            cost,
+            episode,
+            epoch,
+        }
+    }
+
     pub fn short_form(&self) -> &str {
         &self.short_form
     }
@@ -125,23 +135,21 @@ impl<C> RootCandidateData<C> {
     pub fn cost(&self) -> &C {
         &self.cost
     }
-
-    pub fn duration(&self) -> usize {
-        self.episodes
-    }
 }
 
-impl<C: core::fmt::Debug> core::fmt::Debug for RootCandidateData<C> {
+impl<C: core::fmt::Debug> core::fmt::Debug for ArgminData<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
             short_form,
             cost,
-            episodes,
+            episode,
+            epoch,
         } = self;
         f.debug_map()
             .entry(&"short_form", short_form)
             .entry(&"cost", cost)
-            .entry(&"duration", episodes)
+            .entry(&"episode", episode)
+            .entry(&"epoch", epoch)
             .finish()
     }
 }

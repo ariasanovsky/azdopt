@@ -6,7 +6,7 @@ use super::transition::{INTTransition, StateDataKindMutRef, TransitionKind};
 
 pub(crate) mod action_data;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum StateDataKind {
     Exhausted { c_t: f32 },
     Active { data: INTStateData },
@@ -42,9 +42,16 @@ impl StateDataKind {
         //     unvisited_actions,
         // }
     }
+
+    pub fn cost(&self) -> f32 {
+        match self {
+            Self::Exhausted { c_t } => *c_t,
+            Self::Active { data } => data.c_s,
+        }
+    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct INTStateData {
     pub(crate) n_s: usize,
     pub(crate) c_s: f32,

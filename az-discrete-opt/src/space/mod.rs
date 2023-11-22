@@ -9,6 +9,14 @@ pub trait StateActionSpace {
     fn index(action: &Self::Action) -> usize;
     fn from_index(index: usize) -> Self::Action;
     fn act(state: &mut Self::State, action: &Self::Action);
+    fn follow(
+        state: &mut Self::State,
+        actions: impl Iterator<Item = Self::Action>,
+    ) {
+        for action in actions {
+            Self::act(state, &action);
+        }
+    }
     // todo! iterator should depend on `state`
     // ??? fn actions<'a>(state: &'a Self::State) -> impl IntoIteratorIterator<Item = usize> + 'a;
     fn actions(state: &Self::State) -> impl Iterator<Item = usize>;
@@ -22,17 +30,17 @@ pub trait StateActionSpace {
     fn write_vec(state: &Self::State, vec: &mut [f32]);
 }
 
-pub trait ActionSpace: Sized {
-    fn index<Space: StateActionSpace<Action = Self>>(&self) -> usize {
-        Space::index(self)
-    }
-    fn from_index<Space: StateActionSpace<Action = Self>>(index: usize) -> Self {
-        Space::from_index(index)
-    }
-}
+// pub trait ActionSpace: Sized {
+//     fn index<Space: StateActionSpace<Action = Self>>(&self) -> usize {
+//         Space::index(self)
+//     }
+//     fn from_index<Space: StateActionSpace<Action = Self>>(index: usize) -> Self {
+//         Space::from_index(index)
+//     }
+// }
 
 // todo! `#[derive(ActionSpace)]` instead
-impl<A> ActionSpace for A {}
+// impl<A> ActionSpace for A {}
 
 pub trait StateSpace: Sized {
     fn act<Space: StateActionSpace<State = Self>>(&mut self, action: &Space::Action) {

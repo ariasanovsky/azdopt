@@ -36,4 +36,12 @@ impl ActionPath for OrderedActionSet {
         let index = Space::index(action);
         unsafe { self.push_unchecked(index) }
     }
+
+    fn actions_taken<Space>(&self) -> impl Iterator<Item = &'_ usize> + '_
+    where
+        Space: crate::space::StateActionSpace,
+        Self: super::ActionPathFor<Space>,
+     {
+        self.actions.iter()
+    }
 }

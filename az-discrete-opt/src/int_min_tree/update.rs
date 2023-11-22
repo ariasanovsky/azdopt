@@ -30,7 +30,7 @@ impl<'a, P> INTTransitions<'a, P> {
             end,
             p_t,
         } = self;
-        let c_t = c_t.cost();
+        let c_t = c_t.evaluate();
         enum CStarEndState {
             Terminal(f32),
             Active(f32),

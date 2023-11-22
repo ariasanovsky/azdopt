@@ -24,6 +24,7 @@ rand = "0.8.5"
 rand_distr = "0.4.3"
 rayon = "1.7.0"
 eyre = "0.6.8"
+tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-writer" }
 
 [[bench]]
 name = "r44_17_search_tree_with_trivial_predictions"

@@ -2,7 +2,7 @@
 
 use super::UpperEstimateData;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct INTVisitedActionData {
     a: usize,
     p_sa: f32,
@@ -11,7 +11,7 @@ pub(crate) struct INTVisitedActionData {
     u_sa: f32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct INTUnvisitedActionData {
     a: usize,
     p_sa: f32,

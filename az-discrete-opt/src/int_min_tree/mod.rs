@@ -16,6 +16,10 @@ pub struct INTMinTree<P> {
 }
 
 impl<P> INTMinTree<P> {
+    pub fn len(&self) -> usize {
+        self.data.iter().map(|level| level.len()).sum::<usize>() + 1
+    }
+    
     pub fn new<Space>(root_predictions: &[f32], cost: f32, root: &Space::State) -> Self
     where
         Space: StateActionSpace,

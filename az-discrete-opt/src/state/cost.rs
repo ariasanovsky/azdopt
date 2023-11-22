@@ -1,5 +1,5 @@
 pub trait Cost<F = f32> {
-    fn cost(&self) -> F;
+    fn evaluate(&self) -> F;
 }
 
 // pub trait CostsOneEach {}

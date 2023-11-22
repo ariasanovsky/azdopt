@@ -108,15 +108,13 @@ mod tests {
     type A<const N: usize> =
         <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::Action;
 
-    use az_discrete_opt::space::ActionSpace;
-
     #[test]
     fn pruefer_code_indexes_correct_for_4_vertices() {
         type Space4 = SASpace<4>;
         type A4 = A<4>;
         for i in 0..16 {
-            let a = A4::from_index::<Space4>(i);
-            let i2 = A4::index::<Space4>(&a);
+            let a = Space4::from_index(i);
+            let i2 = Space4::index(&a);
             assert_eq!(i, i2, "i = {i}, i2 = {i2}, a = {a:?}",);
         }
     }
@@ -138,7 +136,7 @@ mod tests {
                     // Action { i: 1, parent: 2 },
                     A4 { i: 1, parent: 3 },
                 ]
-                .map(|a| a.index::<Space4>()),
+                .map(|a| Space4::index(&a)),
             ),
         };
         let actions_to_take = [A4 { i: 0, parent: 1 }, A4 { i: 1, parent: 3 }];
@@ -164,7 +162,7 @@ mod tests {
         // test the action set before taking actions
         let actions = code
             .actions::<Space4>()
-            .map(|i| A4::from_index::<Space4>(i))
+            .map(|i| Space4::from_index(i))
             .collect::<BTreeSet<_>>();
         let (action_set_0, action_sets) = action_sets.split_first().unwrap();
         assert_eq!(actions, *action_set_0);
@@ -172,7 +170,7 @@ mod tests {
             code.act::<Space4>(&actions_to_take[i]);
             let actions = code
                 .actions::<Space4>()
-                .map(|i| A4::from_index::<Space4>(i))
+                .map(|i| Space4::from_index(i))
                 .collect::<BTreeSet<_>>();
             assert_eq!(actions, action_sets[i]);
         }
