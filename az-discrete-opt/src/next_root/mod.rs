@@ -35,11 +35,12 @@ where
         let b_cost = b.2.cost();
         a_cost.partial_cmp(&b_cost).unwrap()
     });
+    println!("candidates: {:?}", candidates.len());
     let chunk_size = candidates.len().div_ceil(B);
     let chunks = candidates.par_chunks(chunk_size);
     let mut roots = MaybeUninit::uninit_array();
     let count = (&mut roots, chunks).into_par_iter().map(|(root, chunk)| {
-        let (s, p, k) = *chunk.last().unwrap();
+        let (s, p, _) = *chunk.first().unwrap();
         let mut s = s.clone();
         Space::follow(&mut s, p.actions_taken().map(|a| Space::from_index(*a)));
         root.write(s);

@@ -3,13 +3,14 @@
 #![feature(maybe_uninit_array_assume_init)]
 
 use itertools::Itertools;
+use num_traits::MulAddAssign;
 use rand_distr::Distribution;
 use rayon::prelude::*;
 
 use std::{
     io::Write,
     mem::MaybeUninit,
-    path::{Path, PathBuf}, borrow::BorrowMut, ops::{AddAssign, DivAssign},
+    path::{Path, PathBuf}, ops::{AddAssign, DivAssign},
 };
 
 use az_discrete_opt::{
@@ -17,7 +18,7 @@ use az_discrete_opt::{
     log::{RootCandidateData, NextEpochRoot},
     path::{set::ActionSet, ActionPath},
     space::{ActionSpace, StateSpace, StateSpaceVec},
-    state::{cost::Cost, prohibit::WithProhibitions},
+    state::{cost::Cost, prohibit::WithProhibitions}, next_root::par_set_next_roots,
 };
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
@@ -175,11 +176,6 @@ fn main() -> eyre::Result<()> {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
         let cost = tree.conjecture_2_1_cost();
-        // if cost.cost() < 7.5 {
-        //     println!("\tcost = {cost:?}");
-        //     println!("\tevaluates to: {}", cost.cost());
-        //     println!("\ts = {s:?}");
-        // }
         cost
     };
     let (
@@ -224,7 +220,7 @@ fn main() -> eyre::Result<()> {
     let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
     let mut candidate_data: [Vec<RootCandidateData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
     let mut all_losses: Vec<(f32, f32)> = vec![];
-    const ALPHA: [f64; ACTION] = [0.3; ACTION];
+    const ALPHA: [f64; ACTION] = [0.03; ACTION];
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set costs
@@ -253,17 +249,17 @@ fn main() -> eyre::Result<()> {
                         let dir = rand_distr::Dirichlet::new(&ALPHA).unwrap();
                         let sample = dir.sample(rng);
                         root_predictions.iter_mut().zip_eq(sample.into_iter()).for_each(|(pi_theta, dir)| {
-                            pi_theta.add_assign(dir as f32);
-                            pi_theta.div_assign(2.);
+                            pi_theta.mul_add_assign(3., dir as f32);
+                            pi_theta.div_assign(4.);
                         });
                         t.write(Tree::new::<Space>(root_predictions, cost.cost(), root));
                     });
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
-        for _episode in 1..=episodes {
-            // if episode % 100 == 0 {
-            //     println!("==== EPISODE: {episode} ====");
-            // }
+        for episode in 1..=episodes {
+            if episode % 100 == 0 {
+                println!("==== EPISODE: {episode} ====");
+            }
             let mut s_t = s_0.clone();
             // todo! (perf) init once and clear each episode
             let mut transitions: [_; BATCH] = core::array::from_fn(|_| vec![]);
@@ -466,6 +462,7 @@ fn main() -> eyre::Result<()> {
             .write_all(format!("{candidate_data:?}").as_bytes())
             .wrap_err("failed to write epoch file")?;
         candidate_data.par_iter_mut().for_each(|data| data.clear());
+        // par_set_next_roots::<BATCH, Space, _>(&mut s_0, &trees);
     }
     dbg!(&out_dir);
     Ok(())
