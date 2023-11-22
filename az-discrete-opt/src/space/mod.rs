@@ -30,17 +30,17 @@ pub trait StateActionSpace {
     fn write_vec(state: &Self::State, vec: &mut [f32]);
 }
 
-pub trait ActionSpace: Sized {
-    fn index<Space: StateActionSpace<Action = Self>>(&self) -> usize {
-        Space::index(self)
-    }
-    fn from_index<Space: StateActionSpace<Action = Self>>(index: usize) -> Self {
-        Space::from_index(index)
-    }
-}
+// pub trait ActionSpace: Sized {
+//     fn index<Space: StateActionSpace<Action = Self>>(&self) -> usize {
+//         Space::index(self)
+//     }
+//     fn from_index<Space: StateActionSpace<Action = Self>>(index: usize) -> Self {
+//         Space::from_index(index)
+//     }
+// }
 
 // todo! `#[derive(ActionSpace)]` instead
-impl<A> ActionSpace for A {}
+// impl<A> ActionSpace for A {}
 
 pub trait StateSpace: Sized {
     fn act<Space: StateActionSpace<State = Self>>(&mut self, action: &Space::Action) {

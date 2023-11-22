@@ -298,7 +298,7 @@ pub struct Conjecture2Dot1Cost {
 }
 
 impl az_discrete_opt::state::cost::Cost<f32> for Conjecture2Dot1Cost {
-    fn cost(&self) -> f32 {
+    fn evaluate(&self) -> f32 {
         let Self { matching, lambda_1 } = self;
         let matching_number = matching.len() as f64;
         let cost = matching_number + lambda_1;

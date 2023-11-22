@@ -10,15 +10,15 @@ use rayon::prelude::*;
 use std::{
     io::Write,
     mem::MaybeUninit,
-    path::{Path, PathBuf}, ops::{AddAssign, DivAssign},
+    path::{Path, PathBuf}, ops::DivAssign,
 };
 
 use az_discrete_opt::{
-    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
-    log::{RootCandidateData, NextEpochRoot},
+    int_min_tree::{state_data::{UpperEstimateData, StateDataKind}, INTMinTree},
+    log::ArgminData,
     path::{set::ActionSet, ActionPath},
-    space::{ActionSpace, StateSpace, StateSpaceVec},
-    state::{cost::Cost, prohibit::WithProhibitions}, next_root::par_set_next_roots,
+    space::{StateSpace, StateSpaceVec, StateActionSpace},
+    state::{cost::Cost, prohibit::WithProhibitions},
 };
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::simple_graph::{
@@ -102,7 +102,7 @@ fn main() -> eyre::Result<()> {
     let mut value_model = dev.build_module::<Valuation, f32>();
     
     let logits_config = AdamConfig {
-        lr: 4e-2,
+        lr: 2e-2,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
@@ -151,7 +151,7 @@ fn main() -> eyre::Result<()> {
         let n_sa = n_sa as f32;
         let c_puct = 1e1;
         let g_sa = g_sa_sum / n_sa;
-        let u_sa = g_sa + c_puct * p_sa * (n_s.ln().sqrt() / n_sa);
+        let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
         // println!(
         //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
         // );
@@ -160,7 +160,7 @@ fn main() -> eyre::Result<()> {
     
     // generate states
     let default_prohibitions = |s: &RawState| {
-        s.entries().map(|e| e.index::<Space>()).collect::<Vec<_>>()
+        s.entries().map(|e| Space::index(&e)).collect::<Vec<_>>()
     };
     let random_state = |rng: &mut ThreadRng| loop {
         let code = PrueferCode::generate(rng);
@@ -170,7 +170,6 @@ fn main() -> eyre::Result<()> {
             break state;
         }
     };
-    // let mut s_0: [S; BATCH] = par_init_map(|| rand::thread_rng(), random_state);
     // calculate costs
     let cost = |s: &S| {
         type T = graph_state::simple_graph::tree::Tree<N>;
@@ -181,23 +180,19 @@ fn main() -> eyre::Result<()> {
     let (
         mut s_0,
         mut c_t,
-        mut next_root,
     ): (
         [S; BATCH],
         [C; BATCH],
-        [NextEpochRoot<S, C>; BATCH],
     ) = {
         let mut s_0: [MaybeUninit<S>; BATCH] = MaybeUninit::uninit_array();
         let mut c_t: [MaybeUninit<C>; BATCH] = MaybeUninit::uninit_array();
-        let mut next_root: [MaybeUninit<NextEpochRoot<S, C>>; BATCH] = MaybeUninit::uninit_array();
-        (&mut s_0, &mut c_t, &mut next_root)
+        (&mut s_0, &mut c_t)
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
-                |rng, (s_t, c_t, next_root)| {
+                |rng, (s_t, c_t)| {
                     let s = random_state(rng);
                     let c = cost(&s);
-                    next_root.write(NextEpochRoot::new(s.clone(), c.clone()));
                     s_t.write(s);
                     c_t.write(c);
                 },
@@ -205,22 +200,18 @@ fn main() -> eyre::Result<()> {
         (
             unsafe { MaybeUninit::array_assume_init(s_0) },
             unsafe { MaybeUninit::array_assume_init(c_t) },
-            unsafe { MaybeUninit::array_assume_init(next_root) },
         )
     };
     
-    let mut argmin =
-        next_root
-        .par_iter()
-        .map(|log| log.current_candidate())
-        .max_by(|a, b| {
-            a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
-        }).unwrap();
-
     let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
-    let mut candidate_data: [Vec<RootCandidateData<C>>; BATCH] = core::array::from_fn(|_| vec![]);
+    let mut candidate_data: ArgminData<C> = (&s_0, &c_t).into_par_iter().min_by(|(_, a), (_, b)| {
+        a.evaluate().partial_cmp(&b.evaluate()).unwrap()
+    }).map(|(s, c)| {
+        ArgminData::new(s, c.clone(), 0, 0)
+    }).unwrap();
     let mut all_losses: Vec<(f32, f32)> = vec![];
     const ALPHA: [f64; ACTION] = [0.03; ACTION];
+
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set costs
@@ -252,7 +243,7 @@ fn main() -> eyre::Result<()> {
                             pi_theta.mul_add_assign(3., dir as f32);
                             pi_theta.div_assign(4.);
                         });
-                        t.write(Tree::new::<Space>(root_predictions, cost.cost(), root));
+                        t.write(Tree::new::<Space>(root_predictions, cost.evaluate(), root));
                     });
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
@@ -285,17 +276,17 @@ fn main() -> eyre::Result<()> {
                 s_t.write_vec::<Space>(v_t);
             });
 
-            (&mut next_root, &mut candidate_data, &s_t, &c_t)
-                .into_par_iter()
-                .for_each(|(l, candidate_data, s_t, c_t)| {
-                    if let Some(data) = l.post_episode_update(s_t, c_t) {
-                        candidate_data.push(data);
-                    }
-                });
+            let episode_argmin = (&s_t, &c_t).into_par_iter().min_by(|(_, a), (_, b)| {
+                a.evaluate().partial_cmp(&b.evaluate()).unwrap()
+            }).unwrap();
+            // update the global argmin
+            if episode_argmin.1.evaluate() < candidate_data.cost().evaluate() {
+                candidate_data = ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
+                println!("new min = {}", candidate_data.cost().evaluate());
+                println!("argmin  = {candidate_data:?}");
+            }
             // copy tree root state vectors into tensor
-            // propagate through core model
             state_vector_tensor.copy_from(v_t.flatten());
-            // last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
             // calculate predicted probabilities
             // copy predicted probabilities into to host
             predicted_probabilities_tensor = logits_model
@@ -333,43 +324,6 @@ fn main() -> eyre::Result<()> {
             .into_par_iter()
             .for_each(|(s, v)| s.write_vec::<Space>(v));
         
-        // let (
-        //     (
-        //         a,
-        //         c,
-        //     ),
-        //     (
-        //         b,
-        //         d,
-        //     )
-        // ) = &core_model;
-        // let dfdx::nn::modules::Linear {
-        //     weight,
-        //     bias,
-        // } = a;
-        // let core_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
-        // let (
-        //     (a, _),
-        //     (b, _),
-        //     c,
-        // ) = &logits_model;
-        // let dfdx::nn::modules::Linear {
-        //     weight,
-        //     bias,
-        // } = a;
-        // let logits_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
-        // let (
-        //     (a, _),
-        //     (b, _),
-        //     c,
-        // ) = &value_model;
-        // let dfdx::nn::modules::Linear {
-        //     weight,
-        //     bias,
-        // } = a;
-        // let value_mean = weight.clone().mean::<_, Axis<0>>().mean::<_, Axis<0>>().array();
-        // dbg!(logits_mean, value_mean);
-        
         // update probability predictions
         state_vector_tensor.copy_from(v_t.flatten());
         let predicted_logits_traced = logits_model.forward(state_vector_tensor.clone().traced(logits_gradients));
@@ -394,245 +348,39 @@ fn main() -> eyre::Result<()> {
         
         all_losses.push((entropy, mse));
         println!("all_losses: {all_losses:?}");
-
-        (&mut next_root, &mut s_0, &mut candidate_data)
-            .into_par_iter()
-            .for_each_init(
-                || rand::thread_rng(),
-                |rng, (next_root, s_0, d)| {
-                    let (candidate_data, stagnation) = next_root.end_epoch();
-                    d.push(candidate_data);
-                    // println!("{}", d.len());
-                    // println!("stagnation: {stagnation:?}");
-                    if let Some(stag) = stagnation {
-                        if stag.epochs >= max_before_resetting_states {
-                            // panic!("(randomize) stagnation: {stag:?}");
-                            *s_0 = random_state(rng);
-                            *next_root = NextEpochRoot::new(s_0.clone(), cost(s_0));
-                        } else if stag.epochs == max_before_resetting_actions {
-                            // panic!("(reset actions) stagnation: {stag:?}");
-                            let prohibited_actions = default_prohibitions(&s_0.state);
-                            next_root.make_minor_modification(|s| {
-                                s.prohibited_actions.clear();
-                                s.prohibited_actions.extend(prohibited_actions.iter())
-                            });
-                            s_0.prohibited_actions.clear();
-                            s_0.prohibited_actions.extend(prohibited_actions.iter());
-                        }
-                    } else {
-                        s_0.clone_from(&next_root.current_root());
-                        if (*s_0).is_terminal::<Space>() {
-                            let prohibited_actions = default_prohibitions(&s_0.state);
-                            s_0.prohibited_actions.clear();
-                            s_0.prohibited_actions.extend(prohibited_actions);
-                            if (*s_0).is_terminal::<Space>() {
-                                *s_0 = random_state(rng);
-                            }
-                        }
-                    }
-                }
-            );
-        let epoch_argmin = next_root
-            .par_iter()
-            .map(|log| log.current_candidate())
-            .min_by(|a, b| {
-                a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
-            }).unwrap();
-        if epoch_argmin.cost().cost() < argmin.cost().cost() {
-            argmin = epoch_argmin;
-            println!("new min = {}", argmin.cost().cost());
-            println!("argmin  = {argmin:?}");
-        }
-        // todo!("
-        // let epoch_argmin = logs.par_iter().map(|log| log.short_data()).max_by(|a, b| {{
-        //     a.cost().cost().partial_cmp(&b.cost().cost()).unwrap()
-        // }}).unwrap();
-        // if epoch_argmin.cost().cost() < argmin.cost().cost() {{
-        //     argmin = epoch_argmin;
-        //     println!(\"new min = {{}}\", argmin.cost().cost());
-        //     println!(\"argmin  = {{argmin:?}}\");
-        // }}");
         // write {short_data:?} to out_dir/epoch{epoch}.json
         let epoch_path = out_dir.join(format!("epoch{epoch}")).with_extension("json");
         let mut epoch_file =
             std::fs::File::create(epoch_path).wrap_err("failed to create epoch file")?;
         // we print format!("{short_data:?}") to the file
-        // we are not using serde lol
         epoch_file
             .write_all(format!("{candidate_data:?}").as_bytes())
             .wrap_err("failed to write epoch file")?;
-        candidate_data.par_iter_mut().for_each(|data| data.clear());
-        // par_set_next_roots::<BATCH, Space, _>(&mut s_0, &trees);
+        let select_node = |_i, nodes: Vec<(_, _)>| {
+            nodes[0].clone()
+        };
+        if epoch % 10 != 9 {
+            (&mut s_0, trees).into_par_iter().enumerate().for_each(|(i, (s, t))| {
+                let nodes = t.into_unstable_sorted_nodes();
+                let selected_node = select_node(i, nodes);
+                Space::follow(s, selected_node.0.actions_taken::<Space>().map(|a| Space::from_index(*a)));
+                if (*s).is_terminal::<Space>() {
+                    let prohibited_actions = default_prohibitions(&s.state);
+                    s.prohibited_actions.clear();
+                    s.prohibited_actions.extend(prohibited_actions);
+                    if (*s).is_terminal::<Space>() {
+                        let mut rng = rand::thread_rng();
+                        *s = random_state(&mut rng);
+                    }
+                }
+            })
+        } else {
+            s_0.par_iter_mut().for_each(|s| {
+                let mut rng = rand::thread_rng();
+                *s = random_state(&mut rng);
+            })
+        }
     }
     dbg!(&out_dir);
     Ok(())
 }
-
-// fn par_init_map<const N: usize, R, T: Send>(
-//     init: (impl Fn() -> R + Sync),
-//     f: impl Fn(&mut R) -> T + Sync,
-// ) -> [T; N] {
-//     let mut t: [MaybeUninit<T>; N] = MaybeUninit::uninit_array();
-//     t.par_iter_mut().for_each(|t| {
-//         let mut r = init();
-//         t.write(f(&mut r));
-//     });
-//     unsafe { MaybeUninit::array_assume_init(t) }
-// }
-
-// trait ParMap<'a>: IntoParallelIterator + 'a {
-//     type Input;
-//     type Output<U>;
-
-//     fn par_map<U>(
-//         self,
-//         f: impl Fn(Self::Item) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//     ;
-
-//     fn par_map_mut<U, M>(
-//         self,
-//         m: &mut Self::Output<M>,
-//         f: impl Fn(Self::Input, &mut M) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//         M: Send,
-//     ;
-// }
-
-// impl<'a, T: Sync + 'a, const N: usize> ParMap<'a> for &'a [T; N] {
-//     type Input = &'a T;
-
-//     type Output<U> = [U; N];
-
-//     fn par_map<U>(
-//         self,
-//         f: impl Fn(Self::Input) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self).into_par_iter().for_each(|(u, t)| {
-//             u.write(f(t));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-
-//     fn par_map_mut<U, M>(
-//         self,
-//         m: &mut Self::Output<M>,
-//         f: impl Fn(Self::Input, &mut M) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//         M: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self, m).into_par_iter().for_each(|(u, t, m)| {
-//             u.write(f(t, m));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-// }
-
-// impl<'a, S: Sync + 'a, T: Sync + 'a, const N: usize> ParMap<'a> for (&'a [S; N], &'a [T; N]) {
-//     type Input = (&'a S, &'a T);
-
-//     type Output<U> = [U; N];
-
-//     fn par_map<U>(
-//         self,
-//         f: impl Fn(Self::Input) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self.0, self.1).into_par_iter().for_each(|(u, s, t)| {
-//             u.write(f((s, t)));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-
-//     fn par_map_mut<U, M>(
-//         self,
-//         m: &mut Self::Output<M>,
-//         f: impl Fn(Self::Input, &mut M) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//         M: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self.0, self.1, m).into_par_iter().for_each(|(u, s, t, m)| {
-//             u.write(f((s, t), m));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-// }
-
-// impl<'a, T1: Sync + 'a, T2: Sync + 'a, T3: Sync + 'a, const N: usize> ParMap<'a> for (&'a [T1; N], &'a [T2; N], &'a [T3; N]) {
-//     type Input = (&'a T1, &'a T2, &'a T3);
-
-//     type Output<U> = [U; N];
-
-//     fn par_map<U>(
-//         self,
-//         f: impl Fn(Self::Input) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self.0, self.1, self.2).into_par_iter().for_each(|(u, t1, t2, t3)| {
-//             u.write(f((t1, t2, t3)));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-
-//     fn par_map_mut<U, M>(
-//         self,
-//         m: &mut Self::Output<M>,
-//         f: impl Fn(Self::Input, &mut M) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//         M: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self.0, self.1, self.2, m).into_par_iter().for_each(|(u, t1, t2, t3, m)| {
-//             u.write(f((t1, t2, t3), m));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-// }
-
-// impl<'a, T1: Sync + 'a, T2: Sync + 'a, T3: Sync + 'a, T4: Sync + 'a, const N: usize> ParMap<'a> for (&'a [T1; N], &'a [T2; N], &'a [T3; N], &'a [T4; N]) {
-//     type Input = (&'a T1, &'a T2, &'a T3, &'a T4);
-
-//     type Output<U> = [U; N];
-
-//     fn par_map<U>(
-//         self,
-//         f: impl Fn(Self::Input) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//     {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self.0, self.1, self.2, self.3).into_par_iter().for_each(|(u, t1, t2, t3, t4)| {
-//             u.write(f((t1, t2, t3, t4)));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-
-//     fn par_map_mut<U, M>(
-//         self,
-//         m: &mut Self::Output<M>,
-//         f: impl Fn(Self::Input, &mut M) -> U + Sync,
-//     ) -> Self::Output<U> where
-//         U: Send,
-//         M: Send,
-//      {
-//         let mut u: [MaybeUninit<U>; N] = MaybeUninit::uninit_array();
-//         (&mut u, self.0, self.1, self.2, self.3, m).into_par_iter().for_each(|(u, t1, t2, t3, t4, m)| {
-//             u.write(f((t1, t2, t3, t4), m));
-//         });
-//         unsafe { MaybeUninit::array_assume_init(u) }
-//     }
-// }

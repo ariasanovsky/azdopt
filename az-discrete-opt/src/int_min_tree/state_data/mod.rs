@@ -6,7 +6,7 @@ use super::transition::{INTTransition, StateDataKindMutRef, TransitionKind};
 
 pub(crate) mod action_data;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum StateDataKind {
     Exhausted { c_t: f32 },
     Active { data: INTStateData },
@@ -51,7 +51,7 @@ impl StateDataKind {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct INTStateData {
     pub(crate) n_s: usize,
     pub(crate) c_s: f32,
