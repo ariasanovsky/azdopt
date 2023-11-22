@@ -45,6 +45,7 @@ impl<const N: usize> From<&PrueferCode<N>> for Tree<N> {
     }
 }
 
+#[derive(Debug)]
 pub struct Tree<const N: usize> {
     pub parent: [Option<usize>; N],
 }
@@ -83,6 +84,10 @@ impl<const N: usize> Tree<N> {
         debug_assert!(nonzero_degrees.next().is_none());
         parent[a] = Some(b);
         parent[b] = None;
+        assert!(
+            parent.iter().filter(|p| p.is_none()).count() == 1,
+            "code = {:?}, parent = {:?}", code, parent,
+        );
         Self { parent }
     }
 
@@ -205,5 +210,22 @@ mod tests {
             Edge::new(4, 5),
         ];
         assert_eq!(edges, expected_edges);
+    }
+
+    #[test]
+    fn this_double_star_graph_has_matching_number_two_as_a_tree() {
+        let tree_edges = [[3, 1], [12, 1], [16, 1], [18, 1], [19, 0], [19, 1], [19, 2], [19, 4], [19, 5], [19, 6], [19, 7], [19, 8], [19, 9], [19, 10], [19, 11], [19, 13], [19, 14], [19, 15], [19, 17]];
+        let mut edges: [Option<usize>; 20] = core::array::from_fn(|_| None);
+        for [v, u] in tree_edges.iter() {
+            edges[*v] = Some(*u);
+        }        
+        let tree = Tree::<20> {
+            parent: edges,
+        };
+        let matching = tree.maximum_matching();
+        assert_eq!(matching.len(), 2);
+
+        let cost = tree.conjecture_2_1_cost();
+        assert_eq!(cost.matching.len(), 2);
     }
 }

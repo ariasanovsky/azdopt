@@ -8,9 +8,9 @@ use rand_distr::Distribution;
 use rayon::prelude::*;
 
 use std::{
-    io::Write,
+    io::{Write, BufWriter},
     mem::MaybeUninit,
-    path::{Path, PathBuf}, ops::DivAssign,
+    path::{Path, PathBuf}, ops::DivAssign, time::{SystemTime, Duration},
 };
 
 use az_discrete_opt::{
@@ -74,8 +74,10 @@ type Valuation = (
     // Linear<HIDDEN_2, 3>,
 );
 
+use tensorboard_writer::{SummaryBuilder, TensorboardWriter};
+
 fn main() -> eyre::Result<()> {
-    // `epoch0.json, ...` get written to OUT/{dir_name}
+    // implementing tensorboard
     let out_dir = std::env::var("OUT_DIR")
         .map_or_else(
             |_| {
@@ -88,14 +90,17 @@ fn main() -> eyre::Result<()> {
         .join("07-c21-tree")
         .join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
+    let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
 
+    let writer = BufWriter::new(std::fs::File::create(out_file)?);
+    let mut writer = TensorboardWriter::new(writer);
+    writer.write_file_version()?;
+    
     let epochs: usize = 250;
     let episodes: usize = 800;
-    let max_before_resetting_actions = 4;
-    let max_before_resetting_states = 8;
-
+    
     let dev = AutoDevice::default();
     // let mut core_model = dev.build_module::<Core, f32>();
     let mut logits_model = dev.build_module::<Logits, f32>();
@@ -175,6 +180,13 @@ fn main() -> eyre::Result<()> {
         type T = graph_state::simple_graph::tree::Tree<N>;
         let tree = T::from(&s.state);
         let cost = tree.conjecture_2_1_cost();
+        if cost.matching.len() < 2 {
+            println!("cost = {:?}", cost);
+            println!("s = {:?}", s);
+            println!("tree = {:?}", tree);
+            // dbg!(&s, &cost, &tree);
+            panic!();
+        }
         cost
     };
     let (
@@ -214,22 +226,16 @@ fn main() -> eyre::Result<()> {
 
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
-        // set costs
         // set state vectors
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
         (&s_0, &mut v_t)
             .into_par_iter()
             .for_each(|(s, v)| s.write_vec::<Space>(v));
-        // println!("s_0[0] = {:?}", s_0[0]);
-        // println!("c_0[0] = {:?}", c_t[0]);
-        // println!("v_0[0] = {:?}", v_t[0]);
         state_vector_tensor.copy_from(v_t.flatten());
-        // last_core_layer_prediction = core_model.forward(state_vector_tensor.clone());
         predicted_probabilities_tensor = logits_model
             .forward(state_vector_tensor.clone())
             .softmax::<Axis<1>>();
         predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
-        // println!("probs: {:?}", predicted_probabilities);
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
             (&mut trees, &mut predicted_probabilities, &c_t, &s_0)
@@ -284,6 +290,15 @@ fn main() -> eyre::Result<()> {
                 candidate_data = ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
                 println!("new min = {}", candidate_data.cost().evaluate());
                 println!("argmin  = {candidate_data:?}");
+
+                let summ = SummaryBuilder::new()
+                    .scalar("cost/cost", candidate_data.cost().evaluate())
+                    .scalar("cost/lambda_1", candidate_data.cost().lambda_1 as _)
+                    .scalar("cost/mu", candidate_data.cost().matching.len() as _)
+                    .build();
+                // Write summaries to file.
+                writer.write_summary(SystemTime::now(), (episodes * epoch + episode) as i64, summ)?;
+                writer.get_mut().flush()?;
             }
             // copy tree root state vectors into tensor
             state_vector_tensor.copy_from(v_t.flatten());
@@ -347,15 +362,25 @@ fn main() -> eyre::Result<()> {
         value_model.zero_grads(&mut value_gradients);
         
         all_losses.push((entropy, mse));
-        println!("all_losses: {all_losses:?}");
-        // write {short_data:?} to out_dir/epoch{epoch}.json
-        let epoch_path = out_dir.join(format!("epoch{epoch}")).with_extension("json");
-        let mut epoch_file =
-            std::fs::File::create(epoch_path).wrap_err("failed to create epoch file")?;
-        // we print format!("{short_data:?}") to the file
-        epoch_file
-            .write_all(format!("{candidate_data:?}").as_bytes())
-            .wrap_err("failed to write epoch file")?;
+
+        let summ = SummaryBuilder::new()
+            .scalar("loss/entropy", entropy)
+            .scalar("loss/mse", mse)
+            .build();
+        // Write summaries to file.
+        writer.write_summary(SystemTime::now(), epoch as i64, summ)?;
+        writer.get_mut().flush()?;
+
+        let summ = SummaryBuilder::new()
+            .scalar("cost/cost", candidate_data.cost().evaluate())
+            .scalar("cost/lambda_1", candidate_data.cost().lambda_1 as _)
+            .scalar("cost/mu", candidate_data.cost().matching.len() as _)
+            .build();
+        // Write summaries to file.
+        writer.write_summary(SystemTime::now(), (episodes * epoch + episodes) as i64, summ)?;
+        writer.get_mut().flush()?;
+        
+        
         let select_node = |_i, nodes: Vec<(_, _)>| {
             nodes[0].clone()
         };
