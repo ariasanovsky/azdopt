@@ -9,6 +9,7 @@ wandb/
 foo.py
 !readme_3d_cost.png
 !tb-out.png
+!symmetry.png
 azdopt.code-workspace
 *.svg
 out.txt
