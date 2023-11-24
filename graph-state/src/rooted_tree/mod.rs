@@ -1,5 +1,6 @@
 mod try_from;
 pub mod space;
+pub mod ordered_edge;
 
 /// A rooted ordered tree. For all `i` in `0..N`, the parent of the `i`-th node is in `0..i`.
 #[derive(Debug, Clone)]
@@ -26,5 +27,21 @@ impl<const N: usize> RootedOrderedTree<N> {
             parents[i] = rng.gen_range(0..i);
         }
         Self { parents }
+    }
+
+    fn parents(&self) -> &[usize; N] {
+        &self.parents
+    }
+    
+    fn parents_mut(&mut self) -> &mut [usize; N] {
+        &mut self.parents
+    }
+
+    fn parent(&self, child: usize) -> Option<usize> {
+        if child == 0 {
+            None
+        } else {
+            Some(self.parents()[child])
+        }
     }
 }

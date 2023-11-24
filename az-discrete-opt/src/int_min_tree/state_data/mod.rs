@@ -21,9 +21,9 @@ impl StateDataKind {
             return Self::Exhausted { c_t: cost };
         }
         let mut c = 0;
-        let p_sum = Space::actions(state).map(|a| { c += 1; probs[a] }).sum::<f32>();
+        let p_sum = Space::action_indices(state).map(|a| { c += 1; probs[a] }).sum::<f32>();
         debug_assert_ne!(c, 0);
-        let mut unvisited_actions = Space::actions(state)
+        let mut unvisited_actions = Space::action_indices(state)
             .map(|a| INTUnvisitedActionData::new(a, probs[a] / p_sum))
             .collect::<Vec<_>>();
         unvisited_actions.sort_by(|a, b| a.p_sa().partial_cmp(&b.p_sa()).unwrap());

@@ -1,5 +1,6 @@
 use super::RootedOrderedTree;
 
+#[derive(Debug)]
 pub enum Error {
     InvalidParent,
 }

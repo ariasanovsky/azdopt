@@ -10,14 +10,14 @@ use rayon::prelude::*;
 use std::{
     io::{Write, BufWriter},
     mem::MaybeUninit,
-    path::{Path, PathBuf}, ops::DivAssign, time::{SystemTime, Duration},
+    path::{Path, PathBuf}, ops::DivAssign, time::SystemTime,
 };
 
 use az_discrete_opt::{
-    int_min_tree::{state_data::{UpperEstimateData, StateDataKind}, INTMinTree},
+    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
-    space::{StateSpace, StateSpaceVec, StateActionSpace},
+    space::StateActionSpace,
     state::{cost::Cost, prohibit::WithProhibitions},
 };
 use dfdx::{optim::Adam, prelude::*};
@@ -171,7 +171,7 @@ fn main() -> eyre::Result<()> {
         let code = PrueferCode::generate(rng);
         let prohibited_actions = default_prohibitions(&code);
         let state = WithProhibitions::new(code.clone(), prohibited_actions);
-        if !state.is_terminal::<Space>() {
+        if !Space::is_terminal(&state) {
             break state;
         }
     };
@@ -230,7 +230,7 @@ fn main() -> eyre::Result<()> {
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
         (&s_0, &mut v_t)
             .into_par_iter()
-            .for_each(|(s, v)| s.write_vec::<Space>(v));
+            .for_each(|(s, v)| Space::write_vec(s, v));
         state_vector_tensor.copy_from(v_t.flatten());
         predicted_probabilities_tensor = logits_model
             .forward(state_vector_tensor.clone())
@@ -279,7 +279,7 @@ fn main() -> eyre::Result<()> {
                 });
 
             (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
-                s_t.write_vec::<Space>(v_t);
+                Space::write_vec(s_t, v_t);
             });
 
             let episode_argmin = (&s_t, &c_t).into_par_iter().min_by(|(_, a), (_, b)| {
@@ -337,7 +337,7 @@ fn main() -> eyre::Result<()> {
 
         (&s_0, &mut v_t)
             .into_par_iter()
-            .for_each(|(s, v)| s.write_vec::<Space>(v));
+            .for_each(|(s, v)| Space::write_vec(s, v));
         
         // update probability predictions
         state_vector_tensor.copy_from(v_t.flatten());
@@ -389,11 +389,11 @@ fn main() -> eyre::Result<()> {
                 let nodes = t.into_unstable_sorted_nodes();
                 let selected_node = select_node(i, nodes);
                 Space::follow(s, selected_node.0.actions_taken::<Space>().map(|a| Space::from_index(*a)));
-                if (*s).is_terminal::<Space>() {
+                if Space::is_terminal(s) {
                     let prohibited_actions = default_prohibitions(&s.state);
                     s.prohibited_actions.clear();
                     s.prohibited_actions.extend(prohibited_actions);
-                    if (*s).is_terminal::<Space>() {
+                    if Space::is_terminal(s) {
                         let mut rng = rand::thread_rng();
                         *s = random_state(&mut rng);
                     }

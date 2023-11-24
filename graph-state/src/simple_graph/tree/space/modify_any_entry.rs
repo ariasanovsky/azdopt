@@ -26,7 +26,7 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
         state.modify_entry(*i, *parent);
     }
 
-    fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
         state
             .code()
             .iter()
@@ -53,11 +53,11 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
     }
 
     fn is_terminal(state: &Self::State) -> bool {
-        Self::actions(state).next().is_none()
+        Self::action_indices(state).next().is_none()
     }
 
     fn has_action(state: &Self::State, action: &Self::Action) -> bool {
         let action_index = Self::index(action);
-        Self::actions(state).any(|i| i == action_index)
+        Self::action_indices(state).any(|i| i == action_index)
     }
 }

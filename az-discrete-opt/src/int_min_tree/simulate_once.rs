@@ -37,7 +37,7 @@ impl<P> INTMinTree<P> {
         // dbg!();
         debug_assert_eq!(
             root_data.len(),
-            Space::actions(root_state).count(),
+            Space::action_indices(root_state).count(),
             // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
         );
         let a_1 = root_data.best_action(upper_estimate).unwrap();

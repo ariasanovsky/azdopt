@@ -41,7 +41,7 @@ impl<const N: usize> StateActionSpace for ModifyEachPrueferCodeEntriesExactlyOnc
         state.prohibited_actions.extend(i)
     }
 
-    fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
         state
             .state
             .code()
@@ -81,12 +81,12 @@ impl<const N: usize> StateActionSpace for ModifyEachPrueferCodeEntriesExactlyOnc
     }
 
     fn is_terminal(state: &Self::State) -> bool {
-        Self::actions(state).next().is_none()
+        Self::action_indices(state).next().is_none()
     }
 
     fn has_action(state: &Self::State, action: &Self::Action) -> bool {
         let action_index = Self::index(action);
-        Self::actions(state).any(|i| i == action_index)
+        Self::action_indices(state).any(|i| i == action_index)
     }
 }
 
@@ -95,7 +95,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use az_discrete_opt::{
-        space::{StateActionSpace, StateSpace},
+        space::StateActionSpace,
         state::prohibit::WithProhibitions,
     };
 
@@ -111,7 +111,6 @@ mod tests {
     #[test]
     fn pruefer_code_indexes_correct_for_4_vertices() {
         type Space4 = SASpace<4>;
-        type A4 = A<4>;
         for i in 0..16 {
             let a = Space4::from_index(i);
             let i2 = Space4::index(&a);
@@ -160,16 +159,14 @@ mod tests {
             BTreeSet::from([]),
         ];
         // test the action set before taking actions
-        let actions = code
-            .actions::<Space4>()
+        let actions = Space4::action_indices(&code)
             .map(|i| Space4::from_index(i))
             .collect::<BTreeSet<_>>();
         let (action_set_0, action_sets) = action_sets.split_first().unwrap();
         assert_eq!(actions, *action_set_0);
         for i in 0..2 {
-            code.act::<Space4>(&actions_to_take[i]);
-            let actions = code
-                .actions::<Space4>()
+            Space4::act(&mut code, &actions_to_take[i]);
+            let actions = Space4::action_indices(&code)
                 .map(|i| Space4::from_index(i))
                 .collect::<BTreeSet<_>>();
             assert_eq!(actions, action_sets[i]);

@@ -32,7 +32,7 @@ impl core::fmt::Display for PrueferCodeEntry {
 
 #[cfg(test)]
 mod tests {
-    use az_discrete_opt::space::{StateSpace, StateActionSpace};
+    use az_discrete_opt::space::StateActionSpace;
 
     use crate::simple_graph::tree::{
         space::modify_any_entry::ModifyAnyPrueferCodeEntry, PrueferCode,
@@ -69,9 +69,7 @@ mod tests {
         type Space = ModifyAnyPrueferCodeEntry<3>;
         // type Action = PrueferCodeEntry;
         for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
-            let actions: Vec<PrueferCodeEntry> = code
-                .actions::<Space>()
-                .into_iter()
+            let actions: Vec<PrueferCodeEntry> = Space::action_indices(&code)
                 .map(|i| Space::from_index(i))
                 .collect();
             assert_eq!(actions, correct_actions);
