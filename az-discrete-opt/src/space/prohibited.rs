@@ -1,2 +1,2 @@
-/// Gonna put a functor here.
-pub struct __HalfBakedIdea;
+/// c.f. `ProhibitedConstrainedRootedOrderedTree<N>`
+pub struct __Todo;

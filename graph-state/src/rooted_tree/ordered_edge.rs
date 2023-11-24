@@ -57,8 +57,8 @@ impl<const N: usize> RootedOrderedTree<N> {
         }).into_iter().flatten()
     }
 
-    pub fn all_possible_parent_modifications(&self) -> impl Iterator<Item = OrderedEdge> + '_ {
-        (0..N).map(|child| self.possible_parent_modifications(child)).flatten()
+    pub fn all_possible_parent_modifications_ignoring_last_vertex(&self) -> impl Iterator<Item = OrderedEdge> + '_ {
+        (0..N-1).map(|child| self.possible_parent_modifications(child)).flatten()
     }
 
     pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost {
@@ -145,7 +145,7 @@ mod tests {
         let expected = [(2, 1), (3, 1), (3, 2), (4, 1), (4, 2), (4, 3)].map(|(parent, child)| {
             OrderedEdge::new(Edge::new(parent, child))
         });
-        let actual = star.all_possible_parent_modifications().collect::<Vec<_>>();
+        let actual = star.all_possible_parent_modifications_ignoring_last_vertex().collect::<Vec<_>>();
         assert_eq!(actual, expected);
     }
 

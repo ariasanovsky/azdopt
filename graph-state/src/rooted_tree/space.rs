@@ -26,16 +26,19 @@ impl<const N: usize> StateActionSpace for ConstrainedRootedOrderedTree<N> {
     }
 
     fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
-        state.all_possible_parent_modifications().map(|a| Self::index(&a))
+        state.all_possible_parent_modifications_ignoring_last_vertex().map(|a| Self::index(&a))
     }
 
     fn write_vec(state: &Self::State, vec: &mut [f32]) {
         debug_assert_eq!(vec.len(), Self::DIM);
         vec.fill(0.);
-        for (child, parent) in state.parents().iter().enumerate().skip(2) {
+        for (child, parent) in state.parents_ignoring_last_vertex().iter().enumerate().skip(2) {
             let edge = Edge::new(*parent, child);
             let edge = OrderedEdge::new(edge);
             let index = Self::index(&edge);
+            if index == 170 {
+                println!("index = {index}, edge = {edge:?}, child = {child}, parent = {parent}");
+            }
             vec[index] = 1.;
         }
     }

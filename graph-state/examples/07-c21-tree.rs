@@ -21,10 +21,7 @@ use az_discrete_opt::{
     state::{cost::Cost, prohibit::WithProhibitions},
 };
 use dfdx::{optim::Adam, prelude::*};
-use graph_state::simple_graph::{
-    connected_bitset_graph::Conjecture2Dot1Cost,
-    tree::{space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce, PrueferCode},
-};
+use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
 use rand::rngs::ThreadRng;
 
 use chrono::prelude::*;
@@ -32,24 +29,22 @@ use chrono::prelude::*;
 use eyre::WrapErr;
 
 const N: usize = 20;
-type Space = ModifyEachPrueferCodeEntriesExactlyOnce<N>;
+type Space = ProhibitedConstrainedRootedOrderedTree<N>;
 
-type RawState = PrueferCode<N>;
+type RawState = RootedOrderedTree<N>;
 type S = WithProhibitions<RawState>;
 type P = ActionSet;
-// type Node<'a> = MutRefNode<'a, S, P>;
 
 type Tree = INTMinTree<P>;
 type C = Conjecture2Dot1Cost;
-// type Log = SimpleRootLog<S, C>;
 
-const ACTION: usize = N * (N - 2);
-const RAW_STATE: usize = N * (N - 2);
+const ACTION: usize = (N - 1) * (N - 2) / 2 - 1;
+const RAW_STATE: usize = (N - 1) * (N - 2) / 2 - 1;
 const STATE: usize = RAW_STATE + ACTION;
 type NodeVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 512;
+const BATCH: usize = 256;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 256;
@@ -165,28 +160,35 @@ fn main() -> eyre::Result<()> {
     
     // generate states
     let default_prohibitions = |s: &RawState| {
-        s.entries().map(|e| Space::index(&e)).collect::<Vec<_>>()
+        s.edge_indices_ignoring_0_1_and_last_vertex().collect::<Vec<_>>()
     };
+
     let random_state = |rng: &mut ThreadRng| loop {
-        let code = PrueferCode::generate(rng);
-        let prohibited_actions = default_prohibitions(&code);
-        let state = WithProhibitions::new(code.clone(), prohibited_actions);
+        let state = RawState::generate_constrained(rng);
+        let prohibited_actions = default_prohibitions(&state);
+        let state = WithProhibitions::new(state.clone(), prohibited_actions);
+        debug_assert!(
+            !state.prohibited_actions.contains(&170),
+            "state = {state:?}",
+        );
         if !Space::is_terminal(&state) {
             break state;
         }
     };
     // calculate costs
     let cost = |s: &S| {
-        type T = graph_state::simple_graph::tree::Tree<N>;
-        let tree = T::from(&s.state);
-        let cost = tree.conjecture_2_1_cost();
-        if cost.matching.len() < 2 {
-            println!("cost = {:?}", cost);
-            println!("s = {:?}", s);
-            println!("tree = {:?}", tree);
-            // dbg!(&s, &cost, &tree);
-            panic!();
-        }
+        debug_assert!(
+            !s.prohibited_actions.contains(&170),
+            "s = {s:?}",
+        );
+        let cost = s.state.conjecture_2_1_cost();
+        // if cost.matching.len() < 2 { panicked for the star graph ;)
+        //     println!("cost = {:?}", cost);
+        //     println!("s = {:?}", s);
+        //     println!("tree = {:?}", s);
+        //     // dbg!(&s, &cost, &tree);
+        //     panic!();
+        // }
         cost
     };
     let (
@@ -384,7 +386,7 @@ fn main() -> eyre::Result<()> {
         let select_node = |_i, nodes: Vec<(_, _)>| {
             nodes[0].clone()
         };
-        if epoch % 10 != 9 {
+        if epoch % 4 != 3 {
             (&mut s_0, trees).into_par_iter().enumerate().for_each(|(i, (s, t))| {
                 let nodes = t.into_unstable_sorted_nodes();
                 let selected_node = select_node(i, nodes);
