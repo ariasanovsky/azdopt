@@ -1,4 +1,4 @@
-use crate::{iq_min_tree::{ActionMultiset, Transitions}, state::cost::Cost};
+use crate::iq_min_tree::{ActionMultiset, Transitions};
 
 // pub struct NextEpochRoot<S, C> {
 //     next_root: S,

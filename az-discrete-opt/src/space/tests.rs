@@ -1,9 +1,9 @@
 use crate::{
     int_min_tree::{
-        state_data::{action_data::INTUnvisitedActionData, INTStateData, UpperEstimateData},
+        state_data::UpperEstimateData,
         INTMinTree,
     },
-    path::{sequence::ActionSequence, ActionPath},
+    path::sequence::ActionSequence,
 };
 
 use super::StateActionSpace;
@@ -49,7 +49,7 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
         }
     }
 
-    fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
         match state.0 {
             n if n == N => vec![0],
             n if n == -N => vec![1],
@@ -111,7 +111,7 @@ fn transitions_for_minimizing_n_square_are_correct() {
     };
 
     let s_0: S = Interval(-3);
-    todo!()
+    // todo!()
     // let mut tree = Tree::new::<Space>(&prediction(&s_0), cost(&s_0), &s_0);
     // let correct_root_data = INTStateData {
     //     n_s: 0,

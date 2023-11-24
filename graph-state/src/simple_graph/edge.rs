@@ -1,7 +1,7 @@
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Edge {
-    pub max: usize,
-    pub min: usize,
+    pub(crate) max: usize,
+    pub(crate) min: usize,
 }
 
 impl core::fmt::Debug for Edge {

@@ -38,7 +38,7 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
         }
     }
 
-    fn actions(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
         let actions = state
             .action_kinds()
             .enumerate()
@@ -63,12 +63,12 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
     }
 
     fn is_terminal(state: &Self::State) -> bool {
-        Self::actions(state).next().is_none()
+        Self::action_indices(state).next().is_none()
     }
 
     fn has_action(state: &Self::State, action: &Self::Action) -> bool {
         let action_index = Self::index(action);
-        Self::actions(state).any(|i| i == action_index)
+        Self::action_indices(state).any(|i| i == action_index)
     }
 }
 
@@ -265,7 +265,7 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
 
 #[cfg(test)]
 mod test {
-    use az_discrete_opt::space::{StateActionSpace, StateSpace};
+    use az_discrete_opt::space::StateActionSpace;
 
     use super::*;
     use crate::simple_graph::{bitset_graph::BitsetGraph, edge::Edge};
@@ -336,8 +336,7 @@ mod test {
             .try_into()
             .unwrap();
         type Space = ConnectedAddOrDeleteEdge<4>;
-        let actions = graph
-            .actions::<Space>()
+        let actions = Space::action_indices(&graph)
             .map(|i| Space::from_index(i))
             .collect::<Vec<_>>();
         assert_eq!(

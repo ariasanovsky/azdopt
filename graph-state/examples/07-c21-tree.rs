@@ -10,21 +10,18 @@ use rayon::prelude::*;
 use std::{
     io::{Write, BufWriter},
     mem::MaybeUninit,
-    path::{Path, PathBuf}, ops::DivAssign, time::{SystemTime, Duration},
+    path::{Path, PathBuf}, ops::DivAssign, time::SystemTime,
 };
 
 use az_discrete_opt::{
-    int_min_tree::{state_data::{UpperEstimateData, StateDataKind}, INTMinTree},
+    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
-    space::{StateSpace, StateSpaceVec, StateActionSpace},
+    space::StateActionSpace,
     state::{cost::Cost, prohibit::WithProhibitions},
 };
 use dfdx::{optim::Adam, prelude::*};
-use graph_state::simple_graph::{
-    connected_bitset_graph::Conjecture2Dot1Cost,
-    tree::{space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce, PrueferCode},
-};
+use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
 use rand::rngs::ThreadRng;
 
 use chrono::prelude::*;
@@ -32,24 +29,22 @@ use chrono::prelude::*;
 use eyre::WrapErr;
 
 const N: usize = 20;
-type Space = ModifyEachPrueferCodeEntriesExactlyOnce<N>;
+type Space = ProhibitedConstrainedRootedOrderedTree<N>;
 
-type RawState = PrueferCode<N>;
+type RawState = RootedOrderedTree<N>;
 type S = WithProhibitions<RawState>;
 type P = ActionSet;
-// type Node<'a> = MutRefNode<'a, S, P>;
 
 type Tree = INTMinTree<P>;
 type C = Conjecture2Dot1Cost;
-// type Log = SimpleRootLog<S, C>;
 
-const ACTION: usize = N * (N - 2);
-const RAW_STATE: usize = N * (N - 2);
+const ACTION: usize = (N - 1) * (N - 2) / 2 - 1;
+const RAW_STATE: usize = (N - 1) * (N - 2) / 2 - 1;
 const STATE: usize = RAW_STATE + ACTION;
 type NodeVector = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
-const BATCH: usize = 512;
+const BATCH: usize = 256;
 
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 256;
@@ -165,28 +160,35 @@ fn main() -> eyre::Result<()> {
     
     // generate states
     let default_prohibitions = |s: &RawState| {
-        s.entries().map(|e| Space::index(&e)).collect::<Vec<_>>()
+        s.edge_indices_ignoring_0_1_and_last_vertex().collect::<Vec<_>>()
     };
+
     let random_state = |rng: &mut ThreadRng| loop {
-        let code = PrueferCode::generate(rng);
-        let prohibited_actions = default_prohibitions(&code);
-        let state = WithProhibitions::new(code.clone(), prohibited_actions);
-        if !state.is_terminal::<Space>() {
+        let state = RawState::generate_constrained(rng);
+        let prohibited_actions = default_prohibitions(&state);
+        let state = WithProhibitions::new(state.clone(), prohibited_actions);
+        debug_assert!(
+            !state.prohibited_actions.contains(&170),
+            "state = {state:?}",
+        );
+        if !Space::is_terminal(&state) {
             break state;
         }
     };
     // calculate costs
     let cost = |s: &S| {
-        type T = graph_state::simple_graph::tree::Tree<N>;
-        let tree = T::from(&s.state);
-        let cost = tree.conjecture_2_1_cost();
-        if cost.matching.len() < 2 {
-            println!("cost = {:?}", cost);
-            println!("s = {:?}", s);
-            println!("tree = {:?}", tree);
-            // dbg!(&s, &cost, &tree);
-            panic!();
-        }
+        debug_assert!(
+            !s.prohibited_actions.contains(&170),
+            "s = {s:?}",
+        );
+        let cost = s.state.conjecture_2_1_cost();
+        // if cost.matching.len() < 2 { panicked for the star graph ;)
+        //     println!("cost = {:?}", cost);
+        //     println!("s = {:?}", s);
+        //     println!("tree = {:?}", s);
+        //     // dbg!(&s, &cost, &tree);
+        //     panic!();
+        // }
         cost
     };
     let (
@@ -230,7 +232,7 @@ fn main() -> eyre::Result<()> {
         let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
         (&s_0, &mut v_t)
             .into_par_iter()
-            .for_each(|(s, v)| s.write_vec::<Space>(v));
+            .for_each(|(s, v)| Space::write_vec(s, v));
         state_vector_tensor.copy_from(v_t.flatten());
         predicted_probabilities_tensor = logits_model
             .forward(state_vector_tensor.clone())
@@ -279,7 +281,7 @@ fn main() -> eyre::Result<()> {
                 });
 
             (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
-                s_t.write_vec::<Space>(v_t);
+                Space::write_vec(s_t, v_t);
             });
 
             let episode_argmin = (&s_t, &c_t).into_par_iter().min_by(|(_, a), (_, b)| {
@@ -337,7 +339,7 @@ fn main() -> eyre::Result<()> {
 
         (&s_0, &mut v_t)
             .into_par_iter()
-            .for_each(|(s, v)| s.write_vec::<Space>(v));
+            .for_each(|(s, v)| Space::write_vec(s, v));
         
         // update probability predictions
         state_vector_tensor.copy_from(v_t.flatten());
@@ -384,16 +386,16 @@ fn main() -> eyre::Result<()> {
         let select_node = |_i, nodes: Vec<(_, _)>| {
             nodes[0].clone()
         };
-        if epoch % 10 != 9 {
+        if epoch % 4 != 3 {
             (&mut s_0, trees).into_par_iter().enumerate().for_each(|(i, (s, t))| {
                 let nodes = t.into_unstable_sorted_nodes();
                 let selected_node = select_node(i, nodes);
                 Space::follow(s, selected_node.0.actions_taken::<Space>().map(|a| Space::from_index(*a)));
-                if (*s).is_terminal::<Space>() {
+                if Space::is_terminal(s) {
                     let prohibited_actions = default_prohibitions(&s.state);
                     s.prohibited_actions.clear();
                     s.prohibited_actions.extend(prohibited_actions);
-                    if (*s).is_terminal::<Space>() {
+                    if Space::is_terminal(s) {
                         let mut rng = rand::thread_rng();
                         *s = random_state(&mut rng);
                     }
