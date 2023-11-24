@@ -1,6 +1,7 @@
 mod try_from;
 pub mod space;
 pub mod ordered_edge;
+pub mod prohibited_space;
 
 /// A rooted ordered tree. For all `i` in `0..N`, the parent of the `i`-th node is in `0..i`.
 #[derive(Debug, Clone)]
@@ -29,11 +30,11 @@ impl<const N: usize> RootedOrderedTree<N> {
         Self { parents }
     }
 
-    fn parents(&self) -> &[usize; N] {
+    pub(crate) fn parents(&self) -> &[usize; N] {
         &self.parents
     }
     
-    fn parents_mut(&mut self) -> &mut [usize; N] {
+    pub(crate) fn parents_mut(&mut self) -> &mut [usize; N] {
         &mut self.parents
     }
 

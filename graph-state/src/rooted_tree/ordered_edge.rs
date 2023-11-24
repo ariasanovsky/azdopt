@@ -1,4 +1,6 @@
-use crate::simple_graph::edge::Edge;
+use faer::Faer;
+
+use crate::simple_graph::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost};
 
 use super::RootedOrderedTree;
 
@@ -18,11 +20,11 @@ impl OrderedEdge {
     }
 
     pub fn parent(&self) -> usize {
-        self.edge().min
+        self.edge().min()
     }
 
     pub fn child(&self) -> usize {
-        self.edge().max
+        self.edge().max()
     }
 
     pub fn child_parent(&self) -> (usize, usize) {
@@ -58,13 +60,66 @@ impl<const N: usize> RootedOrderedTree<N> {
     pub fn all_possible_parent_modifications(&self) -> impl Iterator<Item = OrderedEdge> + '_ {
         (0..N).map(|child| self.possible_parent_modifications(child)).flatten()
     }
+
+    pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost {
+        let a = self.adjacency_matrix();
+        let lambda_1 = a.selfadjoint_eigenvalues(faer::Side::Upper).into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(); 
+        assert!(
+            lambda_1 >= 1.4,
+            "lambda_1: {lambda_1}, a:\n{a:?}",
+        );
+        let matching = self.maximum_matching();
+        Conjecture2Dot1Cost { lambda_1, matching }
+    }
+
+    pub fn adjacency_matrix(&self) -> faer::Mat<f64> {
+        let mut a = faer::Mat::zeros(N, N);
+        for (parent, child) in self.parents().iter().enumerate().skip(1) {
+            a[(parent, *child)] = 1.0;
+            a[(*child, parent)] = 1.0;
+        }
+        a
+    }
+
+    /// unoptimized
+    pub fn maximum_matching(&self) -> Vec<Edge> {
+        let mut m = vec![];
+        let mut available = [true; N];
+        loop {
+            // find the next leaves to remove
+            let mut next_leaf = available.clone();
+            for i in 1..N {
+                if available[i] {
+                    let parent = self.parent(i).unwrap();
+                    next_leaf[parent] = false;
+                }
+            }
+            // remove each leaf and its parent
+            for i in 1..N {
+                if next_leaf[i] {
+                    available[i] = false;
+                    let parent = self.parent(i).unwrap();
+                    if available[parent] {
+                        available[parent] = false;
+                        m.push(Edge::new(parent, i));
+                    }
+                }
+            }
+            // break if there are fewer than 2 vertices left
+            let num_available = available.iter().filter(|&&a| a).count();
+            if num_available < 2 {
+                break;
+            }
+        }
+        m
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::{rooted_tree::RootedOrderedTree, simple_graph::edge::Edge};
+    use crate::{rooted_tree::RootedOrderedTree, simple_graph::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost}};
 
     use super::OrderedEdge;
 
@@ -115,5 +170,44 @@ mod tests {
         }
         let actual_tree_parents = trees.into_iter().collect::<Vec<_>>();
         assert_eq!(actual_tree_parents, expected_tree_parents);
+    }
+
+    #[test]
+    fn star_on_five_vertices_has_correct_conjecture_2_1_cost() {
+        let star = RootedOrderedTree::try_from([0, 0, 0, 0, 0]).unwrap();
+        let expected_lambda_1 = 2.0;
+        let possible_expected_matchings = vec![
+            vec![Edge::new(0, 1)],
+            vec![Edge::new(0, 2)],
+            vec![Edge::new(0, 3)],
+            vec![Edge::new(0, 4)],
+        ];
+        let Conjecture2Dot1Cost {
+            lambda_1: actual_lambda_1,
+            matching: actual_matching,
+        } = star.conjecture_2_1_cost();
+        assert!((actual_lambda_1 - expected_lambda_1).abs() < 1e-6);
+        assert!(possible_expected_matchings.contains(&actual_matching));
+    }
+
+    #[test]
+    fn path_graph_on_five_vertices_has_correct_conjecture_2_1_cost() {
+        let path_graph = RootedOrderedTree::try_from([0, 0, 1, 2, 3]).unwrap();
+        let expected_lambda_1 = 2.0 * f64::cos(std::f64::consts::PI / 6.0);
+        let possible_expected_matchings = vec![
+            vec![Edge::new(0, 1), Edge::new(2, 3)],
+            vec![Edge::new(0, 1), Edge::new(3, 4)],
+            vec![Edge::new(1, 2), Edge::new(3, 4)],
+        ];
+        let Conjecture2Dot1Cost {
+            lambda_1: actual_lambda_1,
+            matching: mut actual_matching,
+        } = path_graph.conjecture_2_1_cost();
+        actual_matching.sort();
+        assert!((actual_lambda_1 - expected_lambda_1).abs() < 1e-6);
+        assert!(
+            possible_expected_matchings.contains(&actual_matching),
+            "actual_matching: {actual_matching:?}",
+        );
     }
 }

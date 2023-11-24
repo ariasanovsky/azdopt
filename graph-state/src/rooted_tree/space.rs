@@ -1,8 +1,10 @@
 use az_discrete_opt::space::StateActionSpace;
 
+use crate::simple_graph::edge::Edge;
+
 use super::{RootedOrderedTree, ordered_edge::OrderedEdge};
 
-struct ConstrainedRootedOrderedTree<const N: usize>;
+pub struct ConstrainedRootedOrderedTree<const N: usize>;
 
 impl<const N: usize> StateActionSpace for ConstrainedRootedOrderedTree<N> {
     type State = RootedOrderedTree<N>;
@@ -28,6 +30,13 @@ impl<const N: usize> StateActionSpace for ConstrainedRootedOrderedTree<N> {
     }
 
     fn write_vec(state: &Self::State, vec: &mut [f32]) {
-        todo!()
+        debug_assert_eq!(vec.len(), Self::DIM);
+        vec.fill(0.);
+        for (child, parent) in state.parents().iter().enumerate().skip(2) {
+            let edge = Edge::new(*parent, child);
+            let edge = OrderedEdge::new(edge);
+            let index = Self::index(&edge);
+            vec[index] = 1.;
+        }
     }
 }

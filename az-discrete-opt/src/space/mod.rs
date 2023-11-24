@@ -1,4 +1,5 @@
 pub mod axioms;
+pub mod prohibited;
 #[cfg(test)]
 mod tests;
 
