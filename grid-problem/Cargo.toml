@@ -1,0 +1,25 @@
+[package]
+name = "grid-problem"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+az-discrete-opt = { version = "0.1.0", path = "../az-discrete-opt" }
+
+[dev-dependencies]
+chrono = "0.4.31"
+criterion = "0.5.1"
+dfdx = { version = "0.13.0", default-features = false, features = ["std", "fast-alloc", "cuda", "cudnn"] }
+rand = "0.8.5"
+rand_distr = "0.4.3"
+rayon = "1.7.0"
+eyre = "0.6.8"
+tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-writer" }
+
+[profile.release]
+panic = 'abort'
+
+[profile.dev]
+panic = 'abort'

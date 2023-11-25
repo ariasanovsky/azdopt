@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "graph-state",
-    "az-discrete-opt",
+    "az-discrete-opt", "grid-problem",
 ]
 resolver = "2"
