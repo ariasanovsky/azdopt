@@ -1,5 +1,3 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use az_discrete_opt::log::ShortForm;
 
 use super::RootedOrderedTree;

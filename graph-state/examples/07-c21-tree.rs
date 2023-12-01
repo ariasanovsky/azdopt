@@ -93,9 +93,6 @@ fn main() -> eyre::Result<()> {
     let mut writer = TensorboardWriter::new(writer);
     writer.write_file_version()?;
     
-    let epochs: usize = 250;
-    let episodes: usize = 800;
-    
     let dev = AutoDevice::default();
     // let mut core_model = dev.build_module::<Core, f32>();
     let mut logits_model = dev.build_module::<Logits, f32>();
@@ -126,8 +123,8 @@ fn main() -> eyre::Result<()> {
     let mut state_vector_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
     // prediction tensors
     // let mut last_core_layer_prediction: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
-    let mut predicted_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
-    let mut predicted_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
+    let mut predicted_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _>;
+    let mut predicted_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _>;
     // observation tensors
     let mut observed_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
     let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
@@ -218,14 +215,16 @@ fn main() -> eyre::Result<()> {
     };
     
     let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
-    let mut candidate_data: ArgminData<C> = (&s_0, &c_t).into_par_iter().min_by(|(_, a), (_, b)| {
+    let mut global_argmin: ArgminData<C> = (&s_0, &c_t).into_par_iter().min_by(|(_, a), (_, b)| {
         a.evaluate().partial_cmp(&b.evaluate()).unwrap()
     }).map(|(s, c)| {
         ArgminData::new(s, c.clone(), 0, 0)
     }).unwrap();
-    let mut all_losses: Vec<(f32, f32)> = vec![];
+    
     const ALPHA: [f64; ACTION] = [0.03; ACTION];
-
+    let epochs: usize = 250;
+    let episodes: usize = 800;
+    
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set state vectors
@@ -288,15 +287,15 @@ fn main() -> eyre::Result<()> {
                 a.evaluate().partial_cmp(&b.evaluate()).unwrap()
             }).unwrap();
             // update the global argmin
-            if episode_argmin.1.evaluate() < candidate_data.cost().evaluate() {
-                candidate_data = ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
-                println!("new min = {}", candidate_data.cost().evaluate());
-                println!("argmin  = {candidate_data:?}");
+            if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
+                global_argmin = ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
+                println!("new min = {}", global_argmin.cost().evaluate());
+                println!("argmin  = {global_argmin:?}");
 
                 let summ = SummaryBuilder::new()
-                    .scalar("cost/cost", candidate_data.cost().evaluate())
-                    .scalar("cost/lambda_1", candidate_data.cost().lambda_1 as _)
-                    .scalar("cost/mu", candidate_data.cost().matching.len() as _)
+                    .scalar("cost/cost", global_argmin.cost().evaluate())
+                    .scalar("cost/lambda_1", global_argmin.cost().lambda_1 as _)
+                    .scalar("cost/mu", global_argmin.cost().matching.len() as _)
                     .build();
                 // Write summaries to file.
                 writer.write_summary(SystemTime::now(), (episodes * epoch + episode) as i64, summ)?;
@@ -363,8 +362,6 @@ fn main() -> eyre::Result<()> {
             .expect("optimizer failed");
         value_model.zero_grads(&mut value_gradients);
         
-        all_losses.push((entropy, mse));
-
         let summ = SummaryBuilder::new()
             .scalar("loss/entropy", entropy)
             .scalar("loss/mse", mse)
@@ -374,9 +371,9 @@ fn main() -> eyre::Result<()> {
         writer.get_mut().flush()?;
 
         let summ = SummaryBuilder::new()
-            .scalar("cost/cost", candidate_data.cost().evaluate())
-            .scalar("cost/lambda_1", candidate_data.cost().lambda_1 as _)
-            .scalar("cost/mu", candidate_data.cost().matching.len() as _)
+            .scalar("cost/cost", global_argmin.cost().evaluate())
+            .scalar("cost/lambda_1", global_argmin.cost().lambda_1 as _)
+            .scalar("cost/mu", global_argmin.cost().matching.len() as _)
             .build();
         // Write summaries to file.
         writer.write_summary(SystemTime::now(), (episodes * epoch + episodes) as i64, summ)?;

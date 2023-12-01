@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn star_on_five_vertices_has_correct_possible_parent_modifications() {
         let star = RootedOrderedTree::try_from([0, 0, 0, 0, 0]).unwrap();
-        let expected = [(2, 1), (3, 1), (3, 2), (4, 1), (4, 2), (4, 3)].map(|(parent, child)| {
+        let expected = [(2, 1), (3, 1), (3, 2)].map(|(parent, child)| {
             OrderedEdge::new(Edge::new(parent, child))
         });
         let actual = star.all_possible_parent_modifications_ignoring_last_vertex().collect::<Vec<_>>();
