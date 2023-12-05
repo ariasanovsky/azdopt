@@ -111,29 +111,27 @@ fn main() -> eyre::Result<()> {
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
     // let mut core_optimizer = Adam::new(&core_model, config.clone());
-    let mut logits_optimizer = Adam::new(&logits_model, logits_config.clone());
-    let mut value_optimizer = Adam::new(&value_model, value_config);
+    let mut pi_optimizer = Adam::new(&logits_model, logits_config.clone());
+    let mut g_optimizer = Adam::new(&value_model, value_config);
 
     // gradients
-    let mut logits_gradients = logits_model.alloc_grads();
-    let mut value_gradients = value_model.alloc_grads();
+    let mut pi_gradients = logits_model.alloc_grads();
+    let mut g_gradients = value_model.alloc_grads();
     
-    // we initialize tensors to 0 and fill them as needed, minimizing allocations
     // input to model
-    let mut state_vector_tensor: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
+    let mut x_t_dev: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
     // prediction tensors
-    // let mut last_core_layer_prediction: Tensor<Rank2<BATCH, HIDDEN_2>, f32, _> = dev.zeros();
-    let mut predicted_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _>;
-    let mut predicted_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _>;
+    let mut pi_t_theta_dev: Tensor<Rank2<BATCH, ACTION>, f32, _>;
+    let mut g_t_theta_dev: Tensor<Rank2<BATCH, 1>, f32, _>;
     // observation tensors
-    let mut observed_probabilities_tensor: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
-    let mut observed_values_tensor: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
+    let mut pi_0_obs_dev: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
+    let mut g_0_obs_dev: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
     // prediction arrays
-    let mut predicted_probabilities: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
-    let mut predicted_values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
+    let mut pi_t_theta: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
+    let mut g_t_theta: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
     // observation arrays
-    let mut observed_probabilities: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
-    let mut observed_values: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
+    let mut pi_0: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
+    let mut g_0: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
     
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
@@ -149,9 +147,6 @@ fn main() -> eyre::Result<()> {
         let c_puct = 1e1;
         let g_sa = g_sa_sum / n_sa;
         let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
-        // println!(
-        //     "{u_sa} = {g_sa_sum} / {n_sa} + {c_puct} * {p_sa} * ({n_s}.sqrt() / {n_sa})",
-        // );
         u_sa
     };
     
@@ -179,13 +174,6 @@ fn main() -> eyre::Result<()> {
             "s = {s:?}",
         );
         let cost = s.state.conjecture_2_1_cost();
-        // if cost.matching.len() < 2 { panicked for the star graph ;)
-        //     println!("cost = {:?}", cost);
-        //     println!("s = {:?}", s);
-        //     println!("tree = {:?}", s);
-        //     // dbg!(&s, &cost, &tree);
-        //     panic!();
-        // }
         cost
     };
     let (
@@ -232,14 +220,14 @@ fn main() -> eyre::Result<()> {
         (&s_0, &mut v_t)
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
-        state_vector_tensor.copy_from(v_t.flatten());
-        predicted_probabilities_tensor = logits_model
-            .forward(state_vector_tensor.clone())
+        x_t_dev.copy_from(v_t.flatten());
+        pi_t_theta_dev = logits_model
+            .forward(x_t_dev.clone())
             .softmax::<Axis<1>>();
-        predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
+        pi_t_theta_dev.copy_into(pi_t_theta.flatten_mut());
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-            (&mut trees, &mut predicted_probabilities, &c_t, &s_0)
+            (&mut trees, &mut pi_t_theta, &c_t, &s_0)
                 .into_par_iter()
                 .for_each_init(
                     || rand::thread_rng(),
@@ -302,19 +290,19 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
             // copy tree root state vectors into tensor
-            state_vector_tensor.copy_from(v_t.flatten());
+            x_t_dev.copy_from(v_t.flatten());
             // calculate predicted probabilities
             // copy predicted probabilities into to host
-            predicted_probabilities_tensor = logits_model
-                .forward(state_vector_tensor.clone())
+            pi_t_theta_dev = logits_model
+                .forward(x_t_dev.clone())
                 .softmax::<Axis<1>>();
-            predicted_probabilities_tensor.copy_into(predicted_probabilities.flatten_mut());
+            pi_t_theta_dev.copy_into(pi_t_theta.flatten_mut());
             // calculate predicted values
             // copy predicted values into host
-            predicted_values_tensor = value_model.forward(state_vector_tensor.clone());
-            predicted_values_tensor.copy_into(predicted_values.flatten_mut());
+            g_t_theta_dev = value_model.forward(x_t_dev.clone());
+            g_t_theta_dev.copy_into(g_t_theta.flatten_mut());
             let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
-            (&mut nodes, ends, &c_t, &s_t, &predicted_values, &predicted_probabilities, &mut transitions)
+            (&mut nodes, ends, &c_t, &s_t, &g_t_theta, &pi_t_theta, &mut transitions)
                 .into_par_iter()
                 .for_each(|(n, end, c_t, s_t, v, probs_t, trans)| {
                     *n = end.update_existing_nodes::<Space>(c_t, s_t, probs_t, v, trans);
@@ -327,40 +315,40 @@ fn main() -> eyre::Result<()> {
             });
         }
 
-        (&trees, &mut observed_probabilities, &mut observed_values)
+        (&trees, &mut pi_0, &mut g_0)
             .into_par_iter()
             .for_each(|(t, p, v)| {
                 t.observe(p, v);
             });
         // println!("values: {:?}", observed_values);
-        observed_probabilities_tensor.copy_from(observed_probabilities.flatten());
-        observed_values_tensor.copy_from(observed_values.flatten());
+        pi_0_obs_dev.copy_from(pi_0.flatten());
+        g_0_obs_dev.copy_from(g_0.flatten());
 
         (&s_0, &mut v_t)
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
         
         // update probability predictions
-        state_vector_tensor.copy_from(v_t.flatten());
-        let predicted_logits_traced = logits_model.forward(state_vector_tensor.clone().traced(logits_gradients));
+        x_t_dev.copy_from(v_t.flatten());
+        let predicted_logits_traced = logits_model.forward(x_t_dev.clone().traced(pi_gradients));
         let cross_entropy =
-            cross_entropy_with_logits_loss(predicted_logits_traced, observed_probabilities_tensor.clone());
+            cross_entropy_with_logits_loss(predicted_logits_traced, pi_0_obs_dev.clone());
         let entropy = cross_entropy.array();
-        logits_gradients = cross_entropy.backward();
-        logits_optimizer.update(&mut logits_model, &logits_gradients)
+        pi_gradients = cross_entropy.backward();
+        pi_optimizer.update(&mut logits_model, &pi_gradients)
             .expect("optimizer failed");
-        logits_model.zero_grads(&mut logits_gradients);
+        logits_model.zero_grads(&mut pi_gradients);
         
         // update mean max gain prediction
         // todo! unnecessary copy?
-        state_vector_tensor.copy_from(v_t.flatten());
-        let predicted_values_traced = value_model.forward(state_vector_tensor.clone().traced(value_gradients));
-        let value_loss = mse_loss(predicted_values_traced, observed_values_tensor.clone());
+        x_t_dev.copy_from(v_t.flatten());
+        let predicted_values_traced = value_model.forward(x_t_dev.clone().traced(g_gradients));
+        let value_loss = mse_loss(predicted_values_traced, g_0_obs_dev.clone());
         let mse = value_loss.array();
-        value_gradients = value_loss.backward();
-        value_optimizer.update(&mut value_model, &value_gradients)
+        g_gradients = value_loss.backward();
+        g_optimizer.update(&mut value_model, &g_gradients)
             .expect("optimizer failed");
-        value_model.zero_grads(&mut value_gradients);
+        value_model.zero_grads(&mut g_gradients);
         
         let summ = SummaryBuilder::new()
             .scalar("loss/entropy", entropy)

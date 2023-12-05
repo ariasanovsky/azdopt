@@ -20,12 +20,16 @@ impl<P> INTMinTree<P> {
         self.data.iter().map(|level| level.len()).sum::<usize>() + 1
     }
     
-    pub fn new<Space>(root_predictions: &[f32], cost: f32, root: &Space::State) -> Self
+    pub fn new<Space>(
+        pi_0_theta: &[f32],
+        c_0: f32,
+        s_0: &Space::State,
+    ) -> Self
     where
         Space: StateActionSpace,
     {
         Self {
-            root_data: match StateDataKind::new::<Space>(root_predictions, cost, root) {
+            root_data: match StateDataKind::new::<Space>(pi_0_theta, c_0, s_0) {
                 StateDataKind::Exhausted { c_t: _ } => panic!("root is terminal"),
                 StateDataKind::Active { data } => data,
             },
