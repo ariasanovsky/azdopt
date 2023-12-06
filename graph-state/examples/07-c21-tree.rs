@@ -15,9 +15,9 @@ use az_discrete_opt::{
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel},
+    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel, dfdx::TwoModels},
 };
-use dfdx::{optim::Adam, prelude::*};
+use dfdx::prelude::*;
 use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
 use rand::rngs::ThreadRng;
 
@@ -61,129 +61,6 @@ type Valuation = (
 
 use tensorboard_writer::{SummaryBuilder, TensorboardWriter};
 
-pub struct TwoModels<L, G>
-where
-    L: BuildOnDevice<Cuda, f32>,
-    G: BuildOnDevice<Cuda, f32>,
-{
-    pi_model: <L as BuildOnDevice<Cuda, f32>>::Built,
-    g_model: <G as BuildOnDevice<Cuda, f32>>::Built,
-    pi_adam: Adam<<L as BuildOnDevice<Cuda, f32>>::Built, f32, Cuda>,
-    g_adam: Adam<<G as BuildOnDevice<Cuda, f32>>::Built, f32, Cuda>,
-    pi_gradients: Option<Gradients<f32, Cuda>>,
-    g_gradients: Option<Gradients<f32, Cuda>>,
-    x_t_dev: Tensor<Rank2<BATCH, STATE>, f32, Cuda>,
-    pi_t_dev: Tensor<Rank2<BATCH, ACTION>, f32, Cuda>,
-    g_t_dev: Tensor<Rank2<BATCH, 1>, f32, Cuda>,
-}
-
-impl<L, G> TwoModels<L, G>
-where
-    L: BuildOnDevice<Cuda, f32>,
-    G: BuildOnDevice<Cuda, f32>,
-{
-    fn new(
-        dev: &Cuda,
-        pi_config: AdamConfig,
-        g_config: AdamConfig,
-    ) -> Self {
-        let pi_model = dev.build_module::<L, f32>();
-        let g_model = dev.build_module::<G, f32>();
-        let pi_adam = Adam::new(&pi_model, pi_config);
-        let g_adam = Adam::new(&g_model, g_config);
-        let pi_gradients = Some(pi_model.alloc_grads());
-        let g_gradients = Some(g_model.alloc_grads());
-        let x_t_dev = dev.zeros();
-        let pi_t_dev = dev.zeros();
-        let g_t_dev = dev.zeros();
-        Self {
-            pi_model,
-            g_model,
-            pi_adam,
-            g_adam,
-            pi_gradients,
-            g_gradients,
-            x_t_dev,
-            pi_t_dev,
-            g_t_dev,
-        }
-    }
-}
-
-impl AzModel<BATCH, STATE, ACTION, GAIN> for TwoModels<Logits, Valuation> {
-    fn write_predictions(
-        &mut self,
-        x_t: &[[f32; STATE]; BATCH],
-        pi_t_theta: &mut [[f32; ACTION]; BATCH],
-        g_t_theta: &mut [[f32; GAIN]; BATCH],
-    ) {
-        let Self {
-            pi_model,
-            g_model,
-            pi_adam: _,
-            g_adam: _,
-            pi_gradients: _,
-            g_gradients: _,
-            x_t_dev,
-            pi_t_dev,
-            g_t_dev,
-        } = self;
-        x_t_dev.copy_from(x_t.flatten());
-        *pi_t_dev = pi_model
-            .forward(x_t_dev.clone())
-            .softmax::<Axis<1>>();
-        pi_t_dev.copy_into(pi_t_theta.flatten_mut());
-        *g_t_dev = g_model.forward(x_t_dev.clone());
-        g_t_dev.copy_into(g_t_theta.flatten_mut());
-    }
-
-    fn update_model(
-        &mut self,
-        x_t: &[[f32; STATE]; BATCH],
-        pi_0_obs: &[[f32; ACTION]; BATCH],
-        g_0_obs: &[[f32; GAIN]; BATCH],
-    ) -> (f32, f32) {
-        let Self {
-            pi_model,
-            g_model,
-            pi_adam,
-            g_adam,
-            pi_gradients,
-            g_gradients,
-            x_t_dev,
-            pi_t_dev,
-            g_t_dev,
-        } = self;
-        
-        // update probability predictions
-        x_t_dev.copy_from(x_t.flatten());
-        pi_t_dev.copy_from(pi_0_obs.flatten());
-        let mut some_pi_gradients = pi_gradients.take().unwrap_or_else(|| pi_model.alloc_grads());
-        let predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
-        let cross_entropy =
-            cross_entropy_with_logits_loss(predicted_logits_traced, pi_t_dev.clone());
-        let entropy = cross_entropy.array();
-        some_pi_gradients = cross_entropy.backward();
-        pi_adam.update(pi_model, &some_pi_gradients)
-            .expect("optimizer failed");
-        pi_model.zero_grads(&mut some_pi_gradients);
-        *pi_gradients = Some(some_pi_gradients);
-        
-        // update mean max gain prediction
-        g_t_dev.copy_from(g_0_obs.flatten());
-        let mut some_g_gradients = g_gradients.take().unwrap_or_else(|| g_model.alloc_grads());
-        let predicted_values_traced = g_model.forward(x_t_dev.clone().traced(some_g_gradients));
-        let g_loss = mse_loss(predicted_values_traced, g_t_dev.clone());
-        let mse = g_loss.array();
-        some_g_gradients = g_loss.backward();
-        g_adam.update(g_model, &some_g_gradients)
-            .expect("optimizer failed");
-        g_model.zero_grads(&mut some_g_gradients);
-        *g_gradients = Some(some_g_gradients);
-        (entropy, mse)
-    }
-}
-
 fn main() -> eyre::Result<()> {
     // implementing tensorboard
     let out_dir = std::env::var("OUT_DIR")
@@ -219,7 +96,7 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    let mut models: TwoModels<Logits, Valuation> = TwoModels::new(&dev, pi_config, g_config);
+    let mut models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> = TwoModels::new(&dev, pi_config, g_config);
     let mut pi_t: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
     let mut g_t: [[f32; GAIN]; BATCH] = [[0.0; GAIN]; BATCH];
     
@@ -311,6 +188,12 @@ fn main() -> eyre::Result<()> {
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
         models.write_predictions(&x_t, &mut pi_t, &mut g_t);
+        // set costs
+        (&s_0, &mut c_t)
+            .into_par_iter()
+            .for_each(|(s, c)| {
+                *c = cost(s);
+            });
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
             (&mut trees, &mut pi_t, &c_t, &s_0)
