@@ -1,9 +1,9 @@
 use crate::int_min_tree::{INTMinTree, state_data::StateDataKind};
 
 impl<P> INTMinTree<P> {
-    pub fn into_unstable_sorted_nodes(self) -> Vec<(P, StateDataKind)> {
+    pub fn unstable_sorted_nodes(&self) -> Vec<(&P, &StateDataKind)> {
         let mut nodes = 
-            self.data.into_iter()
+            self.data.iter()
             .flat_map(|level| level.into_iter())
             .collect::<Vec<_>>();
         nodes.sort_unstable_by(|a, b| {

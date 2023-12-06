@@ -24,8 +24,8 @@ pub struct INTTransitions<'a, P> {
 impl<P> INTMinTree<P> {
     pub fn simulate_once<'a, Space>(
         &'a mut self,
-        root_state: &mut Space::State,
-        cleared_path: &'a mut P,
+        s_0: &mut Space::State,
+        p_0: &'a mut P,
         cleared_transitions: &mut Vec<INTTransition<'a>>,
         upper_estimate: &impl Fn(UpperEstimateData) -> f32,
     ) -> INTTransitions<'a, P>
@@ -37,13 +37,13 @@ impl<P> INTMinTree<P> {
         // dbg!();
         debug_assert_eq!(
             root_data.len(),
-            Space::action_indices(root_state).count(),
+            Space::action_indices(s_0).count(),
             // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
         );
         let a_1 = root_data.best_action(upper_estimate).unwrap();
         let action_1 = Space::from_index(a_1.index());
-        let s_i = root_state;
-        let p_i = cleared_path;
+        let s_i = s_0;
+        let p_i = p_0;
         Space::act(s_i, &action_1);
         p_i.push(&action_1);
         cleared_transitions.push(a_1);

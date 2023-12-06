@@ -18,7 +18,7 @@ use az_discrete_opt::{
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions},
+    state::{cost::Cost, prohibit::WithProhibitions}, az_model::add_dirichlet_noise,
 };
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
@@ -41,7 +41,7 @@ type C = Conjecture2Dot1Cost;
 const ACTION: usize = (N - 1) * (N - 2) / 2 - 1;
 const RAW_STATE: usize = (N - 1) * (N - 2) / 2 - 1;
 const STATE: usize = RAW_STATE + ACTION;
-type NodeVector = [f32; STATE];
+type StateVec = [f32; STATE];
 type ActionVec = [f32; ACTION];
 
 const BATCH: usize = 256;
@@ -95,8 +95,8 @@ fn main() -> eyre::Result<()> {
     
     let dev = AutoDevice::default();
     // let mut core_model = dev.build_module::<Core, f32>();
-    let mut logits_model = dev.build_module::<Logits, f32>();
-    let mut value_model = dev.build_module::<Valuation, f32>();
+    let mut pi_model = dev.build_module::<Logits, f32>();
+    let mut g_model = dev.build_module::<Valuation, f32>();
     
     let logits_config = AdamConfig {
         lr: 2e-2,
@@ -111,12 +111,12 @@ fn main() -> eyre::Result<()> {
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
     // let mut core_optimizer = Adam::new(&core_model, config.clone());
-    let mut pi_optimizer = Adam::new(&logits_model, logits_config.clone());
-    let mut g_optimizer = Adam::new(&value_model, value_config);
+    let mut pi_optimizer = Adam::new(&pi_model, logits_config.clone());
+    let mut g_optimizer = Adam::new(&g_model, value_config);
 
     // gradients
-    let mut pi_gradients = logits_model.alloc_grads();
-    let mut g_gradients = value_model.alloc_grads();
+    let mut pi_gradients = pi_model.alloc_grads();
+    let mut g_gradients = g_model.alloc_grads();
     
     // input to model
     let mut x_t_dev: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
@@ -209,19 +209,19 @@ fn main() -> eyre::Result<()> {
         ArgminData::new(s, c.clone(), 0, 0)
     }).unwrap();
     
-    const ALPHA: [f64; ACTION] = [0.03; ACTION];
+    const ALPHA: [f32; ACTION] = [0.03; ACTION];
     let epochs: usize = 250;
     let episodes: usize = 800;
     
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set state vectors
-        let mut v_t: [NodeVector; BATCH] = [[0.0; STATE]; BATCH];
-        (&s_0, &mut v_t)
+        let mut x_t = [[0.0; STATE]; BATCH];
+        (&s_0, &mut x_t)
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
-        x_t_dev.copy_from(v_t.flatten());
-        pi_t_theta_dev = logits_model
+        x_t_dev.copy_from(x_t.flatten());
+        pi_t_theta_dev = pi_model
             .forward(x_t_dev.clone())
             .softmax::<Axis<1>>();
         pi_t_theta_dev.copy_into(pi_t_theta.flatten_mut());
@@ -231,14 +231,9 @@ fn main() -> eyre::Result<()> {
                 .into_par_iter()
                 .for_each_init(
                     || rand::thread_rng(),
-                    |rng, (t, root_predictions, cost, root)| {
-                        let dir = rand_distr::Dirichlet::new(&ALPHA).unwrap();
-                        let sample = dir.sample(rng);
-                        root_predictions.iter_mut().zip_eq(sample.into_iter()).for_each(|(pi_theta, dir)| {
-                            pi_theta.mul_add_assign(3., dir as f32);
-                            pi_theta.div_assign(4.);
-                        });
-                        t.write(Tree::new::<Space>(root_predictions, cost.evaluate(), root));
+                    |rng, (t, pi_0_theta, c_0, s_0)| {
+                        add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
+                        t.write(Tree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0));
                     });
             unsafe { MaybeUninit::array_assume_init(trees) }
         };
@@ -267,7 +262,7 @@ fn main() -> eyre::Result<()> {
                     *c_t = cost(s_t);
                 });
 
-            (&s_t, &mut v_t).into_par_iter().for_each(|(s_t, v_t)| {
+            (&s_t, &mut x_t).into_par_iter().for_each(|(s_t, v_t)| {
                 Space::write_vec(s_t, v_t);
             });
 
@@ -290,16 +285,16 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
             // copy tree root state vectors into tensor
-            x_t_dev.copy_from(v_t.flatten());
+            x_t_dev.copy_from(x_t.flatten());
             // calculate predicted probabilities
             // copy predicted probabilities into to host
-            pi_t_theta_dev = logits_model
+            pi_t_theta_dev = pi_model
                 .forward(x_t_dev.clone())
                 .softmax::<Axis<1>>();
             pi_t_theta_dev.copy_into(pi_t_theta.flatten_mut());
             // calculate predicted values
             // copy predicted values into host
-            g_t_theta_dev = value_model.forward(x_t_dev.clone());
+            g_t_theta_dev = g_model.forward(x_t_dev.clone());
             g_t_theta_dev.copy_into(g_t_theta.flatten_mut());
             let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
             (&mut nodes, ends, &c_t, &s_t, &g_t_theta, &pi_t_theta, &mut transitions)
@@ -324,31 +319,31 @@ fn main() -> eyre::Result<()> {
         pi_0_obs_dev.copy_from(pi_0.flatten());
         g_0_obs_dev.copy_from(g_0.flatten());
 
-        (&s_0, &mut v_t)
+        (&s_0, &mut x_t)
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
         
         // update probability predictions
-        x_t_dev.copy_from(v_t.flatten());
-        let predicted_logits_traced = logits_model.forward(x_t_dev.clone().traced(pi_gradients));
+        x_t_dev.copy_from(x_t.flatten());
+        let predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(pi_gradients));
         let cross_entropy =
             cross_entropy_with_logits_loss(predicted_logits_traced, pi_0_obs_dev.clone());
         let entropy = cross_entropy.array();
         pi_gradients = cross_entropy.backward();
-        pi_optimizer.update(&mut logits_model, &pi_gradients)
+        pi_optimizer.update(&mut pi_model, &pi_gradients)
             .expect("optimizer failed");
-        logits_model.zero_grads(&mut pi_gradients);
+        pi_model.zero_grads(&mut pi_gradients);
         
         // update mean max gain prediction
         // todo! unnecessary copy?
-        x_t_dev.copy_from(v_t.flatten());
-        let predicted_values_traced = value_model.forward(x_t_dev.clone().traced(g_gradients));
+        x_t_dev.copy_from(x_t.flatten());
+        let predicted_values_traced = g_model.forward(x_t_dev.clone().traced(g_gradients));
         let value_loss = mse_loss(predicted_values_traced, g_0_obs_dev.clone());
         let mse = value_loss.array();
         g_gradients = value_loss.backward();
-        g_optimizer.update(&mut value_model, &g_gradients)
+        g_optimizer.update(&mut g_model, &g_gradients)
             .expect("optimizer failed");
-        value_model.zero_grads(&mut g_gradients);
+        g_model.zero_grads(&mut g_gradients);
         
         let summ = SummaryBuilder::new()
             .scalar("loss/entropy", entropy)
@@ -372,8 +367,8 @@ fn main() -> eyre::Result<()> {
             nodes[0].clone()
         };
         if epoch % 4 != 3 {
-            (&mut s_0, trees).into_par_iter().enumerate().for_each(|(i, (s, t))| {
-                let nodes = t.into_unstable_sorted_nodes();
+            (&mut s_0, &trees).into_par_iter().enumerate().for_each(|(i, (s, t))| {
+                let nodes = t.unstable_sorted_nodes();
                 let selected_node = select_node(i, nodes);
                 Space::follow(s, selected_node.0.actions_taken::<Space>().map(|a| Space::from_index(*a)));
                 if Space::is_terminal(s) {
