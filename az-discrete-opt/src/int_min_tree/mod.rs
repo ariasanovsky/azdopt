@@ -66,7 +66,7 @@ impl<P> INTMinTree<P> {
         self.data.push(level);
     }
 
-    pub fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
+    pub fn write_observations(&self, probs: &mut [f32], values: &mut [f32]) {
         probs.fill(0.0);
         debug_assert_eq!(values.len(), 1);
         let Self { root_data, data: _ } = self;

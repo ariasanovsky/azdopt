@@ -2,15 +2,12 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
-use itertools::Itertools;
-use num_traits::MulAddAssign;
-use rand_distr::Distribution;
 use rayon::prelude::*;
 
 use std::{
     io::{Write, BufWriter},
     mem::MaybeUninit,
-    path::{Path, PathBuf}, ops::DivAssign, time::SystemTime,
+    path::{Path, PathBuf}, time::SystemTime,
 };
 
 use az_discrete_opt::{
@@ -18,7 +15,7 @@ use az_discrete_opt::{
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions}, az_model::add_dirichlet_noise,
+    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel},
 };
 use dfdx::{optim::Adam, prelude::*};
 use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
@@ -39,6 +36,7 @@ type Tree = INTMinTree<P>;
 type C = Conjecture2Dot1Cost;
 
 const ACTION: usize = (N - 1) * (N - 2) / 2 - 1;
+const GAIN: usize = 1;
 const RAW_STATE: usize = (N - 1) * (N - 2) / 2 - 1;
 const STATE: usize = RAW_STATE + ACTION;
 type StateVec = [f32; STATE];
@@ -49,27 +47,142 @@ const BATCH: usize = 256;
 const HIDDEN_1: usize = 256;
 const HIDDEN_2: usize = 256;
 
-// type Core = (
-//     (Linear<STATE, HIDDEN_1>, ReLU),
-//     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-//     // Linear<HIDDEN_2, PREDICTION>,
-// );
-
 type Logits = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     Linear<HIDDEN_2, ACTION>,
-    // Softmax,
 );
 
 type Valuation = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     Linear<HIDDEN_2, 1>,
-    // Linear<HIDDEN_2, 3>,
 );
 
 use tensorboard_writer::{SummaryBuilder, TensorboardWriter};
+
+pub struct TwoModels<L, G>
+where
+    L: BuildOnDevice<Cuda, f32>,
+    G: BuildOnDevice<Cuda, f32>,
+{
+    pi_model: <L as BuildOnDevice<Cuda, f32>>::Built,
+    g_model: <G as BuildOnDevice<Cuda, f32>>::Built,
+    pi_adam: Adam<<L as BuildOnDevice<Cuda, f32>>::Built, f32, Cuda>,
+    g_adam: Adam<<G as BuildOnDevice<Cuda, f32>>::Built, f32, Cuda>,
+    pi_gradients: Option<Gradients<f32, Cuda>>,
+    g_gradients: Option<Gradients<f32, Cuda>>,
+    x_t_dev: Tensor<Rank2<BATCH, STATE>, f32, Cuda>,
+    pi_t_dev: Tensor<Rank2<BATCH, ACTION>, f32, Cuda>,
+    g_t_dev: Tensor<Rank2<BATCH, 1>, f32, Cuda>,
+}
+
+impl<L, G> TwoModels<L, G>
+where
+    L: BuildOnDevice<Cuda, f32>,
+    G: BuildOnDevice<Cuda, f32>,
+{
+    fn new(
+        dev: &Cuda,
+        pi_config: AdamConfig,
+        g_config: AdamConfig,
+    ) -> Self {
+        let pi_model = dev.build_module::<L, f32>();
+        let g_model = dev.build_module::<G, f32>();
+        let pi_adam = Adam::new(&pi_model, pi_config);
+        let g_adam = Adam::new(&g_model, g_config);
+        let pi_gradients = Some(pi_model.alloc_grads());
+        let g_gradients = Some(g_model.alloc_grads());
+        let x_t_dev = dev.zeros();
+        let pi_t_dev = dev.zeros();
+        let g_t_dev = dev.zeros();
+        Self {
+            pi_model,
+            g_model,
+            pi_adam,
+            g_adam,
+            pi_gradients,
+            g_gradients,
+            x_t_dev,
+            pi_t_dev,
+            g_t_dev,
+        }
+    }
+}
+
+impl AzModel<BATCH, STATE, ACTION, GAIN> for TwoModels<Logits, Valuation> {
+    fn write_predictions(
+        &mut self,
+        x_t: &[[f32; STATE]; BATCH],
+        pi_t_theta: &mut [[f32; ACTION]; BATCH],
+        g_t_theta: &mut [[f32; GAIN]; BATCH],
+    ) {
+        let Self {
+            pi_model,
+            g_model,
+            pi_adam: _,
+            g_adam: _,
+            pi_gradients: _,
+            g_gradients: _,
+            x_t_dev,
+            pi_t_dev,
+            g_t_dev,
+        } = self;
+        x_t_dev.copy_from(x_t.flatten());
+        *pi_t_dev = pi_model
+            .forward(x_t_dev.clone())
+            .softmax::<Axis<1>>();
+        pi_t_dev.copy_into(pi_t_theta.flatten_mut());
+        *g_t_dev = g_model.forward(x_t_dev.clone());
+        g_t_dev.copy_into(g_t_theta.flatten_mut());
+    }
+
+    fn update_model(
+        &mut self,
+        x_t: &[[f32; STATE]; BATCH],
+        pi_0_obs: &[[f32; ACTION]; BATCH],
+        g_0_obs: &[[f32; GAIN]; BATCH],
+    ) -> (f32, f32) {
+        let Self {
+            pi_model,
+            g_model,
+            pi_adam,
+            g_adam,
+            pi_gradients,
+            g_gradients,
+            x_t_dev,
+            pi_t_dev,
+            g_t_dev,
+        } = self;
+        
+        // update probability predictions
+        x_t_dev.copy_from(x_t.flatten());
+        pi_t_dev.copy_from(pi_0_obs.flatten());
+        let mut some_pi_gradients = pi_gradients.take().unwrap_or_else(|| pi_model.alloc_grads());
+        let predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
+        let cross_entropy =
+            cross_entropy_with_logits_loss(predicted_logits_traced, pi_t_dev.clone());
+        let entropy = cross_entropy.array();
+        some_pi_gradients = cross_entropy.backward();
+        pi_adam.update(pi_model, &some_pi_gradients)
+            .expect("optimizer failed");
+        pi_model.zero_grads(&mut some_pi_gradients);
+        *pi_gradients = Some(some_pi_gradients);
+        
+        // update mean max gain prediction
+        g_t_dev.copy_from(g_0_obs.flatten());
+        let mut some_g_gradients = g_gradients.take().unwrap_or_else(|| g_model.alloc_grads());
+        let predicted_values_traced = g_model.forward(x_t_dev.clone().traced(some_g_gradients));
+        let g_loss = mse_loss(predicted_values_traced, g_t_dev.clone());
+        let mse = g_loss.array();
+        some_g_gradients = g_loss.backward();
+        g_adam.update(g_model, &some_g_gradients)
+            .expect("optimizer failed");
+        g_model.zero_grads(&mut some_g_gradients);
+        *g_gradients = Some(some_g_gradients);
+        (entropy, mse)
+    }
+}
 
 fn main() -> eyre::Result<()> {
     // implementing tensorboard
@@ -94,44 +207,21 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
     
     let dev = AutoDevice::default();
-    // let mut core_model = dev.build_module::<Core, f32>();
-    let mut pi_model = dev.build_module::<Logits, f32>();
-    let mut g_model = dev.build_module::<Valuation, f32>();
-    
-    let logits_config = AdamConfig {
+    let pi_config = AdamConfig {
         lr: 2e-2,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    let value_config = AdamConfig {
+    let g_config = AdamConfig {
         lr: 1e-2,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    // let mut core_optimizer = Adam::new(&core_model, config.clone());
-    let mut pi_optimizer = Adam::new(&pi_model, logits_config.clone());
-    let mut g_optimizer = Adam::new(&g_model, value_config);
-
-    // gradients
-    let mut pi_gradients = pi_model.alloc_grads();
-    let mut g_gradients = g_model.alloc_grads();
-    
-    // input to model
-    let mut x_t_dev: Tensor<Rank2<BATCH, STATE>, f32, _> = dev.zeros();
-    // prediction tensors
-    let mut pi_t_theta_dev: Tensor<Rank2<BATCH, ACTION>, f32, _>;
-    let mut g_t_theta_dev: Tensor<Rank2<BATCH, 1>, f32, _>;
-    // observation tensors
-    let mut pi_0_obs_dev: Tensor<Rank2<BATCH, ACTION>, f32, _> = dev.zeros();
-    let mut g_0_obs_dev: Tensor<Rank2<BATCH, 1>, f32, _> = dev.zeros();
-    // prediction arrays
-    let mut pi_t_theta: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
-    let mut g_t_theta: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
-    // observation arrays
-    let mut pi_0: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
-    let mut g_0: [[f32; 1]; BATCH] = [[0.0; 1]; BATCH];
+    let mut models: TwoModels<Logits, Valuation> = TwoModels::new(&dev, pi_config, g_config);
+    let mut pi_t: [ActionVec; BATCH] = [[0.0; ACTION]; BATCH];
+    let mut g_t: [[f32; GAIN]; BATCH] = [[0.0; GAIN]; BATCH];
     
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
@@ -212,22 +302,18 @@ fn main() -> eyre::Result<()> {
     const ALPHA: [f32; ACTION] = [0.03; ACTION];
     let epochs: usize = 250;
     let episodes: usize = 800;
+    let mut x_t = [[0.0; STATE]; BATCH];
     
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set state vectors
-        let mut x_t = [[0.0; STATE]; BATCH];
         (&s_0, &mut x_t)
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
-        x_t_dev.copy_from(x_t.flatten());
-        pi_t_theta_dev = pi_model
-            .forward(x_t_dev.clone())
-            .softmax::<Axis<1>>();
-        pi_t_theta_dev.copy_into(pi_t_theta.flatten_mut());
+        models.write_predictions(&x_t, &mut pi_t, &mut g_t);
         let mut trees: [Tree; BATCH] = {
             let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-            (&mut trees, &mut pi_t_theta, &c_t, &s_0)
+            (&mut trees, &mut pi_t, &c_t, &s_0)
                 .into_par_iter()
                 .for_each_init(
                     || rand::thread_rng(),
@@ -284,20 +370,9 @@ fn main() -> eyre::Result<()> {
                 writer.write_summary(SystemTime::now(), (episodes * epoch + episode) as i64, summ)?;
                 writer.get_mut().flush()?;
             }
-            // copy tree root state vectors into tensor
-            x_t_dev.copy_from(x_t.flatten());
-            // calculate predicted probabilities
-            // copy predicted probabilities into to host
-            pi_t_theta_dev = pi_model
-                .forward(x_t_dev.clone())
-                .softmax::<Axis<1>>();
-            pi_t_theta_dev.copy_into(pi_t_theta.flatten_mut());
-            // calculate predicted values
-            // copy predicted values into host
-            g_t_theta_dev = g_model.forward(x_t_dev.clone());
-            g_t_theta_dev.copy_into(g_t_theta.flatten_mut());
+            models.write_predictions(&x_t, &mut pi_t, &mut g_t);
             let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
-            (&mut nodes, ends, &c_t, &s_t, &g_t_theta, &pi_t_theta, &mut transitions)
+            (&mut nodes, ends, &c_t, &s_t, &g_t, &pi_t, &mut transitions)
                 .into_par_iter()
                 .for_each(|(n, end, c_t, s_t, v, probs_t, trans)| {
                     *n = end.update_existing_nodes::<Space>(c_t, s_t, probs_t, v, trans);
@@ -310,40 +385,17 @@ fn main() -> eyre::Result<()> {
             });
         }
 
-        (&trees, &mut pi_0, &mut g_0)
+        (&trees, &mut pi_t, &mut g_t)
             .into_par_iter()
             .for_each(|(t, p, v)| {
-                t.observe(p, v);
+                t.write_observations(p, v);
             });
-        // println!("values: {:?}", observed_values);
-        pi_0_obs_dev.copy_from(pi_0.flatten());
-        g_0_obs_dev.copy_from(g_0.flatten());
-
+        
         (&s_0, &mut x_t)
             .into_par_iter()
             .for_each(|(s, v)| Space::write_vec(s, v));
         
-        // update probability predictions
-        x_t_dev.copy_from(x_t.flatten());
-        let predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(pi_gradients));
-        let cross_entropy =
-            cross_entropy_with_logits_loss(predicted_logits_traced, pi_0_obs_dev.clone());
-        let entropy = cross_entropy.array();
-        pi_gradients = cross_entropy.backward();
-        pi_optimizer.update(&mut pi_model, &pi_gradients)
-            .expect("optimizer failed");
-        pi_model.zero_grads(&mut pi_gradients);
-        
-        // update mean max gain prediction
-        // todo! unnecessary copy?
-        x_t_dev.copy_from(x_t.flatten());
-        let predicted_values_traced = g_model.forward(x_t_dev.clone().traced(g_gradients));
-        let value_loss = mse_loss(predicted_values_traced, g_0_obs_dev.clone());
-        let mse = value_loss.array();
-        g_gradients = value_loss.backward();
-        g_optimizer.update(&mut g_model, &g_gradients)
-            .expect("optimizer failed");
-        g_model.zero_grads(&mut g_gradients);
+        let (entropy, mse) = models.update_model(&x_t, &pi_t, &g_t);
         
         let summ = SummaryBuilder::new()
             .scalar("loss/entropy", entropy)
