@@ -11,7 +11,6 @@ pub mod state;
 pub mod prediction;
 
 pub fn par_simulate_once<'a, P, Space, const BATCH: usize>(
-    s_0: &[Space::State; BATCH],
     s_t: &mut [Space::State; BATCH],
     trees: &'a mut [INTMinTree<P>; BATCH],
     p_t: &'a mut [P; BATCH],
@@ -23,7 +22,6 @@ where
     Space::State: Clone + Send,
     P: Send + Sync + ActionPath + ActionPathFor<Space> + Ord,
 {
-    s_t.clone_from(s_0);
     let mut ends: [_; BATCH] = MaybeUninit::uninit_array();
     (trees, transitions, s_t, p_t, &mut ends)
         .into_par_iter()
@@ -47,7 +45,7 @@ pub fn par_update_existing_nodes<'a, P, Space, const BATCH: usize, const ACTION:
     Space::State: Sync,
     P: ActionPathFor<Space> + Ord + Clone + Send + Sync,
 {
-    let (g_t_theta, pi_t_theta) = pi_t_theta.get();
+    let (pi_t_theta, g_t_theta) = pi_t_theta.get();
     (nodes, ends, c_t, s_t, g_t_theta, pi_t_theta, transitions)
         .into_par_iter()
         .for_each(|(n, end, c_t, s_t, g_t, pi_t, transitions)| {
