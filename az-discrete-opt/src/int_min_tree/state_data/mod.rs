@@ -109,7 +109,7 @@ impl INTStateData {
     // require 2 separate upper estimate functions?
     pub fn best_action(
         &mut self,
-        upper_estimate: &impl Fn(UpperEstimateData) -> f32,
+        upper_estimate: impl Fn(UpperEstimateData) -> f32,
     ) -> Option<INTTransition> {
         let Self {
             n_s: _,

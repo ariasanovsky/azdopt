@@ -27,7 +27,7 @@ impl<P> INTMinTree<P> {
         s_0: &mut Space::State,
         p_0: &'a mut P,
         cleared_transitions: &mut Vec<INTTransition<'a>>,
-        upper_estimate: &impl Fn(UpperEstimateData) -> f32,
+        upper_estimate: impl Fn(UpperEstimateData) -> f32,
     ) -> INTTransitions<'a, P>
     where
         Space: StateActionSpace,
@@ -40,7 +40,7 @@ impl<P> INTMinTree<P> {
             Space::action_indices(s_0).count(),
             // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
         );
-        let a_1 = root_data.best_action(upper_estimate).unwrap();
+        let a_1 = root_data.best_action(&upper_estimate).unwrap();
         let action_1 = Space::from_index(a_1.index());
         let s_i = s_0;
         let p_i = p_0;
@@ -90,7 +90,7 @@ impl<P> INTMinTree<P> {
             //     Space::actions(s_i).count(),
             //     // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
             // );
-            let a_i_plus_one = state_data.best_action(upper_estimate).unwrap();
+            let a_i_plus_one = state_data.best_action(&upper_estimate).unwrap();
             let action_i_plus_1 = Space::from_index(a_i_plus_one.index());
 
             // dbg!(a_i_plus_one);

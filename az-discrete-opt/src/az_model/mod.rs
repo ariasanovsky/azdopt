@@ -1,3 +1,5 @@
+use crate::learning_loop::prediction::PredictionData;
+
 pub mod dfdx;
 pub mod candle;
 
@@ -20,14 +22,12 @@ pub trait AzModel<const BATCH: usize, const STATE: usize, const ACTION: usize, c
     fn write_predictions(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
-        pi_t_theta: &mut [[f32; ACTION]; BATCH],
-        g_t_theta: &mut [[f32; GAIN]; BATCH],
+        predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
     );
 
     fn update_model(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
-        pi_0_obs: &[[f32; ACTION]; BATCH],
-        g_0_obs: &[[f32; GAIN]; BATCH],
+        observations: &PredictionData<BATCH, ACTION, GAIN>,
     ) -> (f32, f32);
 }

@@ -2,6 +2,8 @@ use dfdx::{losses::{cross_entropy_with_logits_loss, mse_loss}, nn::{BuildOnDevic
 
 use dfdx::prelude::{Gradients, Rank2};
 
+use crate::learning_loop::prediction::PredictionData;
+
 use super::AzModel;
 
 pub struct TwoModels<L, G, const BATCH: usize, const STATE: usize, const ACTION: usize, const GAIN: usize>
@@ -81,8 +83,7 @@ where
     fn write_predictions(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
-        pi_t_theta: &mut [[f32; ACTION]; BATCH],
-        g_t_theta: &mut [[f32; GAIN]; BATCH],
+        predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
     ) {
         let Self {
             pi_model,
@@ -95,6 +96,7 @@ where
             pi_t_dev,
             g_t_dev,
         } = self;
+        let (pi_t_theta, g_t_theta) = predictions.get_mut();
         x_t_dev.copy_from(x_t.flatten());
         *pi_t_dev = pi_model
             .forward(x_t_dev.clone())
@@ -107,8 +109,7 @@ where
     fn update_model(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
-        pi_0_obs: &[[f32; ACTION]; BATCH],
-        g_0_obs: &[[f32; GAIN]; BATCH],
+        observations: &PredictionData<BATCH, ACTION, GAIN>,
     ) -> (f32, f32) {
         let Self {
             pi_model,
@@ -122,6 +123,8 @@ where
             g_t_dev,
         } = self;
         
+        let (pi_0_obs, g_0_obs) = observations.get();
+
         // update probability predictions
         x_t_dev.copy_from(x_t.flatten());
         pi_t_dev.copy_from(pi_0_obs.flatten());
