@@ -11,7 +11,7 @@ use std::{
 };
 
 use az_discrete_opt::{
-    int_min_tree::{state_data::UpperEstimateData, INTMinTree, transition::INTTransition},
+    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
@@ -76,7 +76,6 @@ fn main() -> eyre::Result<()> {
     let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
-
     let writer = BufWriter::new(std::fs::File::create(out_file)?);
     let mut writer = TensorboardWriter::new(writer);
     writer.write_file_version()?;
@@ -96,7 +95,6 @@ fn main() -> eyre::Result<()> {
     };
     let mut models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> = TwoModels::new(&dev, pi_config, g_config);
     let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::new();
-    
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
             n_s,
@@ -113,12 +111,10 @@ fn main() -> eyre::Result<()> {
         let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
         u_sa
     };
-    
     // generate states
     let default_prohibitions = |s: &RawState| {
         s.edge_indices_ignoring_0_1_and_last_vertex().collect::<Vec<_>>()
     };
-
     let random_state = |rng: &mut ThreadRng| loop {
         let state = RawState::generate_constrained(rng);
         let prohibited_actions = default_prohibitions(&state);
@@ -145,19 +141,16 @@ fn main() -> eyre::Result<()> {
         |_, rng| random_state(rng),
         |s| cost(s),
     );
-
     let p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
     let mut global_argmin: ArgminData<C> = (states.get_states(), states.get_costs()).into_par_iter().min_by(|(_, a), (_, b)| {
         a.evaluate().partial_cmp(&b.evaluate()).unwrap()
     }).map(|(s, c)| {
         ArgminData::new(s, c.clone(), 0, 0)
     }).unwrap();
-    
     const ALPHA: [f32; ACTION] = [0.03; ACTION];
     let epochs: usize = 250;
     let episodes: usize = 800;
     let nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
-    
     let trees: [Tree; BATCH] = {
         let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
         (&mut trees, predictions.pi_mut(), states.get_costs(), states.get_states())
@@ -170,9 +163,7 @@ fn main() -> eyre::Result<()> {
                 });
         unsafe { MaybeUninit::array_assume_init(trees) }
     };
-
     let mut trees: TreeData<256, ActionSet> = TreeData::new(trees, p_t, nodes);
-    
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set state vectors
@@ -186,8 +177,7 @@ fn main() -> eyre::Result<()> {
                     || rand::thread_rng(),
                     |rng, (t, pi_0_theta, c_0, s_0)| {
                         add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
-                        // t.
-                        *t = Tree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0);
+                        t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
                     });
         for episode in 1..=episodes {
             if episode % 100 == 0 {
