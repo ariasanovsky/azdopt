@@ -11,11 +11,11 @@ use std::{
 };
 
 use az_discrete_opt::{
-    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
+    int_min_tree::{state_data::UpperEstimateData, INTMinTree, transition::INTTransition},
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel, dfdx::TwoModels}, learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData},
+    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel, dfdx::TwoModels}, learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData, par_roll_out_episode},
 };
 use dfdx::prelude::*;
 use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
@@ -171,7 +171,7 @@ fn main() -> eyre::Result<()> {
         unsafe { MaybeUninit::array_assume_init(trees) }
     };
 
-    let mut trees = TreeData::new(trees, p_t, nodes);
+    let mut trees: TreeData<256, ActionSet> = TreeData::new(trees, p_t, nodes);
     
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
@@ -186,20 +186,14 @@ fn main() -> eyre::Result<()> {
                     || rand::thread_rng(),
                     |rng, (t, pi_0_theta, c_0, s_0)| {
                         add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
+                        // t.
                         *t = Tree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0);
                     });
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
-            let mut transitions: [_; BATCH] = core::array::from_fn(|_| vec![]);
-            states.reset_states();
-            let ends = trees.par_simulate_once::<Space>(states.get_states_mut(), &mut transitions, upper_estimate);
-            states.par_write_state_costs(cost);
-            states.par_write_state_vecs::<Space>();
-            models.write_predictions(states.get_vectors(), &mut predictions);
-            ends.par_update_existing_nodes::<Space, ACTION, GAIN>(states.get_costs(), states.get_states(), &predictions, &mut transitions);
-            trees.insert_nodes();
+            par_roll_out_episode::<BATCH, STATE, ACTION, GAIN, Space, _, _>(&mut states, &mut models, &mut predictions, &mut trees, cost, upper_estimate);
             let episode_argmin = (states.get_states(), states.get_costs()).into_par_iter().min_by(|(_, a), (_, b)| {
                 a.evaluate().partial_cmp(&b.evaluate()).unwrap()
             }).unwrap();
