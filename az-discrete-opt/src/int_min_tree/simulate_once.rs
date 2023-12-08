@@ -9,26 +9,20 @@ use super::{
 };
 
 #[derive(Debug)]
-pub(crate) enum EndNodeAndLevel<'a, P> {
+pub enum EndNodeAndLevel<'a, P> {
     NewNodeNewLevel,
     NewNodeOldLevel(&'a mut BTreeMap<P, StateDataKind>),
     OldExhaustedNode { c_t_star: f32 },
-}
-
-#[derive(Debug)]
-pub struct INTTransitions<'a, P> {
-    pub(crate) end: EndNodeAndLevel<'a, P>,
-    pub(crate) p_t: &'a P,
 }
 
 impl<P> INTMinTree<P> {
     pub fn simulate_once<'a, Space>(
         &'a mut self,
         s_0: &mut Space::State,
-        p_0: &'a mut P,
+        p_0: &mut P,
         cleared_transitions: &mut Vec<INTTransition<'a>>,
         upper_estimate: impl Fn(UpperEstimateData) -> f32,
-    ) -> INTTransitions<'a, P>
+    ) -> EndNodeAndLevel<'a, P>
     where
         Space: StateActionSpace,
         P: ActionPathFor<Space> + Ord,
@@ -65,21 +59,9 @@ impl<P> INTMinTree<P> {
                     StateDataKind::Active { data: _ } => None,
                 });
             match previously_exhausted_value {
-                Some(Some(c_t_star)) => {
-                    let end = EndNodeAndLevel::OldExhaustedNode { c_t_star };
-                    return INTTransitions {
-                        end,
-                        p_t: p_i,
-                    };
-                }
+                Some(Some(c_t_star)) => return EndNodeAndLevel::OldExhaustedNode { c_t_star },
                 Some(None) => {}
-                None => {
-                    let end = EndNodeAndLevel::NewNodeOldLevel(data);
-                    return INTTransitions {
-                        end,
-                        p_t: p_i,
-                    };
-                }
+                None => return EndNodeAndLevel::NewNodeOldLevel(data),
             }
             let state_data = match data.get_mut(p_i) {
                 Some(StateDataKind::Active { data }) => data,
@@ -111,9 +93,6 @@ impl<P> INTMinTree<P> {
             Space::act(s_i, &action_i_plus_1);
             p_i.push(&action_i_plus_1);
         }
-        INTTransitions {
-            end: EndNodeAndLevel::NewNodeNewLevel,
-            p_t: p_i,
-        }
+        EndNodeAndLevel::NewNodeNewLevel
     }
 }

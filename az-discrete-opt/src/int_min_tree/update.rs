@@ -1,6 +1,6 @@
 use crate::{
     int_min_tree::{
-        simulate_once::{EndNodeAndLevel, INTTransitions},
+        simulate_once::EndNodeAndLevel,
         state_data::StateDataKind,
         NewTreeLevel,
     },
@@ -11,11 +11,12 @@ use crate::{
 
 use super::transition::INTTransition;
 
-impl<'a, P> INTTransitions<'a, P> {
+impl<'a, P> EndNodeAndLevel<'a, P> {
     pub fn update_existing_nodes<Space>(
         self,
         c_t: &impl Cost<f32>,
         s_t: &Space::State,
+        p_t: &P,
         pi_t_theta: &[f32],
         g_t_theta: &[f32],
         transitions: &mut [INTTransition<'a>],
@@ -25,16 +26,12 @@ impl<'a, P> INTTransitions<'a, P> {
         P: ActionPathFor<Space> + Ord + Clone,
     {
         debug_assert_eq!(g_t_theta.len(), 1);
-        let INTTransitions {
-            end,
-            p_t,
-        } = self;
         let c_t = c_t.evaluate();
         enum CStarEndState {
             Terminal(f32),
             Active(f32),
         }
-        let (c_t_star, new_level): (CStarEndState, Option<NewTreeLevel<P>>) = match end {
+        let (c_t_star, new_level): (CStarEndState, Option<NewTreeLevel<P>>) = match self {
             EndNodeAndLevel::NewNodeNewLevel => {
                 // create data to insert at the new level
                 let new_data: StateDataKind = StateDataKind::new::<Space>(pi_t_theta, c_t, s_t);

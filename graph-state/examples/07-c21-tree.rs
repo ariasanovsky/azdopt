@@ -15,7 +15,7 @@ use az_discrete_opt::{
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel, dfdx::TwoModels}, learning_loop::{par_simulate_once, par_update_existing_nodes, par_insert_node_at_next_level, prediction::PredictionData, state::StateData},
+    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel, dfdx::TwoModels}, learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData},
 };
 use dfdx::prelude::*;
 use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
@@ -140,39 +140,13 @@ fn main() -> eyre::Result<()> {
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
-    // let (
-    //     mut s_0,
-    //     mut c_t,
-    // ): (
-    //     [S; BATCH],
-    //     [C; BATCH],
-    // ) = {
-    //     let mut s_0: [MaybeUninit<S>; BATCH] = MaybeUninit::uninit_array();
-    //     let mut c_t: [MaybeUninit<C>; BATCH] = MaybeUninit::uninit_array();
-    //     (&mut s_0, &mut c_t)
-    //         .into_par_iter()
-    //         .for_each_init(
-    //             || rand::thread_rng(),
-    //             |rng, (s_t, c_t)| {
-    //                 let s = random_state(rng);
-    //                 let c = cost(&s);
-    //                 s_t.write(s);
-    //                 c_t.write(c);
-    //             },
-    //         );
-    //     (
-    //         unsafe { MaybeUninit::array_assume_init(s_0) },
-    //         unsafe { MaybeUninit::array_assume_init(c_t) },
-    //     )
-    // };
-    
     let mut states = StateData::<BATCH, STATE, S, C>::par_new::<Space, _>(
         |_| rand::thread_rng(),
         |_, rng| random_state(rng),
         |s| cost(s),
     );
 
-    let mut p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
+    let p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
     let mut global_argmin: ArgminData<C> = (states.get_states(), states.get_costs()).into_par_iter().min_by(|(_, a), (_, b)| {
         a.evaluate().partial_cmp(&b.evaluate()).unwrap()
     }).map(|(s, c)| {
@@ -182,11 +156,9 @@ fn main() -> eyre::Result<()> {
     const ALPHA: [f32; ACTION] = [0.03; ACTION];
     let epochs: usize = 250;
     let episodes: usize = 800;
-    // let mut x_t = [[0.0; STATE]; BATCH];
-    // let mut s_t = s_0.clone();
-    let mut nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
+    let nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
     
-    let mut trees: [Tree; BATCH] = {
+    let trees: [Tree; BATCH] = {
         let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
         (&mut trees, predictions.pi_mut(), states.get_costs(), states.get_states())
             .into_par_iter()
@@ -198,6 +170,8 @@ fn main() -> eyre::Result<()> {
                 });
         unsafe { MaybeUninit::array_assume_init(trees) }
     };
+
+    let mut trees = TreeData::new(trees, p_t, nodes);
     
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
@@ -206,7 +180,7 @@ fn main() -> eyre::Result<()> {
         states.par_write_state_vecs::<Space>();
         states.par_write_state_costs(cost);
         models.write_predictions(states.get_vectors(), &mut predictions);
-        (&mut trees, predictions.pi_mut(), states.get_costs(), states.get_states())
+        (trees.trees_mut(), predictions.pi_mut(), states.get_costs(), states.get_states())
                 .into_par_iter()
                 .for_each_init(
                     || rand::thread_rng(),
@@ -220,12 +194,12 @@ fn main() -> eyre::Result<()> {
             }
             let mut transitions: [_; BATCH] = core::array::from_fn(|_| vec![]);
             states.reset_states();
-            let ends = par_simulate_once::<P, Space, BATCH>(states.get_states_mut(), &mut trees, &mut p_t, &mut transitions, upper_estimate);
+            let ends = trees.par_simulate_once::<Space>(states.get_states_mut(), &mut transitions, upper_estimate);
             states.par_write_state_costs(cost);
             states.par_write_state_vecs::<Space>();
             models.write_predictions(states.get_vectors(), &mut predictions);
-            par_update_existing_nodes::<_, Space, BATCH, ACTION, GAIN>(&mut nodes, ends, states.get_costs(), states.get_states(), &predictions, &mut transitions);
-            par_insert_node_at_next_level::<_, BATCH>(&mut nodes, &mut trees);
+            ends.par_update_existing_nodes::<Space, ACTION, GAIN>(states.get_costs(), states.get_states(), &predictions, &mut transitions);
+            trees.insert_nodes();
             let episode_argmin = (states.get_states(), states.get_costs()).into_par_iter().min_by(|(_, a), (_, b)| {
                 a.evaluate().partial_cmp(&b.evaluate()).unwrap()
             }).unwrap();
@@ -245,7 +219,7 @@ fn main() -> eyre::Result<()> {
             }
         }
         let (pi_t, g_t) = predictions.get_mut();
-        (&trees, pi_t, g_t)
+        (trees.trees(), pi_t, g_t)
             .into_par_iter()
             .for_each(|(t, p, v)| t.write_observations(p, v));
         states.par_write_state_vecs::<Space>();
@@ -267,13 +241,11 @@ fn main() -> eyre::Result<()> {
         // Write summaries to file.
         writer.write_summary(SystemTime::now(), (episodes * epoch + episodes) as i64, summ)?;
         writer.get_mut().flush()?;
-        
-        
         let select_node = |_i, nodes: Vec<(_, _)>| {
             nodes[0].clone()
         };
         if epoch % 4 != 3 {
-            (states.get_roots_mut(), &trees).into_par_iter().enumerate().for_each(|(i, (s, t))| {
+            (states.get_roots_mut(), trees.trees_mut()).into_par_iter().enumerate().for_each(|(i, (s, t))| {
                 let nodes = t.unstable_sorted_nodes();
                 let selected_node = select_node(i, nodes);
                 Space::follow(s, selected_node.0.actions_taken::<Space>().map(|a| Space::from_index(*a)));
