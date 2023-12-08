@@ -1,10 +1,11 @@
-use crate::int_min_tree::{INTMinTree, state_data::StateDataKind};
+use crate::int_min_tree::{state_data::StateDataKind, INTMinTree};
 
 impl<P> INTMinTree<P> {
     pub fn unstable_sorted_nodes(&self) -> Vec<(&P, &StateDataKind)> {
-        let mut nodes = 
-            self.data.iter()
-            .flat_map(|level| level.into_iter())
+        let mut nodes = self
+            .data
+            .iter()
+            .flat_map(|level| level.iter())
             .collect::<Vec<_>>();
         nodes.sort_unstable_by(|a, b| {
             let a_cost = a.1.cost();
@@ -25,7 +26,6 @@ impl<P> INTMinTree<P> {
 //     Space::State: Send + Sync + Clone,
 //     P: Sync + ActionPathFor<Space>,
 // {
-
 
 //     tree[0].data.drain(range)
 

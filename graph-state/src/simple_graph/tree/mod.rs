@@ -86,7 +86,9 @@ impl<const N: usize> Tree<N> {
         parent[b] = None;
         assert!(
             parent.iter().filter(|p| p.is_none()).count() == 1,
-            "code = {:?}, parent = {:?}", code, parent,
+            "code = {:?}, parent = {:?}",
+            code,
+            parent,
         );
         Self { parent }
     }
@@ -106,10 +108,7 @@ impl<const N: usize> Tree<N> {
             .max_by(|a, b| a.re.partial_cmp(&b.re).unwrap())
             .unwrap()
             .re;
-        assert!(
-            lambda_1 > 1.4,
-            "{a:?}",
-        );
+        assert!(lambda_1 > 1.4, "{a:?}",);
         let matching = self.maximum_matching();
         Conjecture2Dot1Cost { matching, lambda_1 }
     }
@@ -214,14 +213,32 @@ mod tests {
 
     #[test]
     fn this_double_star_graph_has_matching_number_two_as_a_tree() {
-        let tree_edges = [[3, 1], [12, 1], [16, 1], [18, 1], [19, 0], [19, 1], [19, 2], [19, 4], [19, 5], [19, 6], [19, 7], [19, 8], [19, 9], [19, 10], [19, 11], [19, 13], [19, 14], [19, 15], [19, 17]];
+        let tree_edges = [
+            [3, 1],
+            [12, 1],
+            [16, 1],
+            [18, 1],
+            [19, 0],
+            [19, 1],
+            [19, 2],
+            [19, 4],
+            [19, 5],
+            [19, 6],
+            [19, 7],
+            [19, 8],
+            [19, 9],
+            [19, 10],
+            [19, 11],
+            [19, 13],
+            [19, 14],
+            [19, 15],
+            [19, 17],
+        ];
         let mut edges: [Option<usize>; 20] = core::array::from_fn(|_| None);
         for [v, u] in tree_edges.iter() {
             edges[*v] = Some(*u);
-        }        
-        let tree = Tree::<20> {
-            parent: edges,
-        };
+        }
+        let tree = Tree::<20> { parent: edges };
         let matching = tree.maximum_matching();
         assert_eq!(matching.len(), 2);
 

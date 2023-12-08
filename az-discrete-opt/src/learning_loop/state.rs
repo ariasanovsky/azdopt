@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 
-use rayon::iter::{IntoParallelIterator, IndexedParallelIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use crate::space::StateActionSpace;
 
@@ -82,10 +82,7 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
             .for_each(|(s, v)| Space::write_vec(s, v));
     }
 
-    pub fn par_write_state_costs(
-        &mut self,
-        cost: impl Fn(&S) -> C + Sync,
-    )
+    pub fn par_write_state_costs(&mut self, cost: impl Fn(&S) -> C + Sync)
     where
         C: Send,
         S: Sync,

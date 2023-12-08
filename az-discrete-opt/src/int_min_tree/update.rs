@@ -1,9 +1,5 @@
 use crate::{
-    int_min_tree::{
-        simulate_once::EndNodeAndLevel,
-        state_data::StateDataKind,
-        NewTreeLevel,
-    },
+    int_min_tree::{simulate_once::EndNodeAndLevel, state_data::StateDataKind, NewTreeLevel},
     path::ActionPathFor,
     space::StateActionSpace,
     state::cost::Cost,

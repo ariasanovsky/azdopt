@@ -10,10 +10,7 @@ pub trait StateActionSpace {
     fn index(action: &Self::Action) -> usize;
     fn from_index(index: usize) -> Self::Action;
     fn act(state: &mut Self::State, action: &Self::Action);
-    fn follow(
-        state: &mut Self::State,
-        actions: impl Iterator<Item = Self::Action>,
-    ) {
+    fn follow(state: &mut Self::State, actions: impl Iterator<Item = Self::Action>) {
         for action in actions {
             Self::act(state, &action);
         }

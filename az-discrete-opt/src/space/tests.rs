@@ -1,8 +1,5 @@
 use crate::{
-    int_min_tree::{
-        state_data::UpperEstimateData,
-        INTMinTree,
-    },
+    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     path::sequence::ActionSequence,
 };
 

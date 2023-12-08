@@ -3,4 +3,3 @@ impl<const N: usize> core::fmt::Display for super::PrueferCode<N> {
         format!("{:?}", self.code()).fmt(f)
     }
 }
-

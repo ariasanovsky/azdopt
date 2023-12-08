@@ -17,33 +17,26 @@ pub struct INTMinTree<P> {
 
 impl<P> INTMinTree<P> {
     pub fn len(&self) -> usize {
-        self.data.iter().map(|level| level.len()).sum::<usize>() + 1
+        self.data.iter().map(|level| level.len()).sum::<usize>()
     }
 
-    pub fn set_new_root<Space>(
-        &mut self,
-        pi_0_theta: &[f32],
-        c_0: f32,
-        s_0: &Space::State,
-    ) where
+    pub fn is_empty(&self) -> bool {
+        self.data.iter().all(|level| level.is_empty())
+    }
+
+    pub fn set_new_root<Space>(&mut self, pi_0_theta: &[f32], c_0: f32, s_0: &Space::State)
+    where
         Space: StateActionSpace,
     {
-        let Self {
-            root_data,
-            data,
-        } = self;
+        let Self { root_data, data } = self;
         *root_data = match StateDataKind::new::<Space>(pi_0_theta, c_0, s_0) {
             StateDataKind::Exhausted { c_t: _ } => panic!("root is terminal"),
             StateDataKind::Active { data } => data,
         };
         data.iter_mut().for_each(|level| level.clear());
     }
-    
-    pub fn new<Space>(
-        pi_0_theta: &[f32],
-        c_0: f32,
-        s_0: &Space::State,
-    ) -> Self
+
+    pub fn new<Space>(pi_0_theta: &[f32], c_0: f32, s_0: &Space::State) -> Self
     where
         Space: StateActionSpace,
     {

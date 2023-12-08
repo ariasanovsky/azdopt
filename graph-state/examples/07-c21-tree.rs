@@ -5,20 +5,28 @@
 use rayon::prelude::*;
 
 use std::{
-    io::{Write, BufWriter},
+    io::{BufWriter, Write},
     mem::MaybeUninit,
-    path::{Path, PathBuf}, time::SystemTime,
+    path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use az_discrete_opt::{
+    az_model::{add_dirichlet_noise, dfdx::TwoModels, AzModel},
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
+    learning_loop::{
+        par_roll_out_episode, prediction::PredictionData, state::StateData, tree::TreeData,
+    },
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions}, az_model::{add_dirichlet_noise, AzModel, dfdx::TwoModels}, learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData, par_roll_out_episode},
+    state::{cost::Cost, prohibit::WithProhibitions},
 };
 use dfdx::prelude::*;
-use graph_state::{simple_graph::connected_bitset_graph::Conjecture2Dot1Cost, rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree}};
+use graph_state::{
+    rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree},
+    simple_graph::connected_bitset_graph::Conjecture2Dot1Cost,
+};
 use rand::rngs::ThreadRng;
 
 use chrono::prelude::*;
@@ -79,7 +87,7 @@ fn main() -> eyre::Result<()> {
     let writer = BufWriter::new(std::fs::File::create(out_file)?);
     let mut writer = TensorboardWriter::new(writer);
     writer.write_file_version()?;
-    
+
     let dev = AutoDevice::default();
     let pi_config = AdamConfig {
         lr: 2e-2,
@@ -93,8 +101,9 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    let mut models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> = TwoModels::new(&dev, pi_config, g_config);
-    let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::new();
+    let mut models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> =
+        TwoModels::new(&dev, pi_config, g_config);
+    let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
             n_s,
@@ -113,7 +122,8 @@ fn main() -> eyre::Result<()> {
     };
     // generate states
     let default_prohibitions = |s: &RawState| {
-        s.edge_indices_ignoring_0_1_and_last_vertex().collect::<Vec<_>>()
+        s.edge_indices_ignoring_0_1_and_last_vertex()
+            .collect::<Vec<_>>()
     };
     let random_state = |rng: &mut ThreadRng| loop {
         let state = RawState::generate_constrained(rng);
@@ -129,10 +139,7 @@ fn main() -> eyre::Result<()> {
     };
     // calculate costs
     let cost = |s: &S| {
-        debug_assert!(
-            !s.prohibited_actions.contains(&170),
-            "s = {s:?}",
-        );
+        debug_assert!(!s.prohibited_actions.contains(&170), "s = {s:?}",);
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
@@ -142,25 +149,31 @@ fn main() -> eyre::Result<()> {
         |s| cost(s),
     );
     let p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
-    let mut global_argmin: ArgminData<C> = (states.get_states(), states.get_costs()).into_par_iter().min_by(|(_, a), (_, b)| {
-        a.evaluate().partial_cmp(&b.evaluate()).unwrap()
-    }).map(|(s, c)| {
-        ArgminData::new(s, c.clone(), 0, 0)
-    }).unwrap();
+    let mut global_argmin: ArgminData<C> = (states.get_states(), states.get_costs())
+        .into_par_iter()
+        .min_by(|(_, a), (_, b)| a.evaluate().partial_cmp(&b.evaluate()).unwrap())
+        .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
+        .unwrap();
     const ALPHA: [f32; ACTION] = [0.03; ACTION];
     let epochs: usize = 250;
     let episodes: usize = 800;
     let nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
     let trees: [Tree; BATCH] = {
         let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-        (&mut trees, predictions.pi_mut(), states.get_costs(), states.get_states())
+        (
+            &mut trees,
+            predictions.pi_mut(),
+            states.get_costs(),
+            states.get_states(),
+        )
             .into_par_iter()
             .for_each_init(
                 || rand::thread_rng(),
                 |rng, (t, pi_0_theta, c_0, s_0)| {
                     add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
                     t.write(Tree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0));
-                });
+                },
+            );
         unsafe { MaybeUninit::array_assume_init(trees) }
     };
     let mut trees: TreeData<256, ActionSet> = TreeData::new(trees, p_t, nodes);
@@ -171,25 +184,40 @@ fn main() -> eyre::Result<()> {
         states.par_write_state_vecs::<Space>();
         states.par_write_state_costs(cost);
         models.write_predictions(states.get_vectors(), &mut predictions);
-        (trees.trees_mut(), predictions.pi_mut(), states.get_costs(), states.get_states())
-                .into_par_iter()
-                .for_each_init(
-                    || rand::thread_rng(),
-                    |rng, (t, pi_0_theta, c_0, s_0)| {
-                        add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
-                        t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
-                    });
+        (
+            trees.trees_mut(),
+            predictions.pi_mut(),
+            states.get_costs(),
+            states.get_states(),
+        )
+            .into_par_iter()
+            .for_each_init(
+                || rand::thread_rng(),
+                |rng, (t, pi_0_theta, c_0, s_0)| {
+                    add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
+                    t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
+                },
+            );
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
-            par_roll_out_episode::<BATCH, STATE, ACTION, GAIN, Space, _, _>(&mut states, &mut models, &mut predictions, &mut trees, cost, upper_estimate);
-            let episode_argmin = (states.get_states(), states.get_costs()).into_par_iter().min_by(|(_, a), (_, b)| {
-                a.evaluate().partial_cmp(&b.evaluate()).unwrap()
-            }).unwrap();
+            par_roll_out_episode::<BATCH, STATE, ACTION, GAIN, Space, _, _>(
+                &mut states,
+                &mut models,
+                &mut predictions,
+                &mut trees,
+                cost,
+                upper_estimate,
+            );
+            let episode_argmin = (states.get_states(), states.get_costs())
+                .into_par_iter()
+                .min_by(|(_, a), (_, b)| a.evaluate().partial_cmp(&b.evaluate()).unwrap())
+                .unwrap();
             // update the global argmin
             if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
-                global_argmin = ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
+                global_argmin =
+                    ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
                 println!("new min = {}", global_argmin.cost().evaluate());
                 println!("argmin  = {global_argmin:?}");
                 let summ = SummaryBuilder::new()
@@ -198,7 +226,11 @@ fn main() -> eyre::Result<()> {
                     .scalar("cost/mu", global_argmin.cost().matching.len() as _)
                     .build();
                 // Write summaries to file.
-                writer.write_summary(SystemTime::now(), (episodes * epoch + episode) as i64, summ)?;
+                writer.write_summary(
+                    SystemTime::now(),
+                    (episodes * epoch + episode) as i64,
+                    summ,
+                )?;
                 writer.get_mut().flush()?;
             }
         }
@@ -208,7 +240,7 @@ fn main() -> eyre::Result<()> {
             .for_each(|(t, p, v)| t.write_observations(p, v));
         states.par_write_state_vecs::<Space>();
         let (entropy, mse) = models.update_model(states.get_vectors(), &predictions);
-        
+
         let summ = SummaryBuilder::new()
             .scalar("loss/entropy", entropy)
             .scalar("loss/mse", mse)
@@ -223,26 +255,37 @@ fn main() -> eyre::Result<()> {
             .scalar("cost/mu", global_argmin.cost().matching.len() as _)
             .build();
         // Write summaries to file.
-        writer.write_summary(SystemTime::now(), (episodes * epoch + episodes) as i64, summ)?;
+        writer.write_summary(
+            SystemTime::now(),
+            (episodes * epoch + episodes) as i64,
+            summ,
+        )?;
         writer.get_mut().flush()?;
-        let select_node = |_i, nodes: Vec<(_, _)>| {
-            nodes[0].clone()
-        };
+        let select_node = |_i, nodes: Vec<(_, _)>| nodes[0].clone();
         if epoch % 4 != 3 {
-            (states.get_roots_mut(), trees.trees_mut()).into_par_iter().enumerate().for_each(|(i, (s, t))| {
-                let nodes = t.unstable_sorted_nodes();
-                let selected_node = select_node(i, nodes);
-                Space::follow(s, selected_node.0.actions_taken::<Space>().map(|a| Space::from_index(*a)));
-                if Space::is_terminal(s) {
-                    let prohibited_actions = default_prohibitions(&s.state);
-                    s.prohibited_actions.clear();
-                    s.prohibited_actions.extend(prohibited_actions);
+            (states.get_roots_mut(), trees.trees_mut())
+                .into_par_iter()
+                .enumerate()
+                .for_each(|(i, (s, t))| {
+                    let nodes = t.unstable_sorted_nodes();
+                    let selected_node = select_node(i, nodes);
+                    Space::follow(
+                        s,
+                        selected_node
+                            .0
+                            .actions_taken::<Space>()
+                            .map(|a| Space::from_index(*a)),
+                    );
                     if Space::is_terminal(s) {
-                        let mut rng = rand::thread_rng();
-                        *s = random_state(&mut rng);
+                        let prohibited_actions = default_prohibitions(&s.state);
+                        s.prohibited_actions.clear();
+                        s.prohibited_actions.extend(prohibited_actions);
+                        if Space::is_terminal(s) {
+                            let mut rng = rand::thread_rng();
+                            *s = random_state(&mut rng);
+                        }
                     }
-                }
-            })
+                })
         } else {
             states.get_roots_mut().par_iter_mut().for_each(|s| {
                 let mut rng = rand::thread_rng();

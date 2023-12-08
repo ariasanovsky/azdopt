@@ -71,7 +71,7 @@ impl INTUnvisitedActionData {
         self.p_sa
     }
 
-    pub(crate) fn  to_visited_action(self, g_star_theta_i: f32) -> INTVisitedActionData {
+    pub(crate) fn visited_action(self, g_star_theta_i: f32) -> INTVisitedActionData {
         let INTUnvisitedActionData { a, p_sa } = self;
         INTVisitedActionData {
             a,

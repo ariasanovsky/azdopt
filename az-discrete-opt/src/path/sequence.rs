@@ -43,7 +43,7 @@ impl ActionPath for ActionSequence {
     where
         Space: StateActionSpace,
         Self: ActionPathFor<Space>,
-     {
+    {
         self.actions.iter()
     }
 }

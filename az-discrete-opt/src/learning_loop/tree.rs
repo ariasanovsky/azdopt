@@ -2,7 +2,15 @@ use std::mem::MaybeUninit;
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-use crate::{int_min_tree::{INTMinTree, NewTreeLevel, transition::INTTransition, state_data::UpperEstimateData, simulate_once::EndNodeAndLevel}, space::StateActionSpace, state::cost::Cost, path::ActionPathFor};
+use crate::{
+    int_min_tree::{
+        simulate_once::EndNodeAndLevel, state_data::UpperEstimateData, transition::INTTransition,
+        INTMinTree, NewTreeLevel,
+    },
+    path::ActionPathFor,
+    space::StateActionSpace,
+    state::cost::Cost,
+};
 
 use super::prediction::PredictionData;
 
@@ -25,6 +33,7 @@ impl<T, U> SameSizeAndAlignment<T, U> {
     };
 }
 
+#[allow(clippy::let_unit_value)]
 pub fn reuse_as<T, U>(t: &mut Vec<T>) -> &mut Vec<U> {
     // there's a prettier solution locked behind https://github.com/rust-lang/rust/issues/76001
     let _: () = SameSizeAndAlignment::<T, U>::SAME_SIZE_AND_ALIGNMENT; // this should be `const`
@@ -57,7 +66,16 @@ impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
             transitions,
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get();
-        (ends, paths, nodes, c_t, s_t, g_t_theta, pi_t_theta, transitions)
+        (
+            ends,
+            paths,
+            nodes,
+            c_t,
+            s_t,
+            g_t_theta,
+            pi_t_theta,
+            transitions,
+        )
             .into_par_iter()
             .for_each(|(end, p_t, n, c_t, s_t, g_t, pi_t, transitions)| {
                 *n = end.update_existing_nodes::<Space>(c_t, s_t, p_t, pi_t, g_t, transitions);
@@ -72,7 +90,12 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
         nodes: [Option<NewTreeLevel<P>>; BATCH],
     ) -> Self {
         let transitions = core::array::from_fn(|_| Vec::new());
-        Self { trees, paths, nodes, transitions }
+        Self {
+            trees,
+            paths,
+            nodes,
+            transitions,
+        }
     }
 
     pub fn trees_mut(&mut self) -> &mut [INTMinTree<P>; BATCH] {
@@ -83,7 +106,7 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
         &self.trees
     }
 
-    pub fn par_simulate_once<'a, Space>(
+    pub fn par_simulate_once<Space>(
         &mut self,
         s_t: &mut [Space::State; BATCH],
         upper_estimate: impl Fn(UpperEstimateData) -> f32 + Sync,
