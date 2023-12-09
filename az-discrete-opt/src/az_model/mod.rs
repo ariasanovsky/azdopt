@@ -1,4 +1,4 @@
-use crate::learning_loop::prediction::PredictionData;
+use crate::{learning_loop::prediction::PredictionData, tensorboard::Summarize};
 
 pub mod candle;
 pub mod dfdx;
@@ -24,5 +24,19 @@ pub trait AzModel<const BATCH: usize, const STATE: usize, const ACTION: usize, c
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
         observations: &PredictionData<BATCH, ACTION, GAIN>,
-    ) -> (f32, f32);
+    ) -> Loss;
+}
+
+pub struct Loss {
+    pub entropy: f32,
+    pub mse: f32,
+}
+
+impl Summarize for Loss {
+    fn summary(&self) -> tensorboard_writer::proto::tensorboard::Summary {
+        tensorboard_writer::SummaryBuilder::new()
+            .scalar("loss/entropy", self.entropy as _)
+            .scalar("loss/mse", self.mse as _)
+            .build()
+    }
 }

@@ -5,15 +5,20 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+tensorboard = ["tensorboard-writer", "az-discrete-opt/tensorboard"]
+
 [dependencies]
 bit-iter = "1.2.0"
 priority-queue = "1.3.2"
 rand = "0.8.5"
-az-discrete-opt = { version = "0.1.0", path = "../az-discrete-opt" }
+az-discrete-opt = { version = "0.1.0", path = "../az-discrete-opt", features = ["tensorboard"] }
 itertools = "0.11.0"
 eyre = "0.6.8"
 num-traits = "0.2.17"
 faer = "0.15.0"
+tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-writer", optional = true }
 
 [dev-dependencies]
 chrono = "0.4.31"

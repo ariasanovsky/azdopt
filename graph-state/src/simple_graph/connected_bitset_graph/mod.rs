@@ -1,8 +1,10 @@
 // use core::mem::MaybeUninit;
 use std::collections::VecDeque;
 
+use az_discrete_opt::{tensorboard::Summarize, state::cost::Cost};
 // use az_discrete_opt::state::StateNode;
 use faer::{Faer, Mat};
+use tensorboard_writer::proto::tensorboard::Summary;
 // use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::bitset::{primitive::B32, Bitset};
@@ -309,6 +311,16 @@ impl core::fmt::Debug for Conjecture2Dot1Cost {
             .entry(&"m", &self.matching)
             .entry(&"l1", &self.lambda_1)
             .finish()
+    }
+}
+
+impl Summarize for Conjecture2Dot1Cost {
+    fn summary(&self) -> Summary {
+        tensorboard_writer::SummaryBuilder::new()
+            .scalar("cost/cost", self.evaluate())
+            .scalar("cost/lambda_1", self.lambda_1 as _)
+            .scalar("cost/mu", self.matching.len() as _)
+            .build()
     }
 }
 

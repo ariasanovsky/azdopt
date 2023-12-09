@@ -11,7 +11,7 @@ use dfdx::prelude::{Gradients, Rank2};
 
 use crate::learning_loop::prediction::PredictionData;
 
-use super::AzModel;
+use super::{AzModel, Loss};
 
 pub struct TwoModels<
     L,
@@ -115,7 +115,7 @@ where
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
         observations: &PredictionData<BATCH, ACTION, GAIN>,
-    ) -> (f32, f32) {
+    ) -> Loss {
         let Self {
             pi_model,
             g_model,
@@ -159,6 +159,9 @@ where
             .expect("optimizer failed");
         g_model.zero_grads(&mut some_g_gradients);
         *g_gradients = Some(some_g_gradients);
-        (entropy, mse)
+        Loss {
+            entropy,
+            mse,
+        }
     }
 }

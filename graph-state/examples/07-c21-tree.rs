@@ -3,6 +3,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 
 use rayon::prelude::*;
+use tensorboard_writer::TensorboardWriter;
 
 use std::{
     io::{BufWriter, Write},
@@ -20,7 +21,7 @@ use az_discrete_opt::{
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions},
+    state::{cost::Cost, prohibit::WithProhibitions}, tensorboard::{tf_path, Summarize},
 };
 use dfdx::prelude::*;
 use graph_state::{
@@ -65,19 +66,10 @@ type Valuation = (
     Linear<HIDDEN_2, 1>,
 );
 
-use tensorboard_writer::{SummaryBuilder, TensorboardWriter};
 
 fn main() -> eyre::Result<()> {
-    // implementing tensorboard
-    let out_dir = std::env::var("OUT_DIR")
-        .map_or_else(
-            |_| {
-                std::env::var("CARGO_MANIFEST_DIR")
-                    .map(|manifest_dir| Path::new(&manifest_dir).join("target"))
-            },
-            |out_dir| Ok(PathBuf::from(out_dir)),
-        )
-        .unwrap_or_else(|_| "/home/azdopt/graph-state/target".into())
+    let out_dir = 
+        tf_path()
         .join("07-c21-tree")
         .join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
@@ -220,16 +212,10 @@ fn main() -> eyre::Result<()> {
                     ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
                 println!("new min = {}", global_argmin.cost().evaluate());
                 println!("argmin  = {global_argmin:?}");
-                let summ = SummaryBuilder::new()
-                    .scalar("cost/cost", global_argmin.cost().evaluate())
-                    .scalar("cost/lambda_1", global_argmin.cost().lambda_1 as _)
-                    .scalar("cost/mu", global_argmin.cost().matching.len() as _)
-                    .build();
-                // Write summaries to file.
                 writer.write_summary(
                     SystemTime::now(),
                     (episodes * epoch + episode) as i64,
-                    summ,
+                    global_argmin.cost().summary(),
                 )?;
                 writer.get_mut().flush()?;
             }
@@ -239,26 +225,18 @@ fn main() -> eyre::Result<()> {
             .into_par_iter()
             .for_each(|(t, p, v)| t.write_observations(p, v));
         states.par_write_state_vecs::<Space>();
-        let (entropy, mse) = models.update_model(states.get_vectors(), &predictions);
-
-        let summ = SummaryBuilder::new()
-            .scalar("loss/entropy", entropy)
-            .scalar("loss/mse", mse)
-            .build();
-        // Write summaries to file.
-        writer.write_summary(SystemTime::now(), epoch as i64, summ)?;
-        writer.get_mut().flush()?;
-
-        let summ = SummaryBuilder::new()
-            .scalar("cost/cost", global_argmin.cost().evaluate())
-            .scalar("cost/lambda_1", global_argmin.cost().lambda_1 as _)
-            .scalar("cost/mu", global_argmin.cost().matching.len() as _)
-            .build();
+        let loss = models.update_model(states.get_vectors(), &predictions);
         // Write summaries to file.
         writer.write_summary(
             SystemTime::now(),
+            epoch as i64,
+            loss.summary(),
+        )?;
+        writer.get_mut().flush()?;
+        writer.write_summary(
+            SystemTime::now(),
             (episodes * epoch + episodes) as i64,
-            summ,
+            global_argmin.cost().summary(),
         )?;
         writer.get_mut().flush()?;
         let select_node = |_i, nodes: Vec<(_, _)>| nodes[0].clone();
