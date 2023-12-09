@@ -72,6 +72,7 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
         &mut self.roots
     }
 
+    #[cfg(feature = "rayon")]
     pub fn par_write_state_vecs<Space>(&mut self)
     where
         Space: StateActionSpace<State = S>,
@@ -82,6 +83,7 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
             .for_each(|(s, v)| Space::write_vec(s, v));
     }
 
+    #[cfg(feature = "rayon")]
     pub fn par_write_state_costs(&mut self, cost: impl Fn(&S) -> C + Sync)
     where
         C: Send,

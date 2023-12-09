@@ -49,6 +49,7 @@ pub struct Ends<'a, const BATCH: usize, P> {
 }
 
 impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
+    #[cfg(feature = "rayon")]
     pub fn par_update_existing_nodes<Space, const ACTION: usize, const GAIN: usize>(
         self,
         c_t: &[impl Cost<f32> + Sync; BATCH],
@@ -106,6 +107,7 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
         &self.trees
     }
 
+    #[cfg(feature = "rayon")]
     pub fn par_simulate_once<Space>(
         &mut self,
         s_t: &mut [Space::State; BATCH],
@@ -138,7 +140,8 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
         }
     }
 
-    pub fn insert_nodes(&mut self)
+    #[cfg(feature = "rayon")]
+    pub fn par_insert_nodes(&mut self)
     where
         P: Clone + Ord + Send,
     {

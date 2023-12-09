@@ -9,6 +9,7 @@ pub mod prediction;
 pub mod state;
 pub mod tree;
 
+#[cfg(feature = "rayon")]
 pub fn par_roll_out_episode<
     const BATCH: usize,
     const STATE: usize,
@@ -40,5 +41,5 @@ pub fn par_roll_out_episode<
         states.get_states(),
         predictions,
     );
-    trees.insert_nodes();
+    trees.par_insert_nodes();
 }

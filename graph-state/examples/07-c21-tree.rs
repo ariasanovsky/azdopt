@@ -8,7 +8,6 @@ use tensorboard_writer::TensorboardWriter;
 use std::{
     io::{BufWriter, Write},
     mem::MaybeUninit,
-    path::{Path, PathBuf},
     time::SystemTime,
 };
 

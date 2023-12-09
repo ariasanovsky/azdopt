@@ -3,6 +3,7 @@ use crate::{learning_loop::prediction::PredictionData, tensorboard::Summarize};
 pub mod candle;
 pub mod dfdx;
 
+#[cfg(all(feature = "rand", feature = "rand_distr"))]
 pub fn add_dirichlet_noise(rng: &mut impl rand::Rng, p: &mut [f32], alpha: &[f32], epsilon: f32) {
     use rand_distr::Distribution;
     let dir = rand_distr::Dirichlet::new(alpha).unwrap();
