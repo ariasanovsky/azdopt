@@ -1,9 +1,14 @@
-use crate::{learning_loop::prediction::PredictionData, tensorboard::Summarize};
+use crate::learning_loop::prediction::PredictionData;
 
+#[cfg(feature = "tensorboard")]
+use crate::tensorboard::Summarize;
+
+#[cfg(feature = "candle")]
 pub mod candle;
+#[cfg(feature = "dfdx")]
 pub mod dfdx;
 
-#[cfg(all(feature = "rand", feature = "rand_distr"))]
+#[cfg(feature = "rand_noise")]
 pub fn add_dirichlet_noise(rng: &mut impl rand::Rng, p: &mut [f32], alpha: &[f32], epsilon: f32) {
     use rand_distr::Distribution;
     let dir = rand_distr::Dirichlet::new(alpha).unwrap();
@@ -33,6 +38,7 @@ pub struct Loss {
     pub mse: f32,
 }
 
+#[cfg(feature = "tensorboard")]
 impl Summarize for Loss {
     fn summary(&self) -> tensorboard_writer::proto::tensorboard::Summary {
         tensorboard_writer::SummaryBuilder::new()

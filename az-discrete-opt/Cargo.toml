@@ -4,16 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["rayon", "rand", "rand_distr"]
+default = ["rayon", "rand_noise"]
 tensorboard = ["tensorboard-writer"]
+rand_noise = ["rand", "rand_distr"]
+candle = ["candle-core", "candle-nn"]
 
 [dependencies]
 rand = { version = "0.8.5", optional = true }
 rand_distr = { version = "0.4.3", optional = true }
-dfdx = { version = "0.13.0", default-features = false, features = ["std", "fast-alloc", "cuda", "cudnn"] }
+dfdx = { version = "0.13.0", default-features = false, features = ["std", "fast-alloc", "cuda", "cudnn"], optional = true }
 rayon = { version = "1.8.0", optional = true }
 tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-writer", optional = true }
-
+candle-core = { version = "0.3.1", default-features = false, features = ["cuda"], optional = true }
+candle-nn = { version = "0.3.1", default-features = false, features = ["cuda"], optional = true }
 
 # [dependencies]
 
