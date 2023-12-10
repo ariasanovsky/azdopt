@@ -15,7 +15,7 @@ use az_discrete_opt::{
     az_model::{add_dirichlet_noise, dfdx::TwoModels, AzModel},
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     learning_loop::{
-        par_roll_out_episode, prediction::PredictionData, state::StateData, tree::TreeData, par_update_model,
+        par_roll_out_episode, prediction::PredictionData, state::StateData, tree::TreeData, par_update_model, par_reset_with_next_root,
     },
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
@@ -161,25 +161,6 @@ fn main() -> eyre::Result<()> {
     let episodes: usize = 800;
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
-        // set state vectors
-        states.reset_states();
-        states.par_write_state_vecs::<Space>();
-        states.par_write_state_costs(cost);
-        models.write_predictions(states.get_vectors(), &mut predictions);
-        (
-            trees.trees_mut(),
-            predictions.pi_mut(),
-            states.get_costs(),
-            states.get_states(),
-        )
-            .into_par_iter()
-            .enumerate()
-            .for_each(
-                |(i, (t, pi_0_theta, c_0, s_0))| {
-                    add_noise(i, pi_0_theta);
-                    t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
-                },
-            );
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
@@ -224,35 +205,32 @@ fn main() -> eyre::Result<()> {
             global_argmin.cost().summary(),
         )?;
         writer.get_mut().flush()?;
-        let select_node = |_i, nodes: Vec<(_, _)>| nodes[0].clone();
-        if epoch % 4 != 3 {
-            (states.get_roots_mut(), trees.trees_mut())
-                .into_par_iter()
-                .enumerate()
-                .for_each(|(i, (s, t))| {
-                    let nodes = t.unstable_sorted_nodes();
-                    let selected_node = select_node(i, nodes);
-                    Space::follow(
-                        s,
-                        selected_node
-                            .0
-                            .actions_taken::<Space>()
-                            .map(|a| Space::from_index(*a)),
-                    );
-                    if Space::is_terminal(s) {
-                        let prohibited_actions = default_prohibitions(&s.state);
-                        s.prohibited_actions.clear();
-                        s.prohibited_actions.extend(prohibited_actions);
-                        if Space::is_terminal(s) {
-                            *s = random_state(i);
-                        }
-                    }
-                })
-        } else {
-            states.get_roots_mut().par_iter_mut().enumerate().for_each(|(i, s)| {
-                *s = random_state(i);
-            })
-        }
+        let modify_root = |i, t:  &INTMinTree<P>, s: &mut S| {
+            let nodes = t.unstable_sorted_nodes();
+            let node = nodes[0];
+            let (action, _) = node;
+            Space::follow(
+                s,
+                    action
+                    .actions_taken::<Space>()
+                    .map(|a| Space::from_index(*a)),
+            );
+            if Space::is_terminal(s) {
+                let prohibited_actions = default_prohibitions(&s.state);
+                s.prohibited_actions.clear();
+                s.prohibited_actions.extend(prohibited_actions);
+                if Space::is_terminal(s) {
+                    *s = random_state(i);
+                }
+            }
+        };
+        let reset_root = |i, _: &INTMinTree<P>, r: &mut S| {
+            *r = random_state(i);
+        };
+        match epoch % 4 {
+            3 => par_reset_with_next_root::<Space, BATCH, STATE, ACTION, GAIN, C, P>(&mut states, &mut trees, &mut predictions, &mut models, reset_root, cost, add_noise),
+            _ => par_reset_with_next_root::<Space, BATCH, STATE, ACTION, GAIN, C, P>(&mut states, &mut trees, &mut predictions, &mut models, modify_root, cost, add_noise),
+        };
     }
     dbg!(&out_dir);
     Ok(())
