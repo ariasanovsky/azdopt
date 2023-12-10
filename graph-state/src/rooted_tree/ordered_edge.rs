@@ -1,6 +1,6 @@
 use faer::Faer;
 
-use crate::simple_graph::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost};
+use crate::simple_graph::{connected_bitset_graph::Conjecture2Dot1Cost, edge::Edge};
 
 use super::RootedOrderedTree;
 
@@ -49,25 +49,34 @@ impl<const N: usize> RootedOrderedTree<N> {
         parents[max] = min;
     }
 
-    pub fn possible_parent_modifications(&self, child: usize) -> impl Iterator<Item = OrderedEdge> + '_ {
-        self.parent(child).map(|parent| {
-            (0..parent).chain(parent + 1..child).map(move |new_parent| {
-                OrderedEdge::new(Edge::new(new_parent, child))
+    pub fn possible_parent_modifications(
+        &self,
+        child: usize,
+    ) -> impl Iterator<Item = OrderedEdge> + '_ {
+        self.parent(child)
+            .map(|parent| {
+                (0..parent)
+                    .chain(parent + 1..child)
+                    .map(move |new_parent| OrderedEdge::new(Edge::new(new_parent, child)))
             })
-        }).into_iter().flatten()
+            .into_iter()
+            .flatten()
     }
 
-    pub fn all_possible_parent_modifications_ignoring_last_vertex(&self) -> impl Iterator<Item = OrderedEdge> + '_ {
-        (0..N-1).map(|child| self.possible_parent_modifications(child)).flatten()
+    pub fn all_possible_parent_modifications_ignoring_last_vertex(
+        &self,
+    ) -> impl Iterator<Item = OrderedEdge> + '_ {
+        (0..N - 1).flat_map(|child| self.possible_parent_modifications(child))
     }
 
     pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost {
         let a = self.adjacency_matrix();
-        let lambda_1 = a.selfadjoint_eigenvalues(faer::Side::Upper).into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(); 
-        assert!(
-            lambda_1 >= 1.4,
-            "lambda_1: {lambda_1}, a:\n{a:?}",
-        );
+        let lambda_1 = a
+            .selfadjoint_eigenvalues(faer::Side::Upper)
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        assert!(lambda_1 >= 1.4, "lambda_1: {lambda_1}, a:\n{a:?}",);
         let matching = self.maximum_matching();
         Conjecture2Dot1Cost { lambda_1, matching }
     }
@@ -87,9 +96,9 @@ impl<const N: usize> RootedOrderedTree<N> {
         let mut available = [true; N];
         loop {
             // find the next leaves to remove
-            let mut next_leaf = available.clone();
-            for i in 1..N {
-                if available[i] {
+            let mut next_leaf = available;
+            for (i, available) in available.iter().enumerate().take(N).skip(1) {
+                if *available {
                     let parent = self.parent(i).unwrap();
                     next_leaf[parent] = false;
                 }
@@ -119,15 +128,27 @@ impl<const N: usize> RootedOrderedTree<N> {
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::{rooted_tree::RootedOrderedTree, simple_graph::{edge::Edge, connected_bitset_graph::Conjecture2Dot1Cost}};
+    use crate::{
+        rooted_tree::RootedOrderedTree,
+        simple_graph::{connected_bitset_graph::Conjecture2Dot1Cost, edge::Edge},
+    };
 
     use super::OrderedEdge;
 
     #[test]
     fn oredered_edges_on_first_five_vertices_have_correct_index() {
-        let expected_edge = [(0, 2), (1, 2), (0, 3), (1, 3), (2, 3), (0, 4), (1, 4), (2, 4), (3, 4)].map(|(parent, child)| {
-            OrderedEdge::new(Edge::new(parent, child))
-        });
+        let expected_edge = [
+            (0, 2),
+            (1, 2),
+            (0, 3),
+            (1, 3),
+            (2, 3),
+            (0, 4),
+            (1, 4),
+            (2, 4),
+            (3, 4),
+        ]
+        .map(|(parent, child)| OrderedEdge::new(Edge::new(parent, child)));
         for expected_index in 0..9 {
             let edge = OrderedEdge::from_index_ignoring_edge_0_1(expected_index);
             let expected_edge = &expected_edge[expected_index];
@@ -142,10 +163,11 @@ mod tests {
     #[test]
     fn star_on_five_vertices_has_correct_possible_parent_modifications() {
         let star = RootedOrderedTree::try_from([0, 0, 0, 0, 0]).unwrap();
-        let expected = [(2, 1), (3, 1), (3, 2)].map(|(parent, child)| {
-            OrderedEdge::new(Edge::new(parent, child))
-        });
-        let actual = star.all_possible_parent_modifications_ignoring_last_vertex().collect::<Vec<_>>();
+        let expected = [(2, 1), (3, 1), (3, 2)]
+            .map(|(parent, child)| OrderedEdge::new(Edge::new(parent, child)));
+        let actual = star
+            .all_possible_parent_modifications_ignoring_last_vertex()
+            .collect::<Vec<_>>();
         assert_eq!(actual, expected);
     }
 

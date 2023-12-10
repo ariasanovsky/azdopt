@@ -17,15 +17,31 @@ pub struct INTMinTree<P> {
 
 impl<P> INTMinTree<P> {
     pub fn len(&self) -> usize {
-        self.data.iter().map(|level| level.len()).sum::<usize>() + 1
+        self.data.iter().map(|level| level.len()).sum::<usize>()
     }
-    
-    pub fn new<Space>(root_predictions: &[f32], cost: f32, root: &Space::State) -> Self
+
+    pub fn is_empty(&self) -> bool {
+        self.data.iter().all(|level| level.is_empty())
+    }
+
+    pub fn set_new_root<Space>(&mut self, pi_0_theta: &[f32], c_0: f32, s_0: &Space::State)
+    where
+        Space: StateActionSpace,
+    {
+        let Self { root_data, data } = self;
+        *root_data = match StateDataKind::new::<Space>(pi_0_theta, c_0, s_0) {
+            StateDataKind::Exhausted { c_t: _ } => panic!("root is terminal"),
+            StateDataKind::Active { data } => data,
+        };
+        data.iter_mut().for_each(|level| level.clear());
+    }
+
+    pub fn new<Space>(pi_0_theta: &[f32], c_0: f32, s_0: &Space::State) -> Self
     where
         Space: StateActionSpace,
     {
         Self {
-            root_data: match StateDataKind::new::<Space>(root_predictions, cost, root) {
+            root_data: match StateDataKind::new::<Space>(pi_0_theta, c_0, s_0) {
                 StateDataKind::Exhausted { c_t: _ } => panic!("root is terminal"),
                 StateDataKind::Active { data } => data,
             },
@@ -62,7 +78,7 @@ impl<P> INTMinTree<P> {
         self.data.push(level);
     }
 
-    pub fn observe(&self, probs: &mut [f32], values: &mut [f32]) {
+    pub fn write_observations(&self, probs: &mut [f32], values: &mut [f32]) {
         probs.fill(0.0);
         debug_assert_eq!(values.len(), 1);
         let Self { root_data, data: _ } = self;

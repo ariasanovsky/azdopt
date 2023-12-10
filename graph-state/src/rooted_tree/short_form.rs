@@ -6,7 +6,12 @@ impl<const N: usize> ShortForm for RootedOrderedTree<N> {
     fn short_form(&self) -> String {
         // if `i` is a parent node, concatenate with `i <- {children of i}`.
         let children = |p: usize| -> Option<String> {
-            let mut children = self.parents().iter().enumerate().filter(|(_, &parent)| parent == p).map(|(i, _)| i);
+            let mut children = self
+                .parents()
+                .iter()
+                .enumerate()
+                .filter(|(_, &parent)| parent == p)
+                .map(|(i, _)| i);
             let first = children.next()?;
             let mut s = format!("{p} <- {{{first}");
             for child in children {
@@ -15,7 +20,7 @@ impl<const N: usize> ShortForm for RootedOrderedTree<N> {
             s.push_str("}, ");
             Some(s)
         };
-        String::from_iter((0..N).filter_map(|i| children(i)))
+        String::from_iter((0..N).filter_map(children))
     }
 }
 

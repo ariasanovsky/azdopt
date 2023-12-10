@@ -1,9 +1,10 @@
-// use core::mem::MaybeUninit;
 use std::collections::VecDeque;
 
-// use az_discrete_opt::state::StateNode;
+#[cfg(feature = "tensorboard")]
+use az_discrete_opt::tensorboard::Summarize;
 use faer::{Faer, Mat};
-// use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
+#[cfg(feature = "tensorboard")]
+use tensorboard_writer::proto::tensorboard::Summary;
 
 use crate::bitset::{primitive::B32, Bitset};
 
@@ -282,10 +283,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             .max_by(|a, b| a.re.partial_cmp(&b.re).unwrap())
             .unwrap()
             .re;
-        assert!(
-            lambda_1 > 1.4,
-            "{a:?}",
-        );
+        assert!(lambda_1 > 1.4, "{a:?}",);
         let matching = self.maximum_matching();
         Conjecture2Dot1Cost { matching, lambda_1 }
     }
@@ -312,6 +310,18 @@ impl core::fmt::Debug for Conjecture2Dot1Cost {
             .entry(&"m", &self.matching)
             .entry(&"l1", &self.lambda_1)
             .finish()
+    }
+}
+
+#[cfg(feature = "tensorboard")]
+impl Summarize for Conjecture2Dot1Cost {
+    fn summary(&self) -> Summary {
+        use az_discrete_opt::state::cost::Cost;
+        tensorboard_writer::SummaryBuilder::new()
+            .scalar("cost/cost", self.evaluate())
+            .scalar("cost/lambda_1", self.lambda_1 as _)
+            .scalar("cost/mu", self.matching.len() as _)
+            .build()
     }
 }
 

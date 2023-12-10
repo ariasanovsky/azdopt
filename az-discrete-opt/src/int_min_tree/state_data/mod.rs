@@ -13,23 +13,28 @@ pub enum StateDataKind {
 }
 
 impl StateDataKind {
-    pub fn new<Space>(probs: &[f32], cost: f32, state: &Space::State) -> Self
+    pub fn new<Space>(pi_0_theta: &[f32], c_0: f32, s_0: &Space::State) -> Self
     where
         Space: StateActionSpace,
     {
-        if Space::is_terminal(state) {
-            return Self::Exhausted { c_t: cost };
+        if Space::is_terminal(s_0) {
+            return Self::Exhausted { c_t: c_0 };
         }
         let mut c = 0;
-        let p_sum = Space::action_indices(state).map(|a| { c += 1; probs[a] }).sum::<f32>();
+        let p_sum = Space::action_indices(s_0)
+            .map(|a| {
+                c += 1;
+                pi_0_theta[a]
+            })
+            .sum::<f32>();
         debug_assert_ne!(c, 0);
-        let mut unvisited_actions = Space::action_indices(state)
-            .map(|a| INTUnvisitedActionData::new(a, probs[a] / p_sum))
+        let mut unvisited_actions = Space::action_indices(s_0)
+            .map(|a| INTUnvisitedActionData::new(a, pi_0_theta[a] / p_sum))
             .collect::<Vec<_>>();
         unvisited_actions.sort_by(|a, b| a.p_sa().partial_cmp(&b.p_sa()).unwrap());
         let data = INTStateData {
             n_s: 0,
-            c_s: cost,
+            c_s: c_0,
             c_s_star: None,
             visited_actions: vec![],
             unvisited_actions,
@@ -72,7 +77,11 @@ impl INTStateData {
     pub fn len(&self) -> usize {
         self.visited_actions.len() + self.unvisited_actions.len()
     }
-    
+
+    pub fn is_empty(&self) -> bool {
+        self.visited_actions.is_empty() && self.unvisited_actions.is_empty()
+    }
+
     pub fn write_observations(&self, probs: &mut [f32], values: &mut [f32]) {
         probs.fill(0.0);
         debug_assert_eq!(values.len(), 1);
@@ -105,7 +114,7 @@ impl INTStateData {
     // require 2 separate upper estimate functions?
     pub fn best_action(
         &mut self,
-        upper_estimate: &impl Fn(UpperEstimateData) -> f32,
+        upper_estimate: impl Fn(UpperEstimateData) -> f32,
     ) -> Option<INTTransition> {
         let Self {
             n_s: _,
@@ -123,7 +132,8 @@ impl INTStateData {
             let u_sb = upper_estimate(b.upper_estimate_data(self.n_s, 0));
             u_sa.partial_cmp(&u_sb).unwrap()
         });
-        let best_visited_action_estimate: Option<f32> = visited_actions.last().map(|a| a.upper_estimate());
+        let best_visited_action_estimate: Option<f32> =
+            visited_actions.last().map(|a| a.upper_estimate());
         let best_unvisited_action_estimate: Option<f32> = unvisited_actions.last().map(|a| {
             let est_data = a.upper_estimate_data(self.n_s, 0);
             upper_estimate(est_data)

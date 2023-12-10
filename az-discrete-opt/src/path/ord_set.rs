@@ -41,7 +41,7 @@ impl ActionPath for OrderedActionSet {
     where
         Space: crate::space::StateActionSpace,
         Self: super::ActionPathFor<Space>,
-     {
+    {
         self.actions.iter()
     }
 }

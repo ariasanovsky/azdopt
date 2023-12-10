@@ -131,7 +131,7 @@ impl<C> ArgminData<C> {
     pub fn short_form(&self) -> &str {
         &self.short_form
     }
-    
+
     pub fn cost(&self) -> &C {
         &self.cost
     }

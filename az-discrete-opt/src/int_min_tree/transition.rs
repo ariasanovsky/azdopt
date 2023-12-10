@@ -1,4 +1,3 @@
-
 use super::state_data::INTStateData;
 
 #[derive(Debug)]
@@ -24,7 +23,9 @@ impl<'a> INTTransition<'a> {
                 data_i: StateDataKindMutRef::Active { data },
                 kind,
             } => match kind {
-                TransitionKind::LastUnvisitedAction => data.unvisited_actions.last().unwrap().action(),
+                TransitionKind::LastUnvisitedAction => {
+                    data.unvisited_actions.last().unwrap().action()
+                }
                 TransitionKind::LastVisitedAction => data.visited_actions.last().unwrap().action(),
             },
         }
@@ -93,8 +94,7 @@ impl<'a> INTTransition<'a> {
                     TransitionKind::LastUnvisitedAction => {
                         // remove the last unvisited action from `data` to move it to `visited_actions`
                         let unvisited_data = unvisited_actions.pop().expect("no unvisited actions");
-                        let visited_data =
-                            unvisited_data.to_visited_action(g_star_theta_i);
+                        let visited_data = unvisited_data.visited_action(g_star_theta_i);
                         visited_actions.push(visited_data);
                     }
                     TransitionKind::LastVisitedAction => {
@@ -112,7 +112,6 @@ impl<'a> INTTransition<'a> {
                 };
                 // c_s_star.ins(default, f) = c_s_star.min(*c_star_theta_i_plus_one);
                 *c_star_theta_i_plus_one = c_star_theta_i_plus_one.min(*c_s);
-                
             }
         }
     }

@@ -1,9 +1,5 @@
 use crate::{
-    int_min_tree::{
-        simulate_once::{EndNodeAndLevel, INTTransitions},
-        state_data::StateDataKind,
-        NewTreeLevel,
-    },
+    int_min_tree::{simulate_once::EndNodeAndLevel, state_data::StateDataKind, NewTreeLevel},
     path::ActionPathFor,
     space::StateActionSpace,
     state::cost::Cost,
@@ -11,39 +7,35 @@ use crate::{
 
 use super::transition::INTTransition;
 
-impl<'a, P> INTTransitions<'a, P> {
+impl<'a, P> EndNodeAndLevel<'a, P> {
     pub fn update_existing_nodes<Space>(
         self,
         c_t: &impl Cost<f32>,
         s_t: &Space::State,
-        probs_t: &[f32],
-        g_star_theta_s_t: &[f32],
+        p_t: &P,
+        pi_t_theta: &[f32],
+        g_t_theta: &[f32],
         transitions: &mut [INTTransition<'a>],
     ) -> Option<NewTreeLevel<P>>
     where
         Space: StateActionSpace,
-        P: ActionPathFor<Space> + Ord,
-        P: Ord + Clone,
+        P: ActionPathFor<Space> + Ord + Clone,
     {
-        debug_assert_eq!(g_star_theta_s_t.len(), 1);
-        let INTTransitions {
-            end,
-            p_t,
-        } = self;
+        debug_assert_eq!(g_t_theta.len(), 1);
         let c_t = c_t.evaluate();
         enum CStarEndState {
             Terminal(f32),
             Active(f32),
         }
-        let (c_t_star, new_level): (CStarEndState, Option<NewTreeLevel<P>>) = match end {
+        let (c_t_star, new_level): (CStarEndState, Option<NewTreeLevel<P>>) = match self {
             EndNodeAndLevel::NewNodeNewLevel => {
                 // create data to insert at the new level
-                let new_data: StateDataKind = StateDataKind::new::<Space>(probs_t, c_t, s_t);
+                let new_data: StateDataKind = StateDataKind::new::<Space>(pi_t_theta, c_t, s_t);
                 // if not terminal, use the model to predict the min cost, should the path continue
                 let c_star = match &new_data {
                     StateDataKind::Exhausted { c_t } => CStarEndState::Terminal(*c_t),
                     StateDataKind::Active { data: _ } => {
-                        CStarEndState::Active(c_t - g_star_theta_s_t[0].max(0.0))
+                        CStarEndState::Active(c_t - g_t_theta[0].max(0.0))
                     }
                 };
                 // create a new level
@@ -55,12 +47,12 @@ impl<'a, P> INTTransitions<'a, P> {
             }
             EndNodeAndLevel::NewNodeOldLevel(old_level) => {
                 // create data to insert at the new level
-                let new_data: StateDataKind = StateDataKind::new::<Space>(probs_t, c_t, s_t);
+                let new_data: StateDataKind = StateDataKind::new::<Space>(pi_t_theta, c_t, s_t);
                 // if not terminal, use the model to predict the min cost, should the path continue
                 let c_star = match &new_data {
                     StateDataKind::Exhausted { c_t } => CStarEndState::Terminal(*c_t),
                     StateDataKind::Active { data: _ } => {
-                        CStarEndState::Active(c_t - g_star_theta_s_t[0].max(0.0))
+                        CStarEndState::Active(c_t - g_t_theta[0].max(0.0))
                     }
                 };
                 // insert the new data at the old level

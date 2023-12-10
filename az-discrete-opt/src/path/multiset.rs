@@ -46,7 +46,9 @@ impl ActionPath for ActionMultiset {
     where
         Space: crate::space::StateActionSpace,
         Self: super::ActionPathFor<Space>,
-     {
-        self.actions.iter().flat_map(|(action, count)| (0..*count).map(move |_| action))
+    {
+        self.actions
+            .iter()
+            .flat_map(|(action, count)| (0..*count).map(move |_| action))
     }
 }
