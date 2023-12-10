@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator};
 
 use crate::{
     int_min_tree::{
@@ -12,7 +12,7 @@ use crate::{
     state::cost::Cost,
 };
 
-use super::prediction::PredictionData;
+use super::{prediction::PredictionData, state::StateData};
 
 type Dummy = [u64; 3];
 const _VALID: () = SameSizeAndAlignment::<INTTransition<'_>, Dummy>::SAME_SIZE_AND_ALIGNMENT;
@@ -85,6 +85,49 @@ impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
 }
 
 impl<const BATCH: usize, P> TreeData<BATCH, P> {
+    pub fn par_new<const STATE: usize, const ACTION: usize, const GAIN: usize, Space, C>(
+        add_noise: impl Fn(usize, &mut [f32]) + Sync,
+        predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
+        states: &StateData<BATCH, STATE, Space::State, C>,
+    ) -> Self
+    where
+        P: Clone + Ord + Send + Sync + ActionPathFor<Space>,
+        Space: StateActionSpace,
+        C: Cost<f32> + Sync,
+        Space::State: Send + Sync + Clone,
+    {
+        let mut trees: [MaybeUninit<INTMinTree<P>>; BATCH] = MaybeUninit::uninit_array();
+        (
+            &mut trees,
+            predictions.pi_mut(),
+            states.get_costs(),
+            states.get_states(),
+        ).into_par_iter()
+            .enumerate()
+            .for_each(|(i, (t, pi_0_theta, c_0, s_0))| {
+                add_noise(i, pi_0_theta);
+                t.write(INTMinTree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0));
+            });
+        let trees = unsafe { MaybeUninit::array_assume_init(trees) };
+        let mut paths: [MaybeUninit<P>; BATCH] = MaybeUninit::uninit_array();
+        let mut nodes: [MaybeUninit<Option<NewTreeLevel<P>>>; BATCH] = MaybeUninit::uninit_array();
+        let mut transitions: [MaybeUninit<Vec<Dummy>>; BATCH] = MaybeUninit::uninit_array();
+        (&mut paths, &mut nodes, &mut transitions).into_par_iter().for_each(|(p, n, trans)| {
+            p.write(P::new());
+            n.write(None);
+            trans.write(Vec::new());
+        });
+        let paths = unsafe { MaybeUninit::array_assume_init(paths) };
+        let nodes = unsafe { MaybeUninit::array_assume_init(nodes) };
+        let transitions = unsafe { MaybeUninit::array_assume_init(transitions) };
+        Self {
+            trees,
+            paths,
+            nodes,
+            transitions,
+        }
+    }
+    
     pub fn new(
         trees: [INTMinTree<P>; BATCH],
         paths: [P; BATCH],

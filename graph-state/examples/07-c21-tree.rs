@@ -116,58 +116,49 @@ fn main() -> eyre::Result<()> {
         s.edge_indices_ignoring_0_1_and_last_vertex()
             .collect::<Vec<_>>()
     };
-    let random_state = |rng: &mut ThreadRng| loop {
-        let state = RawState::generate_constrained(rng);
-        let prohibited_actions = default_prohibitions(&state);
-        let state = WithProhibitions::new(state.clone(), prohibited_actions);
-        debug_assert!(
-            !state.prohibited_actions.contains(&170),
-            "state = {state:?}",
-        );
-        if !Space::is_terminal(&state) {
-            break state;
+    let random_state = |_: usize| {
+        let mut rng = rand::thread_rng();
+        loop {
+            let state = RawState::generate_constrained(&mut rng);
+            let prohibited_actions = default_prohibitions(&state);
+            let state = WithProhibitions::new(state.clone(), prohibited_actions);
+            debug_assert!(
+                !state.prohibited_actions.contains(&170),
+                "state = {state:?}",
+            );
+            if !Space::is_terminal(&state) {
+                break state;
+            }
         }
     };
     // calculate costs
     let cost = |s: &S| {
-        debug_assert!(!s.prohibited_actions.contains(&170), "s = {s:?}",);
+        debug_assert!(!s.prohibited_actions.contains(&170), "s = {s:?}");
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
-    let mut states = StateData::<BATCH, STATE, S, C>::par_new::<Space, _>(
-        |_| rand::thread_rng(),
-        |_, rng| random_state(rng),
+    const ALPHA: [f32; ACTION] = [0.03; ACTION];
+    let noise = |_: usize, pi: &mut [f32]| {
+        let mut rng = rand::thread_rng();
+        add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
+    };
+    let mut states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(
+        |i| random_state(i),
         |s| cost(s),
     );
-    let p_t: [P; BATCH] = core::array::from_fn(|_| P::new());
+    let mut trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
+        |i, pi_theta_0| noise(i, pi_theta_0),
+        &mut predictions,
+        &states,
+    );
     let mut global_argmin: ArgminData<C> = (states.get_states(), states.get_costs())
         .into_par_iter()
         .min_by(|(_, a), (_, b)| a.evaluate().partial_cmp(&b.evaluate()).unwrap())
         .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
         .unwrap();
-    const ALPHA: [f32; ACTION] = [0.03; ACTION];
+    
     let epochs: usize = 250;
     let episodes: usize = 800;
-    let nodes: [Option<_>; BATCH] = core::array::from_fn(|_| None);
-    let trees: [Tree; BATCH] = {
-        let mut trees: [MaybeUninit<Tree>; BATCH] = MaybeUninit::uninit_array();
-        (
-            &mut trees,
-            predictions.pi_mut(),
-            states.get_costs(),
-            states.get_states(),
-        )
-            .into_par_iter()
-            .for_each_init(
-                || rand::thread_rng(),
-                |rng, (t, pi_0_theta, c_0, s_0)| {
-                    add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
-                    t.write(Tree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0));
-                },
-            );
-        unsafe { MaybeUninit::array_assume_init(trees) }
-    };
-    let mut trees: TreeData<256, ActionSet> = TreeData::new(trees, p_t, nodes);
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         // set state vectors
@@ -258,15 +249,13 @@ fn main() -> eyre::Result<()> {
                         s.prohibited_actions.clear();
                         s.prohibited_actions.extend(prohibited_actions);
                         if Space::is_terminal(s) {
-                            let mut rng = rand::thread_rng();
-                            *s = random_state(&mut rng);
+                            *s = random_state(i);
                         }
                     }
                 })
         } else {
-            states.get_roots_mut().par_iter_mut().for_each(|s| {
-                let mut rng = rand::thread_rng();
-                *s = random_state(&mut rng);
+            states.get_roots_mut().par_iter_mut().enumerate().for_each(|(i, s)| {
+                *s = random_state(i);
             })
         }
     }

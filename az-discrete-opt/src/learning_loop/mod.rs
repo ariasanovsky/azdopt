@@ -43,3 +43,20 @@ pub fn par_roll_out_episode<
     );
     trees.par_insert_nodes();
 }
+
+#[cfg(feature = "rayon")]
+pub fn par_init_learning_loop<
+    const BATCH: usize,
+    const STATE: usize,
+    const ACTION: usize,
+    const GAIN: usize,
+    Space,
+    C,
+    P,
+>(
+
+) -> (
+    
+) {
+    todo!()
+}

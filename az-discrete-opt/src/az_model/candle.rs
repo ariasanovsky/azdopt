@@ -37,6 +37,7 @@ where
         *x_t_dev = Tensor::from_slice(x_t.flatten(), (BATCH, STATE,), device).unwrap();
         *pi_t_dev = pi_model.forward(&x_t_dev).unwrap();
         *pi_t_dev = softmax(pi_t_dev, 1).unwrap();
+        // https://docs.rs/candle-core/0.3.1/src/candle_core/convert.rs.html#117
         todo!()
     }
 

@@ -12,9 +12,8 @@ pub struct StateData<const BATCH: usize, const STATE: usize, S, C> {
 }
 
 impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C> {
-    pub fn par_new<Space, R>(
-        rng: impl Fn(usize) -> R + Sync,
-        state: impl Fn(usize, &mut R) -> S + Sync,
+    pub fn par_new<Space>(
+        random_state: impl Fn(usize) -> S + Sync,
         cost: impl Fn(&S) -> C + Sync,
     ) -> Self
     where
@@ -29,8 +28,7 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
             .into_par_iter()
             .enumerate()
             .for_each(|(i, (r, c, v))| {
-                let mut rng = rng(i);
-                r.write(state(i, &mut rng));
+                r.write(random_state(i));
                 c.write(cost(unsafe { r.assume_init_ref() }));
                 Space::write_vec(unsafe { r.assume_init_ref() }, v);
             });
