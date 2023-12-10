@@ -1,10 +1,9 @@
-use candle_core::{Module, Device, Tensor};
+use candle_core::{Device, Module, Tensor};
 use candle_nn::ops::softmax;
 
 use super::AzModel;
 
-pub struct TwoModels<P, G>
-{
+pub struct TwoModels<P, G> {
     device: Device,
     pi_model: P,
     g_model: G,
@@ -14,7 +13,7 @@ pub struct TwoModels<P, G>
 }
 
 impl<P, G, const BATCH: usize, const STATE: usize, const ACTION: usize, const GAIN: usize>
-AzModel<BATCH, STATE, ACTION, GAIN> for TwoModels<P, G>
+    AzModel<BATCH, STATE, ACTION, GAIN> for TwoModels<P, G>
 where
     P: Module,
     G: Module,
@@ -34,7 +33,7 @@ where
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
         // allocation?
-        *x_t_dev = Tensor::from_slice(x_t.flatten(), (BATCH, STATE,), device).unwrap();
+        *x_t_dev = Tensor::from_slice(x_t.flatten(), (BATCH, STATE), device).unwrap();
         *pi_t_dev = pi_model.forward(&x_t_dev).unwrap();
         *pi_t_dev = softmax(pi_t_dev, 1).unwrap();
         // https://docs.rs/candle-core/0.3.1/src/candle_core/convert.rs.html#117

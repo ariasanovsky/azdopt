@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 
+#[cfg(feature = "tensorboard")]
+use az_discrete_opt::tensorboard::Summarize;
 use faer::{Faer, Mat};
 #[cfg(feature = "tensorboard")]
 use tensorboard_writer::proto::tensorboard::Summary;
-#[cfg(feature = "tensorboard")]
-use az_discrete_opt::tensorboard::Summarize;
 
 use crate::bitset::{primitive::B32, Bitset};
 

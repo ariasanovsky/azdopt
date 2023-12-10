@@ -1,4 +1,4 @@
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 
 use tensorboard_writer::proto::tensorboard::Summary;
 

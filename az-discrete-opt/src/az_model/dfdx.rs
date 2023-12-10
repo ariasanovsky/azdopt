@@ -159,9 +159,6 @@ where
             .expect("optimizer failed");
         g_model.zero_grads(&mut some_g_gradients);
         *g_gradients = Some(some_g_gradients);
-        Loss {
-            entropy,
-            mse,
-        }
+        Loss { entropy, mse }
     }
 }

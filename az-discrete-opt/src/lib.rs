@@ -11,6 +11,6 @@ pub mod next_root;
 pub mod path;
 pub mod space;
 pub mod state;
-pub mod tree_node;
 #[cfg(feature = "tensorboard")]
 pub mod tensorboard;
+pub mod tree_node;

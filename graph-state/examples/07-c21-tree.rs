@@ -2,32 +2,28 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
-use rayon::prelude::*;
 use tensorboard_writer::TensorboardWriter;
 
 use std::{
     io::{BufWriter, Write},
-    mem::MaybeUninit,
     time::SystemTime,
 };
 
 use az_discrete_opt::{
-    az_model::{add_dirichlet_noise, dfdx::TwoModels, AzModel},
+    az_model::{add_dirichlet_noise, dfdx::TwoModels},
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
-    learning_loop::{
-        par_roll_out_episode, prediction::PredictionData, state::StateData, tree::TreeData, par_update_model, par_reset_with_next_root,
-    },
+    learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData, LearningLoop},
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions}, tensorboard::{tf_path, Summarize},
+    state::{cost::Cost, prohibit::WithProhibitions},
+    tensorboard::{tf_path, Summarize},
 };
 use dfdx::prelude::*;
 use graph_state::{
     rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree},
     simple_graph::connected_bitset_graph::Conjecture2Dot1Cost,
 };
-use rand::rngs::ThreadRng;
 
 use chrono::prelude::*;
 
@@ -65,12 +61,8 @@ type Valuation = (
     Linear<HIDDEN_2, 1>,
 );
 
-
 fn main() -> eyre::Result<()> {
-    let out_dir = 
-        tf_path()
-        .join("07-c21-tree")
-        .join(Utc::now().to_rfc3339());
+    let out_dir = tf_path().join("07-c21-tree").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
@@ -92,7 +84,7 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
-    let mut models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> =
+    let models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> =
         TwoModels::new(&dev, pi_config, g_config);
     let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
     let upper_estimate = |estimate: UpperEstimateData| {
@@ -142,21 +134,18 @@ fn main() -> eyre::Result<()> {
         const ALPHA: [f32; ACTION] = [0.03; ACTION];
         add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
     };
-    let mut states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(
-        random_state,
-        cost,
-    );
-    let mut trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
+    let states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(random_state, cost);
+    let trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
         add_noise,
         &mut predictions,
         &states,
     );
-    let mut global_argmin: ArgminData<C> = (states.get_states(), states.get_costs())
-        .into_par_iter()
-        .min_by(|(_, a), (_, b)| a.evaluate().partial_cmp(&b.evaluate()).unwrap())
+    let mut learning_loop: LearningLoop<BATCH, STATE, ACTION, GAIN, Space, _, _, _> =
+        LearningLoop::new(states, models, predictions, trees);
+    let mut global_argmin: ArgminData<C> = learning_loop
+        .par_argmin()
         .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
         .unwrap();
-    
     let epochs: usize = 250;
     let episodes: usize = 800;
     for epoch in 0..epochs {
@@ -165,18 +154,8 @@ fn main() -> eyre::Result<()> {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
-            par_roll_out_episode::<BATCH, STATE, ACTION, GAIN, Space, _, _>(
-                &mut states,
-                &mut models,
-                &mut predictions,
-                &mut trees,
-                cost,
-                upper_estimate,
-            );
-            let episode_argmin = (states.get_states(), states.get_costs())
-                .into_par_iter()
-                .min_by(|(_, a), (_, b)| a.evaluate().partial_cmp(&b.evaluate()).unwrap())
-                .unwrap();
+            learning_loop.par_roll_out_episode(cost, upper_estimate);
+            let episode_argmin = learning_loop.par_argmin().unwrap();
             // update the global argmin
             if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
                 global_argmin =
@@ -191,13 +170,9 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
         }
-        let loss = par_update_model::<BATCH, STATE, ACTION, GAIN, Space, C, P>(&mut trees, &mut predictions, &mut states, &mut models);
+        let loss = learning_loop.par_update_model();
         // Write summaries to file.
-        writer.write_summary(
-            SystemTime::now(),
-            epoch as i64,
-            loss.summary(),
-        )?;
+        writer.write_summary(SystemTime::now(), epoch as i64, loss.summary())?;
         writer.get_mut().flush()?;
         writer.write_summary(
             SystemTime::now(),
@@ -205,13 +180,13 @@ fn main() -> eyre::Result<()> {
             global_argmin.cost().summary(),
         )?;
         writer.get_mut().flush()?;
-        let modify_root = |i, t:  &INTMinTree<P>, s: &mut S| {
+        let modify_root = |i, t: &Tree, s: &mut S| {
             let nodes = t.unstable_sorted_nodes();
             let node = nodes[0];
             let (action, _) = node;
             Space::follow(
                 s,
-                    action
+                action
                     .actions_taken::<Space>()
                     .map(|a| Space::from_index(*a)),
             );
@@ -224,12 +199,12 @@ fn main() -> eyre::Result<()> {
                 }
             }
         };
-        let reset_root = |i, _: &INTMinTree<P>, r: &mut S| {
+        let reset_root = |i, _: &Tree, r: &mut S| {
             *r = random_state(i);
         };
         match epoch % 4 {
-            3 => par_reset_with_next_root::<Space, BATCH, STATE, ACTION, GAIN, C, P>(&mut states, &mut trees, &mut predictions, &mut models, reset_root, cost, add_noise),
-            _ => par_reset_with_next_root::<Space, BATCH, STATE, ACTION, GAIN, C, P>(&mut states, &mut trees, &mut predictions, &mut models, modify_root, cost, add_noise),
+            3 => learning_loop.par_reset_with_next_root(reset_root, cost, add_noise),
+            _ => learning_loop.par_reset_with_next_root(modify_root, cost, add_noise),
         };
     }
     dbg!(&out_dir);
