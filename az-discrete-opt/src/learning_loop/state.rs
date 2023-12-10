@@ -18,10 +18,10 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
     ) -> Self
     where
         Space: StateActionSpace<State = S>,
-        S: Send + Sync + Clone,
-        C: Send + Sync,
+        Space::State: Send + Clone,
+        C: Send,
     {
-        let mut roots: [MaybeUninit<S>; BATCH] = MaybeUninit::uninit_array();
+        let mut roots: [MaybeUninit<Space::State>; BATCH] = MaybeUninit::uninit_array();
         let mut costs: [MaybeUninit<C>; BATCH] = MaybeUninit::uninit_array();
         let mut vectors: [[f32; STATE]; BATCH] = [[0.0; STATE]; BATCH];
         (&mut roots, &mut costs, &mut vectors)

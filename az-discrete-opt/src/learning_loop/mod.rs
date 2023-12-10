@@ -45,7 +45,7 @@ pub fn par_roll_out_episode<
 }
 
 #[cfg(feature = "rayon")]
-pub fn par_init_learning_loop<
+pub fn par_update_model<
     const BATCH: usize,
     const STATE: usize,
     const ACTION: usize,
@@ -54,9 +54,32 @@ pub fn par_init_learning_loop<
     C,
     P,
 >(
+    trees: &mut TreeData<BATCH, P>,
+    predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
+    states: &mut StateData<BATCH, STATE, Space::State, C>,
+    models: &mut impl AzModel<BATCH, STATE, ACTION, GAIN>,
+) -> crate::az_model::Loss
+where
+    P: Sync,
+    Space: StateActionSpace,
+    Space::State: Sync + Clone,
+{
+    use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
-) -> (
-    
+    let (pi_t, g_t) = predictions.get_mut();
+    (trees.trees(), pi_t, g_t)
+        .into_par_iter()
+        .for_each(|(t, pi_t, g_t)| t.write_observations(pi_t, g_t));
+    states.reset_states();
+    states.par_write_state_vecs::<Space>();
+    models.update_model(states.get_vectors(), predictions)
+}
+
+#[cfg(feature = "rayon")]
+pub fn par_reset_with_next_root<
+    const BATCH: usize,
+> (
+
 ) {
     todo!()
 }

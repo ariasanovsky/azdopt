@@ -15,7 +15,7 @@ use az_discrete_opt::{
     az_model::{add_dirichlet_noise, dfdx::TwoModels, AzModel},
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     learning_loop::{
-        par_roll_out_episode, prediction::PredictionData, state::StateData, tree::TreeData,
+        par_roll_out_episode, prediction::PredictionData, state::StateData, tree::TreeData, par_update_model,
     },
     log::ArgminData,
     path::{set::ActionSet, ActionPath},
@@ -137,17 +137,17 @@ fn main() -> eyre::Result<()> {
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
-    const ALPHA: [f32; ACTION] = [0.03; ACTION];
-    let noise = |_: usize, pi: &mut [f32]| {
+    let add_noise = |_: usize, pi: &mut [f32]| {
         let mut rng = rand::thread_rng();
+        const ALPHA: [f32; ACTION] = [0.03; ACTION];
         add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
     };
     let mut states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(
-        |i| random_state(i),
-        |s| cost(s),
+        random_state,
+        cost,
     );
     let mut trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
-        |i, pi_theta_0| noise(i, pi_theta_0),
+        add_noise,
         &mut predictions,
         &states,
     );
@@ -173,10 +173,10 @@ fn main() -> eyre::Result<()> {
             states.get_states(),
         )
             .into_par_iter()
-            .for_each_init(
-                || rand::thread_rng(),
-                |rng, (t, pi_0_theta, c_0, s_0)| {
-                    add_dirichlet_noise(rng, pi_0_theta, &ALPHA, 0.25);
+            .enumerate()
+            .for_each(
+                |(i, (t, pi_0_theta, c_0, s_0))| {
+                    add_noise(i, pi_0_theta);
                     t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
                 },
             );
@@ -210,12 +210,7 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
         }
-        let (pi_t, g_t) = predictions.get_mut();
-        (trees.trees(), pi_t, g_t)
-            .into_par_iter()
-            .for_each(|(t, p, v)| t.write_observations(p, v));
-        states.par_write_state_vecs::<Space>();
-        let loss = models.update_model(states.get_vectors(), &predictions);
+        let loss = par_update_model::<BATCH, STATE, ACTION, GAIN, Space, C, P>(&mut trees, &mut predictions, &mut states, &mut models);
         // Write summaries to file.
         writer.write_summary(
             SystemTime::now(),
