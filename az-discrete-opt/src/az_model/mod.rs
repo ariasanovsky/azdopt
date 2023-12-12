@@ -31,6 +31,7 @@ pub trait AzModel<const BATCH: usize, const STATE: usize, const ACTION: usize, c
     fn update_model(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
+        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
         observations: &PredictionData<BATCH, ACTION, GAIN>,
     ) -> Loss;
 }

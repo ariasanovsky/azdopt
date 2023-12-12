@@ -43,6 +43,7 @@ where
     fn update_model(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
+        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
         observations: &crate::learning_loop::prediction::PredictionData<BATCH, ACTION, GAIN>,
     ) -> super::Loss {
         todo!()

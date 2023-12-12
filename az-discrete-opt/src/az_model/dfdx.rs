@@ -24,6 +24,7 @@ pub struct TwoModels<
     L: BuildOnDevice<Cuda, f32>,
     G: BuildOnDevice<Cuda, f32>,
 {
+    dev: Cuda,
     pi_model: <L as BuildOnDevice<Cuda, f32>>::Built,
     g_model: <G as BuildOnDevice<Cuda, f32>>::Built,
     pi_adam: Adam<<L as BuildOnDevice<Cuda, f32>>::Built, f32, Cuda>,
@@ -33,6 +34,7 @@ pub struct TwoModels<
     x_t_dev: Tensor<Rank2<BATCH, STATE>, f32, Cuda>,
     pi_t_dev: Tensor<Rank2<BATCH, ACTION>, f32, Cuda>,
     g_t_dev: Tensor<Rank2<BATCH, GAIN>, f32, Cuda>,
+    logits_mask_dev: Option<Tensor<Rank2<BATCH, ACTION>, f32, Cuda>>,
 }
 
 impl<L, G, const BATCH: usize, const STATE: usize, const ACTION: usize, const GAIN: usize>
@@ -41,7 +43,7 @@ where
     L: BuildOnDevice<Cuda, f32>,
     G: BuildOnDevice<Cuda, f32>,
 {
-    pub fn new(dev: &Cuda, pi_config: AdamConfig, g_config: AdamConfig) -> Self {
+    pub fn new(dev: Cuda, pi_config: AdamConfig, g_config: AdamConfig) -> Self {
         let pi_model = dev.build_module::<L, f32>();
         let g_model = dev.build_module::<G, f32>();
         let pi_adam = Adam::new(&pi_model, pi_config);
@@ -51,7 +53,9 @@ where
         let x_t_dev = dev.zeros();
         let pi_t_dev = dev.zeros();
         let g_t_dev = dev.zeros();
+        let logits_mask_dev = None;
         Self {
+            dev,
             pi_model,
             g_model,
             pi_adam,
@@ -61,6 +65,7 @@ where
             x_t_dev,
             pi_t_dev,
             g_t_dev,
+            logits_mask_dev,
         }
     }
 }
@@ -93,6 +98,7 @@ where
         predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
     ) {
         let Self {
+            dev: _,
             pi_model,
             g_model,
             pi_adam: _,
@@ -102,6 +108,7 @@ where
             x_t_dev,
             pi_t_dev,
             g_t_dev,
+            logits_mask_dev: _,
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
         x_t_dev.copy_from(x_t.flatten());
@@ -114,9 +121,11 @@ where
     fn update_model(
         &mut self,
         x_t: &[[f32; STATE]; BATCH],
+        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
         observations: &PredictionData<BATCH, ACTION, GAIN>,
     ) -> Loss {
         let Self {
+            dev,
             pi_model,
             g_model,
             pi_adam,
@@ -126,6 +135,7 @@ where
             x_t_dev,
             pi_t_dev,
             g_t_dev,
+            logits_mask_dev,
         } = self;
 
         let (pi_0_obs, g_0_obs) = observations.get();
@@ -136,7 +146,12 @@ where
         let mut some_pi_gradients = pi_gradients
             .take()
             .unwrap_or_else(|| pi_model.alloc_grads());
-        let predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
+        let mut predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
+        if let Some(mask) = logits_mask {
+            let mask_dev = logits_mask_dev.get_or_insert_with(|| dev.zeros());
+            mask_dev.copy_from(mask.flatten());
+            predicted_logits_traced = predicted_logits_traced + mask_dev.clone();
+        }
         let cross_entropy =
             cross_entropy_with_logits_loss(predicted_logits_traced, pi_t_dev.clone());
         let entropy = cross_entropy.array();

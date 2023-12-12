@@ -85,7 +85,7 @@ fn main() -> eyre::Result<()> {
         weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
     };
     let models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> =
-        TwoModels::new(&dev, pi_config, g_config);
+        TwoModels::new(dev, pi_config, g_config);
     let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
@@ -170,7 +170,7 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
         }
-        let loss = learning_loop.par_update_model();
+        let loss = learning_loop.par_update_model(None);
         // Write summaries to file.
         writer.write_summary(SystemTime::now(), epoch as i64, loss.summary())?;
         writer.get_mut().flush()?;

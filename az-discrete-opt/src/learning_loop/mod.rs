@@ -103,7 +103,10 @@ impl<
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_update_model(&mut self) -> crate::az_model::Loss
+    pub fn par_update_model(
+        &mut self,
+        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
+    ) -> crate::az_model::Loss
     where
         P: Sync,
         Space: StateActionSpace,
@@ -123,7 +126,7 @@ impl<
             .for_each(|(t, pi_t, g_t)| t.write_observations(pi_t, g_t));
         states.reset_states();
         states.par_write_state_vecs::<Space>();
-        models.update_model(states.get_vectors(), predictions)
+        models.update_model(states.get_vectors(), logits_mask, predictions)
     }
 
     #[cfg(feature = "rayon")]
