@@ -2,6 +2,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tensorboard_writer::TensorboardWriter;
 
 use std::{
@@ -148,6 +149,9 @@ fn main() -> eyre::Result<()> {
         .unwrap();
     let epochs: usize = 250;
     let episodes: usize = 800;
+
+    let mut logits_mask: [[f32; ACTION]; BATCH] = [[0.0; ACTION]; BATCH];
+
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
@@ -170,7 +174,18 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
         }
-        let loss = learning_loop.par_update_model(None);
+        let loss = if false {
+            (&mut logits_mask, learning_loop.states.get_roots())
+            .into_par_iter()
+            .for_each(|(mask, root)| {
+                mask.fill(f32::MIN);
+                Space::action_indices(root)
+                    .for_each(|a| mask[a] = 0.0);
+            });
+            learning_loop.par_update_model(Some(&logits_mask))
+        } else {
+            learning_loop.par_update_model(None)
+        };
         // Write summaries to file.
         writer.write_summary(SystemTime::now(), epoch as i64, loss.summary())?;
         writer.get_mut().flush()?;

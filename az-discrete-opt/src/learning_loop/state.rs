@@ -66,6 +66,10 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
         self.states.clone_from(&self.roots);
     }
 
+    pub fn get_roots(&self) -> &[S; BATCH] {
+        &self.roots
+    }
+
     pub fn get_roots_mut(&mut self) -> &mut [S; BATCH] {
         &mut self.roots
     }
