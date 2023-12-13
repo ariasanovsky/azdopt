@@ -52,8 +52,8 @@ impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
     #[cfg(feature = "rayon")]
     pub fn par_update_existing_nodes<Space, const ACTION: usize, const GAIN: usize>(
         self,
-        c_t: &[impl Cost<f32> + Sync; BATCH],
-        s_t: &[Space::State; BATCH],
+        c_t: &[impl Cost<f32> + Sync],
+        s_t: &[Space::State],
         predictions: &PredictionData<BATCH, ACTION, GAIN>,
     ) where
         Space: StateActionSpace,
@@ -85,10 +85,10 @@ impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
 }
 
 impl<const BATCH: usize, P> TreeData<BATCH, P> {
-    pub fn par_new<const STATE: usize, const ACTION: usize, const GAIN: usize, Space, C>(
+    pub fn par_new<'a, const STATE: usize, const ACTION: usize, const GAIN: usize, Space, C>(
         add_noise: impl Fn(usize, &mut [f32]) + Sync,
         predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
-        states: &StateData<BATCH, STATE, Space::State, C>,
+        states: &StateData<'a, Space::State, C>,
     ) -> Self
     where
         P: Clone + Ord + Send + Sync + ActionPathFor<Space>,
@@ -156,7 +156,7 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
     #[cfg(feature = "rayon")]
     pub fn par_simulate_once<Space>(
         &mut self,
-        s_t: &mut [Space::State; BATCH],
+        s_t: &mut [Space::State],
         upper_estimate: impl Fn(UpperEstimateData) -> f32 + Sync,
     ) -> Ends<'_, BATCH, P>
     where

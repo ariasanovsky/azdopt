@@ -2,7 +2,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSlice, ParallelSliceMut}};
 use tensorboard_writer::TensorboardWriter;
 
 use std::{
@@ -103,7 +103,6 @@ fn main() -> eyre::Result<()> {
         let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
         u_sa
     };
-    // generate states
     let default_prohibitions = |s: &RawState| {
         s.edge_indices_ignoring_0_1_and_last_vertex()
             .collect::<Vec<_>>()
@@ -123,13 +122,17 @@ fn main() -> eyre::Result<()> {
             }
         }
     };
-    // calculate costs
     let cost = |s: &S| {
         debug_assert!(!s.prohibited_actions.contains(&170), "s = {s:?}");
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
-    let states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(random_state, cost);
+    let mut roots = (0..BATCH).into_par_iter().map(random_state).collect::<Vec<_>>();
+    let mut states = roots.clone();
+    let mut costs = roots.par_iter().map(cost).collect::<Vec<_>>();
+    let mut vectors = vec![0.0; BATCH * Space::DIM];
+    let mut state_data = StateData::new(&mut roots, &mut states, &mut costs, &mut vectors, Space::DIM);
+    state_data.par_write_state_vecs::<Space>();
     let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
     let add_noise = |_: usize, pi: &mut [f32]| {
         let mut rng = rand::thread_rng();
@@ -139,10 +142,10 @@ fn main() -> eyre::Result<()> {
     let trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
         add_noise,
         &mut predictions,
-        &states,
+        &state_data,
     );
     let mut learning_loop: LearningLoop<BATCH, STATE, ACTION, GAIN, Space, _, _, _> =
-        LearningLoop::new(states, models, predictions, trees);
+        LearningLoop::new(state_data, models, predictions, trees);
     let mut global_argmin: ArgminData<C> = learning_loop
         .par_argmin()
         .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
@@ -150,7 +153,7 @@ fn main() -> eyre::Result<()> {
     let epochs: usize = 250;
     let episodes: usize = 800;
 
-    let mut logits_mask: [[f32; ACTION]; BATCH] = [[0.0; ACTION]; BATCH];
+    let mut logits_mask = vec![0.0; ACTION * BATCH];
 
     for epoch in 0..epochs {
         println!("==== EPOCH: {epoch} ====");
@@ -175,10 +178,10 @@ fn main() -> eyre::Result<()> {
             }
         }
         let loss = if false {
-            (&mut logits_mask, learning_loop.states.get_roots())
-            .into_par_iter()
+            logits_mask.fill(f32::MIN);
+            logits_mask.par_chunks_exact_mut(ACTION)
+            .zip_eq(learning_loop.states.get_roots())
             .for_each(|(mask, root)| {
-                mask.fill(f32::MIN);
                 Space::action_indices(root)
                     .for_each(|a| mask[a] = 0.0);
             });

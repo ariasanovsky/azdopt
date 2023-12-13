@@ -12,6 +12,7 @@ pub mod state;
 pub mod tree;
 
 pub struct LearningLoop<
+    'a,
     const BATCH: usize,
     const STATE: usize,
     const ACTION: usize,
@@ -21,12 +22,13 @@ pub struct LearningLoop<
     P,
     M: AzModel<BATCH, STATE, ACTION, GAIN>,
 > {
-    pub states: StateData<BATCH, STATE, Space::State, C>,
+    pub states: StateData<'a, Space::State, C>,
     pub models: M,
     pub predictions: PredictionData<BATCH, ACTION, GAIN>,
     pub trees: TreeData<BATCH, P>,
 }
 impl<
+        'a,
         const BATCH: usize,
         const STATE: usize,
         const ACTION: usize,
@@ -35,10 +37,10 @@ impl<
         C,
         P,
         M: AzModel<BATCH, STATE, ACTION, GAIN>,
-    > LearningLoop<BATCH, STATE, ACTION, GAIN, Space, C, P, M>
+    > LearningLoop<'a, BATCH, STATE, ACTION, GAIN, Space, C, P, M>
 {
     pub fn new(
-        states: StateData<BATCH, STATE, Space::State, C>,
+        states: StateData<'a, Space::State, C>,
         models: M,
         predictions: PredictionData<BATCH, ACTION, GAIN>,
         trees: TreeData<BATCH, P>,
@@ -105,7 +107,7 @@ impl<
     #[cfg(feature = "rayon")]
     pub fn par_update_model(
         &mut self,
-        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
+        logits_mask: Option<&[f32]>,
     ) -> crate::az_model::Loss
     where
         P: Sync,

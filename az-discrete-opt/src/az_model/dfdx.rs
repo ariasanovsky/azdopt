@@ -94,7 +94,7 @@ where
 {
     fn write_predictions(
         &mut self,
-        x_t: &[[f32; STATE]; BATCH],
+        x_t: &[f32],
         predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
     ) {
         let Self {
@@ -111,7 +111,7 @@ where
             logits_mask_dev: _,
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
-        x_t_dev.copy_from(x_t.flatten());
+        x_t_dev.copy_from(x_t);
         *pi_t_dev = pi_model.forward(x_t_dev.clone()).softmax::<Axis<1>>();
         pi_t_dev.copy_into(pi_t_theta.flatten_mut());
         *g_t_dev = g_model.forward(x_t_dev.clone());
@@ -120,8 +120,8 @@ where
 
     fn update_model(
         &mut self,
-        x_t: &[[f32; STATE]; BATCH],
-        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
+        x_t: &[f32],
+        logits_mask: Option<&[f32]>,
         observations: &PredictionData<BATCH, ACTION, GAIN>,
     ) -> Loss {
         let Self {
@@ -141,7 +141,7 @@ where
         let (pi_0_obs, g_0_obs) = observations.get();
 
         // update probability predictions
-        x_t_dev.copy_from(x_t.flatten());
+        x_t_dev.copy_from(x_t);
         pi_t_dev.copy_from(pi_0_obs.flatten());
         let mut some_pi_gradients = pi_gradients
             .take()
@@ -149,7 +149,7 @@ where
         let mut predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
         if let Some(mask) = logits_mask {
             let mask_dev = logits_mask_dev.get_or_insert_with(|| dev.zeros());
-            mask_dev.copy_from(mask.flatten());
+            mask_dev.copy_from(mask);
             predicted_logits_traced = predicted_logits_traced + mask_dev.clone();
         }
         let cross_entropy =

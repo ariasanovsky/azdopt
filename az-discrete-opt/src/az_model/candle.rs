@@ -20,7 +20,7 @@ where
 {
     fn write_predictions(
         &mut self,
-        x_t: &[[f32; STATE]; BATCH],
+        x_t: &[f32],
         predictions: &mut crate::learning_loop::prediction::PredictionData<BATCH, ACTION, GAIN>,
     ) {
         let Self {
@@ -33,7 +33,7 @@ where
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
         // allocation?
-        *x_t_dev = Tensor::from_slice(x_t.flatten(), (BATCH, STATE), device).unwrap();
+        *x_t_dev = Tensor::from_slice(x_t, (BATCH, STATE), device).unwrap();
         *pi_t_dev = pi_model.forward(&x_t_dev).unwrap();
         *pi_t_dev = softmax(pi_t_dev, 1).unwrap();
         // https://docs.rs/candle-core/0.3.1/src/candle_core/convert.rs.html#117
@@ -42,8 +42,8 @@ where
 
     fn update_model(
         &mut self,
-        x_t: &[[f32; STATE]; BATCH],
-        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
+        x_t: &[f32],
+        logits_mask: Option<&[f32]>,
         observations: &crate::learning_loop::prediction::PredictionData<BATCH, ACTION, GAIN>,
     ) -> super::Loss {
         todo!()

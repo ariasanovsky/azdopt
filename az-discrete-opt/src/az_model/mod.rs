@@ -23,15 +23,15 @@ pub trait AzModel<const BATCH: usize, const STATE: usize, const ACTION: usize, c
     // todo! fallible
     fn write_predictions(
         &mut self,
-        x_t: &[[f32; STATE]; BATCH],
+        x_t: &[f32],
         predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
     );
 
     // todo! fallible
     fn update_model(
         &mut self,
-        x_t: &[[f32; STATE]; BATCH],
-        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
+        x_t: &[f32],
+        logits_mask: Option<&[f32]>,
         observations: &PredictionData<BATCH, ACTION, GAIN>,
     ) -> Loss;
 }
