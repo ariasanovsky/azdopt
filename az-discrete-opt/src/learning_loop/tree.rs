@@ -48,13 +48,14 @@ impl<'new_nodes, P> Ends<'new_nodes, P> {
     #[cfg(feature = "rayon")]
     pub fn par_update_existing_nodes<'a, Space>(
         self,
+        space: &Space,
         c_t: &[impl Cost<f32> + Sync],
         s_t: &[Space::State],
         predictions: &PredictionData<'a>,
         action: usize,
         gain: usize,
     ) where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Sync,
         P: ActionPathFor<Space> + Ord + Clone + Send + Sync,
     {
@@ -79,7 +80,7 @@ impl<'new_nodes, P> Ends<'new_nodes, P> {
         )
             .into_par_iter()
             .for_each(|(end, p_t, n, c_t, s_t, g_t, pi_t, transitions)| {
-                *n = end.update_existing_nodes::<Space>(c_t, s_t, p_t, pi_t, g_t, transitions);
+                *n = end.update_existing_nodes(space, c_t, s_t, p_t, pi_t, g_t, transitions);
             });
     }
 }
@@ -87,6 +88,7 @@ impl<'new_nodes, P> Ends<'new_nodes, P> {
 impl<P> TreeData<P> {
     #[cfg(feature = "rayon")]
     pub fn par_new<'a, Space>(
+        space: &Space,
         add_noise: impl Fn(usize, &mut [f32]) + Sync,
         predictions: &mut PredictionData<'a>,
         states: &StateData<'a, Space::State, impl Cost<f32> + Sync>,
@@ -95,7 +97,7 @@ impl<P> TreeData<P> {
     ) -> Self
     where
         P: Clone + Ord + Send + Sync + ActionPathFor<Space>,
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
     {
         use rayon::{slice::ParallelSliceMut, iter::{IntoParallelIterator, IndexedParallelIterator, ParallelIterator}};
@@ -110,7 +112,7 @@ impl<P> TreeData<P> {
             .enumerate()
             .map(|(i, (pi_0_theta, c_0, s_0))| {
                 add_noise(i, pi_0_theta);
-                INTMinTree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0)
+                INTMinTree::new(space, pi_0_theta, c_0.evaluate(), s_0)
             }).collect::<Vec<_>>();
         let paths = (0..batch).map(|_| P::new()).collect::<Vec<_>>();
         let nodes = (0..batch).map(|_| None).collect::<Vec<_>>();
@@ -148,11 +150,12 @@ impl<P> TreeData<P> {
     #[cfg(feature = "rayon")]
     pub fn par_simulate_once<Space>(
         &mut self,
+        space: &Space,
         s_t: &mut [Space::State],
         upper_estimate: impl Fn(UpperEstimateData) -> f32 + Sync,
     ) -> Ends<'_, P>
     where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send,
         P: Send + Sync + ActionPathFor<Space> + Ord,
     {
@@ -169,7 +172,7 @@ impl<P> TreeData<P> {
             .into_par_iter()
             .map(|(t, trans, s_t, p_t)| {
                 p_t.clear();
-                t.simulate_once::<Space>(s_t, p_t, reuse_as(trans), &upper_estimate)
+                t.simulate_once(space, s_t, p_t, reuse_as(trans), &upper_estimate)
             }).collect::<Vec<_>>();
         Ends {
             ends,

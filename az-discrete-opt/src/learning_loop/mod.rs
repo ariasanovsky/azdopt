@@ -75,10 +75,11 @@ impl<
     #[cfg(feature = "rayon")]
     pub fn par_roll_out_episode(
         &mut self,
+        space: &Space,
         cost: impl Fn(&Space::State) -> C + Sync,
         upper_estimate: impl Fn(UpperEstimateData) -> f32 + Sync,
     ) where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
         P: Send + Sync + ActionPathFor<Space> + Ord + Clone,
         C: Cost<f32> + Send + Sync,
@@ -92,11 +93,12 @@ impl<
             gain,
         } = self;
         states.reset_states();
-        let ends = trees.par_simulate_once::<Space>(states.get_states_mut(), upper_estimate);
+        let ends = trees.par_simulate_once(space, states.get_states_mut(), upper_estimate);
         states.par_write_state_costs(cost);
-        states.par_write_state_vecs::<Space>();
+        states.par_write_state_vecs(space);
         models.write_predictions(states.get_vectors(), predictions);
-        ends.par_update_existing_nodes::<Space>(
+        ends.par_update_existing_nodes(
+            space,
             states.get_costs(),
             states.get_states(),
             predictions,
@@ -109,11 +111,12 @@ impl<
     #[cfg(feature = "rayon")]
     pub fn par_update_model(
         &mut self,
+        space: &Space,
         logits_mask: Option<&[f32]>,
     ) -> crate::az_model::Loss
     where
         P: Sync,
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Sync + Clone,
     {
         let Self {
@@ -131,18 +134,19 @@ impl<
             .into_par_iter()
             .for_each(|(t, pi_t, g_t)| t.write_observations(pi_t, g_t));
         states.reset_states();
-        states.par_write_state_vecs::<Space>();
+        states.par_write_state_vecs(space);
         models.update_model(states.get_vectors(), logits_mask, predictions)
     }
 
     #[cfg(feature = "rayon")]
     pub fn par_reset_with_next_root(
         &mut self,
+        space: &Space,
         modify_root: impl Fn(usize, &INTMinTree<P>, &mut Space::State) + Sync,
         cost: impl Fn(&Space::State) -> C + Sync,
         add_noise: impl Fn(usize, &mut [f32]) + Sync,
     ) where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
         C: Cost<f32> + Send + Sync,
         P: Send + Clone,
@@ -162,7 +166,7 @@ impl<
             .enumerate()
             .for_each(|(i, (s, t))| modify_root(i, t, s));
         states.reset_states();
-        states.par_write_state_vecs::<Space>();
+        states.par_write_state_vecs(space);
         states.par_write_state_costs(cost);
         models.write_predictions(states.get_vectors(), predictions);
         (
@@ -175,7 +179,7 @@ impl<
             .enumerate()
             .for_each(|(i, (t, pi_0_theta, c_0, s_0))| {
                 add_noise(i, pi_0_theta);
-                t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
+                t.set_new_root(space, pi_0_theta, c_0.evaluate(), s_0);
             });
     }
 }

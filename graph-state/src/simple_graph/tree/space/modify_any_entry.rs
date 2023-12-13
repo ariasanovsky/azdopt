@@ -13,20 +13,20 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
 
     const DIM: usize = N * (N - 2);
 
-    fn index(action: &Self::Action) -> usize {
+    fn index(&self, action: &Self::Action) -> usize {
         action.action_index::<N>()
     }
 
-    fn from_index(index: usize) -> Self::Action {
+    fn from_index(&self, index: usize) -> Self::Action {
         PrueferCodeEntry::from_action_index::<N>(index)
     }
 
-    fn act(state: &mut Self::State, action: &Self::Action) {
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
         let PrueferCodeEntry { i, parent } = action;
         state.modify_entry(*i, *parent);
     }
 
-    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize> {
         state
             .code()
             .iter()
@@ -39,25 +39,25 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
                     parent: new_parent,
                 })
             })
-            .map(|a| Self::index(&a))
+            .map(|a| self.index(&a))
     }
 
-    fn write_vec(state: &Self::State, vec: &mut [f32]) {
+    fn write_vec(&self, state: &Self::State, vec: &mut [f32]) {
         debug_assert!(vec.len() == Self::DIM);
         vec.fill(0.0);
         state.code().iter().enumerate().for_each(|(i, &parent)| {
             let entry = PrueferCodeEntry { i, parent };
-            let index = Self::index(&entry);
+            let index = self.index(&entry);
             vec[index] = 1.0;
         });
     }
 
-    fn is_terminal(state: &Self::State) -> bool {
-        Self::action_indices(state).next().is_none()
+    fn is_terminal(&self, state: &Self::State) -> bool {
+        self.action_indices(state).next().is_none()
     }
 
-    fn has_action(state: &Self::State, action: &Self::Action) -> bool {
-        let action_index = Self::index(action);
-        Self::action_indices(state).any(|i| i == action_index)
+    fn has_action(&self, state: &Self::State, action: &Self::Action) -> bool {
+        let action_index = self.index(action);
+        self.action_indices(state).any(|i| i == action_index)
     }
 }

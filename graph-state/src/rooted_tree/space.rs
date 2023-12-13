@@ -13,25 +13,25 @@ impl<const N: usize> StateActionSpace for ConstrainedRootedOrderedTree<N> {
 
     const DIM: usize = (N - 1) * (N - 2) / 2 - 1;
 
-    fn index(action: &Self::Action) -> usize {
+    fn index(&self, action: &Self::Action) -> usize {
         action.index_ignoring_edge_0_1()
     }
 
-    fn from_index(index: usize) -> Self::Action {
+    fn from_index(&self, index: usize) -> Self::Action {
         Self::Action::from_index_ignoring_edge_0_1(index)
     }
 
-    fn act(state: &mut Self::State, action: &Self::Action) {
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
         state.set_parent(action);
     }
 
-    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize> {
         state
             .all_possible_parent_modifications_ignoring_last_vertex()
-            .map(|a| Self::index(&a))
+            .map(|a| self.index(&a))
     }
 
-    fn write_vec(state: &Self::State, vec: &mut [f32]) {
+    fn write_vec(&self, state: &Self::State, vec: &mut [f32]) {
         debug_assert_eq!(vec.len(), Self::DIM);
         vec.fill(0.);
         for (child, parent) in state
@@ -42,7 +42,7 @@ impl<const N: usize> StateActionSpace for ConstrainedRootedOrderedTree<N> {
         {
             let edge = Edge::new(*parent, child);
             let edge = OrderedEdge::new(edge);
-            let index = Self::index(&edge);
+            let index = self.index(&edge);
             if index == 170 {
                 println!("index = {index}, edge = {edge:?}, child = {child}, parent = {parent}");
             }

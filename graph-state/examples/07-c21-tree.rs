@@ -107,6 +107,7 @@ fn main() -> eyre::Result<()> {
         s.edge_indices_ignoring_0_1_and_last_vertex()
             .collect::<Vec<_>>()
     };
+    let space = ProhibitedConstrainedRootedOrderedTree::<N>;
     let random_state = |_: usize| {
         let mut rng = rand::thread_rng();
         loop {
@@ -117,7 +118,7 @@ fn main() -> eyre::Result<()> {
                 !state.prohibited_actions.contains(&170),
                 "state = {state:?}",
             );
-            if !Space::is_terminal(&state) {
+            if !space.is_terminal(&state) {
                 break state;
             }
         }
@@ -132,7 +133,7 @@ fn main() -> eyre::Result<()> {
     let mut costs = roots.par_iter().map(cost).collect::<Vec<_>>();
     let mut vectors = vec![0.0; BATCH * Space::DIM];
     let mut state_data = StateData::new(&mut roots, &mut states, &mut costs, &mut vectors, Space::DIM);
-    state_data.par_write_state_vecs::<Space>();
+    state_data.par_write_state_vecs(&space);
     let mut pi = vec![0.0; BATCH * ACTION];
     let mut g = vec![0.0; BATCH * GAIN];
     let mut predictions = PredictionData::new(&mut pi, &mut g);
@@ -141,7 +142,8 @@ fn main() -> eyre::Result<()> {
         const ALPHA: [f32; ACTION] = [0.03; ACTION];
         add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
     };
-    let tree_data = TreeData::par_new::<Space>(
+    let tree_data = TreeData::par_new(
+        &space,
         add_noise,
         &mut predictions,
         &state_data,
@@ -165,7 +167,7 @@ fn main() -> eyre::Result<()> {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
-            learning_loop.par_roll_out_episode(cost, upper_estimate);
+            learning_loop.par_roll_out_episode(&space, cost, upper_estimate);
             let episode_argmin = learning_loop.par_argmin().unwrap();
             // update the global argmin
             if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
@@ -186,12 +188,12 @@ fn main() -> eyre::Result<()> {
             logits_mask.par_chunks_exact_mut(ACTION)
             .zip_eq(learning_loop.states.get_roots())
             .for_each(|(mask, root)| {
-                Space::action_indices(root)
+                space.action_indices(root)
                     .for_each(|a| mask[a] = 0.0);
             });
-            learning_loop.par_update_model(Some(&logits_mask))
+            learning_loop.par_update_model(&space, Some(&logits_mask))
         } else {
-            learning_loop.par_update_model(None)
+            learning_loop.par_update_model(&space, None)
         };
         // Write summaries to file.
         writer.write_summary(SystemTime::now(), epoch as i64, loss.summary())?;
@@ -206,17 +208,17 @@ fn main() -> eyre::Result<()> {
             let nodes = t.unstable_sorted_nodes();
             let node = nodes[0];
             let (action, _) = node;
-            Space::follow(
+            space.follow(
                 s,
                 action
-                    .actions_taken::<Space>()
-                    .map(|a| Space::from_index(*a)),
+                    .actions_taken(&space)
+                    .map(|a| space.from_index(*a)),
             );
-            if Space::is_terminal(s) {
+            if space.is_terminal(s) {
                 let prohibited_actions = default_prohibitions(&s.state);
                 s.prohibited_actions.clear();
                 s.prohibited_actions.extend(prohibited_actions);
-                if Space::is_terminal(s) {
+                if space.is_terminal(s) {
                     *s = random_state(i);
                 }
             }
@@ -225,8 +227,8 @@ fn main() -> eyre::Result<()> {
             *r = random_state(i);
         };
         match epoch % 4 {
-            3 => learning_loop.par_reset_with_next_root(reset_root, cost, add_noise),
-            _ => learning_loop.par_reset_with_next_root(modify_root, cost, add_noise),
+            3 => learning_loop.par_reset_with_next_root(&space, reset_root, cost, add_noise),
+            _ => learning_loop.par_reset_with_next_root(&space, modify_root, cost, add_noise),
         };
     }
     dbg!(&out_dir);

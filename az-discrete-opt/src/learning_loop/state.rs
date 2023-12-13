@@ -71,16 +71,16 @@ impl<'a, S, C> StateData<'a, S, C> {
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_write_state_vecs<Space>(&mut self)
+    pub fn par_write_state_vecs<Space>(&mut self, space: &Space)
     where
-        Space: StateActionSpace<State = S>,
+        Space: StateActionSpace<State = S> + Sync,
         S: Sync,
     {
         use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         (self.states.as_ref(), self.vectors.par_chunks_exact_mut(Space::DIM))
             .into_par_iter()
-            .for_each(|(s, v)| Space::write_vec(s, v));
+            .for_each(|(s, v)| space.write_vec(s, v));
     }
 
     #[cfg(feature = "rayon")]

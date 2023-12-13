@@ -15,15 +15,15 @@ pub trait ActionPath {
     /// # Safety
     /// `action` must be a valid index for `Space`
     unsafe fn push_unchecked(&mut self, action: usize);
-    fn push<Space>(&mut self, action: &Space::Action)
+    fn push<Space>(&mut self, space: &Space, action: &Space::Action)
     where
         Space: StateActionSpace,
         Self: ActionPathFor<Space>,
     {
-        let index = Space::index(action);
+        let index = space.index(action);
         unsafe { self.push_unchecked(index) }
     }
-    fn actions_taken<Space>(&self) -> impl Iterator<Item = &'_ usize> + '_
+    fn actions_taken<Space>(&self, space: &Space) -> impl Iterator<Item = &'_ usize> + '_
     where
         Space: StateActionSpace,
         Self: ActionPathFor<Space>;

@@ -5,7 +5,7 @@ use crate::state::layers::Layers;
 use super::{StateActionSpace, axioms::{ActionOrderIndependent, ActionsNeverRepeat}};
 
 pub struct Layered<const LAYERS: usize, Space> {
-    _space: Space,
+    space: Space,
 }
 
 impl<const LAYERS: usize, Space> StateActionSpace for Layered<LAYERS, Space>
@@ -19,46 +19,46 @@ where
 
     const DIM: usize = Space::DIM * LAYERS;
 
-    fn index(action: &Self::Action) -> usize {
-        Space::index(action)
+    fn index(&self, action: &Self::Action) -> usize {
+        self.space.index(action)
     }
 
-    fn from_index(index: usize) -> Self::Action {
-        Space::from_index(index)
+    fn from_index(&self, index: usize) -> Self::Action {
+        self.space.from_index(index)
     }
 
-    fn act(state: &mut Self::State, action: &Self::Action) {
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
         state.push_op(|s| {
             let mut s = s.clone();
-            Space::act(&mut s, action);
+            self.space.act(&mut s, action);
             s
         })
     }
 
-    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
-        Space::action_indices(state.back())
+    fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize> {
+        self.space.action_indices(state.back())
     }
 
-    fn write_vec(state: &Self::State, vector: &mut [f32]) {
+    fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
         debug_assert_eq!(vector.len(), Self::DIM);
         vector.fill(0.0);
         vector.chunks_mut(Space::DIM)
             .zip(state.buffer().iter())
-            .for_each(|(chunk, s)| Space::write_vec(s, chunk));
+            .for_each(|(chunk, s)| self.space.write_vec(s, chunk));
     }
 
-    fn follow(state: &mut Self::State, actions: impl Iterator<Item = Self::Action>) {
+    fn follow(&self, state: &mut Self::State, actions: impl Iterator<Item = Self::Action>) {
         for action in actions {
-            Self::act(state, &action);
+            self.act(state, &action);
         }
     }
 
-    fn is_terminal(state: &Self::State) -> bool {
-        Space::is_terminal(state.back())
+    fn is_terminal(&self, state: &Self::State) -> bool {
+        self.space.is_terminal(state.back())
     }
 
-    fn has_action(state: &Self::State, action: &Self::Action) -> bool {
-        Space::has_action(state.back(), action)
+    fn has_action(&self, state: &Self::State, action: &Self::Action) -> bool {
+        self.space.has_action(state.back(), action)
     }
 }
 
