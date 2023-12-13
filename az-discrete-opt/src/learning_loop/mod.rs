@@ -13,43 +13,41 @@ pub mod tree;
 
 pub struct LearningLoop<
     'a,
-    const BATCH: usize,
-    const STATE: usize,
-    const ACTION: usize,
-    const GAIN: usize,
     Space: StateActionSpace,
     C,
     P,
-    M: AzModel<BATCH, STATE, ACTION, GAIN>,
+    M: AzModel,
 > {
     pub states: StateData<'a, Space::State, C>,
     pub models: M,
-    pub predictions: PredictionData<BATCH, ACTION, GAIN>,
-    pub trees: TreeData<BATCH, P>,
+    pub predictions: PredictionData<'a>,
+    pub trees: TreeData<P>,
+    action: usize,
+    gain: usize,
 }
 impl<
         'a,
-        const BATCH: usize,
-        const STATE: usize,
-        const ACTION: usize,
-        const GAIN: usize,
         Space: StateActionSpace,
         C,
         P,
-        M: AzModel<BATCH, STATE, ACTION, GAIN>,
-    > LearningLoop<'a, BATCH, STATE, ACTION, GAIN, Space, C, P, M>
+        M: AzModel,
+    > LearningLoop<'a, Space, C, P, M>
 {
     pub fn new(
         states: StateData<'a, Space::State, C>,
         models: M,
-        predictions: PredictionData<BATCH, ACTION, GAIN>,
-        trees: TreeData<BATCH, P>,
+        predictions: PredictionData<'a>,
+        trees: TreeData<P>,
+        action: usize,
+        gain: usize,
     ) -> Self {
         Self {
             states,
             models,
             predictions,
             trees,
+            action,
+            gain,
         }
     }
 
@@ -90,16 +88,20 @@ impl<
             models,
             predictions,
             trees,
+            action,
+            gain,
         } = self;
         states.reset_states();
         let ends = trees.par_simulate_once::<Space>(states.get_states_mut(), upper_estimate);
         states.par_write_state_costs(cost);
         states.par_write_state_vecs::<Space>();
         models.write_predictions(states.get_vectors(), predictions);
-        ends.par_update_existing_nodes::<Space, ACTION, GAIN>(
+        ends.par_update_existing_nodes::<Space>(
             states.get_costs(),
             states.get_states(),
             predictions,
+            *action,
+            *gain,
         );
         trees.par_insert_nodes();
     }
@@ -119,11 +121,13 @@ impl<
             models,
             predictions,
             trees,
+            action,
+            gain,
         } = self;
-        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::{ParallelSlice, ParallelSliceMut}};
 
         let (pi_t, g_t) = predictions.get_mut();
-        (trees.trees(), pi_t, g_t)
+        (trees.trees(), pi_t.par_chunks_exact_mut(*action), g_t.par_chunks_exact_mut(*gain))
             .into_par_iter()
             .for_each(|(t, pi_t, g_t)| t.write_observations(pi_t, g_t));
         states.reset_states();
@@ -148,8 +152,10 @@ impl<
             models,
             predictions,
             trees,
+            action,
+            gain: _,
         } = self;
-        use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+        use rayon::{iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         (states.get_roots_mut(), trees.trees_mut())
             .into_par_iter()
@@ -161,7 +167,7 @@ impl<
         models.write_predictions(states.get_vectors(), predictions);
         (
             trees.trees_mut(),
-            predictions.pi_mut(),
+            predictions.pi_mut().par_chunks_exact_mut(*action),
             states.get_costs(),
             states.get_states(),
         )

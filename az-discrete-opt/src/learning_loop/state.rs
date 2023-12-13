@@ -1,5 +1,16 @@
 use crate::space::StateActionSpace;
 
+// ?todo!
+// pub struct StateData<'a, S, C> {
+//     roots: *mut S,
+//     states: *mut S,
+//     costs: *mut C,
+//     vectors: *mut f32,
+//     batch: usize,
+//     dim: usize,
+//     _marker: std::marker::PhantomData<&'a mut ()>,
+// }
+
 pub struct StateData<'a, S, C> {
     roots: &'a mut [S],
     states: &'a mut [S],

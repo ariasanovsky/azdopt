@@ -1,35 +1,27 @@
-pub struct PredictionData<const BATCH: usize, const ACTION: usize, const GAIN: usize> {
-    pi: [[f32; ACTION]; BATCH],
-    g: [[f32; GAIN]; BATCH],
+pub struct PredictionData<'a> {
+    pi: &'a mut [f32],
+    g: &'a mut [f32],
 }
 
-impl<const BATCH: usize, const ACTION: usize, const GAIN: usize> Default
-    for PredictionData<BATCH, ACTION, GAIN>
+impl<'a> PredictionData<'a>
 {
-    fn default() -> Self {
-        Self {
-            pi: [[0.; ACTION]; BATCH],
-            g: [[0.; GAIN]; BATCH],
-        }
-    }
-}
-
-impl<const BATCH: usize, const ACTION: usize, const GAIN: usize>
-    PredictionData<BATCH, ACTION, GAIN>
-{
-    pub fn get_mut(&mut self) -> (&mut [[f32; ACTION]; BATCH], &mut [[f32; GAIN]; BATCH]) {
-        (&mut self.pi, &mut self.g)
+    pub fn new(pi: &'a mut [f32], g: &'a mut [f32]) -> Self {
+        Self { pi, g }
     }
 
-    pub fn get(&self) -> (&[[f32; ACTION]; BATCH], &[[f32; GAIN]; BATCH]) {
-        (&self.pi, &self.g)
+    pub fn get_mut(&mut self) -> (&mut [f32], &mut [f32]) {
+        (self.pi, self.g)
     }
 
-    pub fn pi_mut(&mut self) -> &mut [[f32; ACTION]; BATCH] {
-        &mut self.pi
+    pub fn get(&self) -> (&[f32], &[f32]) {
+        (self.pi, self.g)
     }
 
-    pub fn g_mut(&mut self) -> &mut [[f32; GAIN]; BATCH] {
-        &mut self.g
+    pub fn pi_mut(&mut self) -> &mut [f32] {
+        self.pi
+    }
+
+    pub fn g_mut(&mut self) -> &mut [f32] {
+        self.g
     }
 }

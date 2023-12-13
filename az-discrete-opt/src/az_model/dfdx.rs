@@ -71,7 +71,7 @@ where
 }
 
 impl<L, G, const BATCH: usize, const STATE: usize, const ACTION: usize, const GAIN: usize>
-    AzModel<BATCH, STATE, ACTION, GAIN> for TwoModels<L, G, BATCH, STATE, ACTION, GAIN>
+    AzModel for TwoModels<L, G, BATCH, STATE, ACTION, GAIN>
 where
     L: BuildOnDevice<Cuda, f32>,
     G: BuildOnDevice<Cuda, f32>,
@@ -92,10 +92,10 @@ where
         Output = Tensor<Rank2<BATCH, GAIN>, f32, Cuda, OwnedTape<f32, Cuda>>,
     >,
 {
-    fn write_predictions(
+    fn write_predictions<'a>(
         &mut self,
         x_t: &[f32],
-        predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
+        predictions: &mut PredictionData<'a>,
     ) {
         let Self {
             dev: _,
@@ -113,16 +113,16 @@ where
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
         x_t_dev.copy_from(x_t);
         *pi_t_dev = pi_model.forward(x_t_dev.clone()).softmax::<Axis<1>>();
-        pi_t_dev.copy_into(pi_t_theta.flatten_mut());
+        pi_t_dev.copy_into(pi_t_theta);
         *g_t_dev = g_model.forward(x_t_dev.clone());
-        g_t_dev.copy_into(g_t_theta.flatten_mut());
+        g_t_dev.copy_into(g_t_theta);
     }
 
-    fn update_model(
+    fn update_model<'a>(
         &mut self,
         x_t: &[f32],
         logits_mask: Option<&[f32]>,
-        observations: &PredictionData<BATCH, ACTION, GAIN>,
+        observations: &PredictionData<'a>,
     ) -> Loss {
         let Self {
             dev,
@@ -142,7 +142,7 @@ where
 
         // update probability predictions
         x_t_dev.copy_from(x_t);
-        pi_t_dev.copy_from(pi_0_obs.flatten());
+        pi_t_dev.copy_from(pi_0_obs);
         let mut some_pi_gradients = pi_gradients
             .take()
             .unwrap_or_else(|| pi_model.alloc_grads());
@@ -163,7 +163,7 @@ where
         *pi_gradients = Some(some_pi_gradients);
 
         // update mean max gain prediction
-        g_t_dev.copy_from(g_0_obs.flatten());
+        g_t_dev.copy_from(g_0_obs);
         let mut some_g_gradients = g_gradients.take().unwrap_or_else(|| g_model.alloc_grads());
         let predicted_values_traced = g_model.forward(x_t_dev.clone().traced(some_g_gradients));
         let g_loss = mse_loss(predicted_values_traced, g_t_dev.clone());

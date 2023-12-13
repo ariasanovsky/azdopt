@@ -133,19 +133,23 @@ fn main() -> eyre::Result<()> {
     let mut vectors = vec![0.0; BATCH * Space::DIM];
     let mut state_data = StateData::new(&mut roots, &mut states, &mut costs, &mut vectors, Space::DIM);
     state_data.par_write_state_vecs::<Space>();
-    let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
+    let mut pi = vec![0.0; BATCH * ACTION];
+    let mut g = vec![0.0; BATCH * GAIN];
+    let mut predictions = PredictionData::new(&mut pi, &mut g);
     let add_noise = |_: usize, pi: &mut [f32]| {
         let mut rng = rand::thread_rng();
         const ALPHA: [f32; ACTION] = [0.03; ACTION];
         add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
     };
-    let trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
+    let tree_data = TreeData::par_new::<Space>(
         add_noise,
         &mut predictions,
         &state_data,
+        BATCH,
+        ACTION,
     );
-    let mut learning_loop: LearningLoop<BATCH, STATE, ACTION, GAIN, Space, _, _, _> =
-        LearningLoop::new(state_data, models, predictions, trees);
+    let mut learning_loop: LearningLoop<Space, _, _, _> =
+        LearningLoop::new(state_data, models, predictions, tree_data, ACTION, GAIN);
     let mut global_argmin: ArgminData<C> = learning_loop
         .par_argmin()
         .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
@@ -177,7 +181,7 @@ fn main() -> eyre::Result<()> {
                 writer.get_mut().flush()?;
             }
         }
-        let loss = if false {
+        let loss = if true {
             logits_mask.fill(f32::MIN);
             logits_mask.par_chunks_exact_mut(ACTION)
             .zip_eq(learning_loop.states.get_roots())
