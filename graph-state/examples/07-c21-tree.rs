@@ -87,7 +87,6 @@ fn main() -> eyre::Result<()> {
     };
     let models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> =
         TwoModels::new(dev, pi_config, g_config);
-    let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
     let upper_estimate = |estimate: UpperEstimateData| {
         let UpperEstimateData {
             n_s,
@@ -130,12 +129,13 @@ fn main() -> eyre::Result<()> {
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
+    let states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(random_state, cost);
+    let mut predictions = PredictionData::<BATCH, ACTION, GAIN>::default();
     let add_noise = |_: usize, pi: &mut [f32]| {
         let mut rng = rand::thread_rng();
         const ALPHA: [f32; ACTION] = [0.03; ACTION];
         add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
     };
-    let states = StateData::<BATCH, STATE, _, _>::par_new::<Space>(random_state, cost);
     let trees = TreeData::<BATCH, P>::par_new::<STATE, ACTION, GAIN, Space, C>(
         add_noise,
         &mut predictions,

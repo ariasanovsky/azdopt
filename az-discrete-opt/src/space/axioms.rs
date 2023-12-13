@@ -6,10 +6,10 @@ use super::StateActionSpace;
 
 /// # Safety
 /// `Self` must have the state and action space restrictions that prevent actions from being repeated
-pub unsafe trait ActionsNeverRepeat: StateActionSpace {}
+pub unsafe trait ActionsNeverRepeat {}
 /// # Safety
 /// `Self` must have the state and action space restrictions that allow us to forget the order of actions
-pub unsafe trait ActionOrderIndependent: StateActionSpace {}
+pub unsafe trait ActionOrderIndependent {}
 
 unsafe impl<Space> ActionPathFor<Space> for OrderedActionSet where
     Space: StateActionSpace + ActionsNeverRepeat
