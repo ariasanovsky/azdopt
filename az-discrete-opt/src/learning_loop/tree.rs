@@ -1,7 +1,3 @@
-use std::mem::MaybeUninit;
-
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-
 use crate::{
     int_min_tree::{
         simulate_once::EndNodeAndLevel, state_data::UpperEstimateData, transition::INTTransition,
@@ -17,11 +13,11 @@ use super::{prediction::PredictionData, state::StateData};
 type Dummy = [u64; 3];
 const _VALID: () = SameSizeAndAlignment::<INTTransition<'_>, Dummy>::SAME_SIZE_AND_ALIGNMENT;
 
-pub struct TreeData<const BATCH: usize, P> {
-    trees: [INTMinTree<P>; BATCH],
-    paths: [P; BATCH],
-    nodes: [Option<NewTreeLevel<P>>; BATCH],
-    transitions: [Vec<Dummy>; BATCH],
+pub struct TreeData<P> {
+    trees: Vec<INTMinTree<P>>,
+    paths: Vec<P>,
+    nodes: Vec<Option<NewTreeLevel<P>>>,
+    transitions: Vec<Vec<Dummy>>,
 }
 
 struct SameSizeAndAlignment<T, U>(core::marker::PhantomData<(T, U)>);
@@ -41,25 +37,30 @@ pub fn reuse_as<T, U>(t: &mut Vec<T>) -> &mut Vec<U> {
     unsafe { core::mem::transmute(t) }
 }
 
-pub struct Ends<'a, const BATCH: usize, P> {
-    ends: [EndNodeAndLevel<'a, P>; BATCH],
-    paths: &'a [P; BATCH],
-    nodes: &'a mut [Option<NewTreeLevel<P>>; BATCH],
-    transitions: &'a mut [Vec<INTTransition<'a>>; BATCH],
+pub struct Ends<'new_nodes, P> {
+    ends: Vec<EndNodeAndLevel<'new_nodes, P>>,
+    paths: &'new_nodes [P],
+    nodes: &'new_nodes mut [Option<NewTreeLevel<P>>],
+    transitions: &'new_nodes mut [Vec<INTTransition<'new_nodes>>],
 }
 
-impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
+impl<'new_nodes, P> Ends<'new_nodes, P> {
     #[cfg(feature = "rayon")]
-    pub fn par_update_existing_nodes<Space, const ACTION: usize, const GAIN: usize>(
+    pub fn par_update_existing_nodes<Space>(
         self,
-        c_t: &[impl Cost<f32> + Sync; BATCH],
-        s_t: &[Space::State; BATCH],
-        predictions: &PredictionData<BATCH, ACTION, GAIN>,
+        space: &Space,
+        c_t: &[impl Cost<f32> + Sync],
+        s_t: &[Space::State],
+        predictions: &PredictionData<'_>,
+        action: usize,
+        gain: usize,
     ) where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Sync,
         P: ActionPathFor<Space> + Ord + Clone + Send + Sync,
     {
+        use rayon::{slice::ParallelSlice, iter::{IntoParallelIterator, ParallelIterator}};
+
         let Self {
             ends,
             paths,
@@ -73,56 +74,49 @@ impl<'a, const BATCH: usize, P> Ends<'a, BATCH, P> {
             nodes,
             c_t,
             s_t,
-            g_t_theta,
-            pi_t_theta,
+            g_t_theta.par_chunks_exact(gain),
+            pi_t_theta.par_chunks_exact(action),
             transitions,
         )
             .into_par_iter()
             .for_each(|(end, p_t, n, c_t, s_t, g_t, pi_t, transitions)| {
-                *n = end.update_existing_nodes::<Space>(c_t, s_t, p_t, pi_t, g_t, transitions);
+                *n = end.update_existing_nodes(space, c_t, s_t, p_t, pi_t, g_t, transitions);
             });
     }
 }
 
-impl<const BATCH: usize, P> TreeData<BATCH, P> {
-    pub fn par_new<const STATE: usize, const ACTION: usize, const GAIN: usize, Space, C>(
+impl<P> TreeData<P> {
+    #[cfg(feature = "rayon")]
+    pub fn par_new<'a, Space>(
+        space: &Space,
         add_noise: impl Fn(usize, &mut [f32]) + Sync,
-        predictions: &mut PredictionData<BATCH, ACTION, GAIN>,
-        states: &StateData<BATCH, STATE, Space::State, C>,
+        predictions: &mut PredictionData<'a>,
+        states: &StateData<'a, Space::State, impl Cost<f32> + Sync>,
+        batch: usize,
+        action: usize,
     ) -> Self
     where
         P: Clone + Ord + Send + Sync + ActionPathFor<Space>,
-        Space: StateActionSpace,
-        C: Cost<f32> + Sync,
+        Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
     {
-        let mut trees: [MaybeUninit<INTMinTree<P>>; BATCH] = MaybeUninit::uninit_array();
+        use rayon::{slice::ParallelSliceMut, iter::{IntoParallelIterator, IndexedParallelIterator, ParallelIterator}};
+
+        let trees =
         (
-            &mut trees,
-            predictions.pi_mut(),
+            predictions.pi_mut().par_chunks_exact_mut(action),
             states.get_costs(),
             states.get_states(),
         )
             .into_par_iter()
             .enumerate()
-            .for_each(|(i, (t, pi_0_theta, c_0, s_0))| {
+            .map(|(i, (pi_0_theta, c_0, s_0))| {
                 add_noise(i, pi_0_theta);
-                t.write(INTMinTree::new::<Space>(pi_0_theta, c_0.evaluate(), s_0));
-            });
-        let trees = unsafe { MaybeUninit::array_assume_init(trees) };
-        let mut paths: [MaybeUninit<P>; BATCH] = MaybeUninit::uninit_array();
-        let mut nodes: [MaybeUninit<Option<NewTreeLevel<P>>>; BATCH] = MaybeUninit::uninit_array();
-        let mut transitions: [MaybeUninit<Vec<Dummy>>; BATCH] = MaybeUninit::uninit_array();
-        (&mut paths, &mut nodes, &mut transitions)
-            .into_par_iter()
-            .for_each(|(p, n, trans)| {
-                p.write(P::new());
-                n.write(None);
-                trans.write(Vec::new());
-            });
-        let paths = unsafe { MaybeUninit::array_assume_init(paths) };
-        let nodes = unsafe { MaybeUninit::array_assume_init(nodes) };
-        let transitions = unsafe { MaybeUninit::array_assume_init(transitions) };
+                INTMinTree::new(space, pi_0_theta, c_0.evaluate(), s_0)
+            }).collect::<Vec<_>>();
+        let paths = (0..batch).map(|_| P::new()).collect::<Vec<_>>();
+        let nodes = (0..batch).map(|_| None).collect::<Vec<_>>();
+        let transitions = (0..batch).map(|_| Vec::new()).collect::<Vec<_>>();
         Self {
             trees,
             paths,
@@ -131,58 +125,60 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
         }
     }
 
-    pub fn new(
-        trees: [INTMinTree<P>; BATCH],
-        paths: [P; BATCH],
-        nodes: [Option<NewTreeLevel<P>>; BATCH],
-    ) -> Self {
-        let transitions = core::array::from_fn(|_| Vec::new());
-        Self {
-            trees,
-            paths,
-            nodes,
-            transitions,
-        }
-    }
+    // pub fn new(
+    //     trees: [INTMinTree<P>; BATCH],
+    //     paths: [P; BATCH],
+    //     nodes: [Option<NewTreeLevel<P>>; BATCH],
+    // ) -> Self {
+    //     let transitions = core::array::from_fn(|_| Vec::new());
+    //     Self {
+    //         trees,
+    //         paths,
+    //         nodes,
+    //         transitions,
+    //     }
+    // }
 
-    pub fn trees_mut(&mut self) -> &mut [INTMinTree<P>; BATCH] {
+    pub fn trees_mut(&mut self) -> &mut [INTMinTree<P>] {
         &mut self.trees
     }
 
-    pub fn trees(&self) -> &[INTMinTree<P>; BATCH] {
+    pub fn trees(&self) -> &[INTMinTree<P>] {
         &self.trees
     }
 
     #[cfg(feature = "rayon")]
     pub fn par_simulate_once<Space>(
         &mut self,
-        s_t: &mut [Space::State; BATCH],
+        space: &Space,
+        s_t: &mut [Space::State],
         upper_estimate: impl Fn(UpperEstimateData) -> f32 + Sync,
-    ) -> Ends<'_, BATCH, P>
+    ) -> Ends<'_, P>
     where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send,
         P: Send + Sync + ActionPathFor<Space> + Ord,
     {
+        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
         let Self {
             trees,
             paths,
             nodes,
             transitions,
         } = self;
-        let mut ends: [_; BATCH] = MaybeUninit::uninit_array();
-        (trees, transitions, s_t, paths, &mut ends)
+        let ends =
+        (trees, transitions, s_t, paths)
             .into_par_iter()
-            .for_each(|(t, trans, s_t, p_t, end)| {
+            .map(|(t, trans, s_t, p_t)| {
                 p_t.clear();
-                end.write(t.simulate_once::<Space>(s_t, p_t, reuse_as(trans), &upper_estimate));
-            });
-        let ends = unsafe { MaybeUninit::array_assume_init(ends) };
+                t.simulate_once(space, s_t, p_t, reuse_as(trans), &upper_estimate)
+            }).collect::<Vec<_>>();
         Ends {
             ends,
             paths: &self.paths,
             nodes,
-            transitions: unsafe { core::mem::transmute(&mut self.transitions) },
+            transitions: unsafe { core::mem::transmute(&mut self.transitions[..]) },
         }
     }
 
@@ -191,6 +187,8 @@ impl<const BATCH: usize, P> TreeData<BATCH, P> {
     where
         P: Clone + Ord + Send,
     {
+        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
         let Self {
             trees,
             paths: _,

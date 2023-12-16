@@ -6,7 +6,7 @@ pub trait TreeNode {
 
     fn state(&self) -> &Self::State;
     fn path(&self) -> &Self::Path;
-    fn apply_action<Space>(&mut self, action: &Space::Action)
+    fn apply_action<Space>(&mut self, space: &Space, action: &Space::Action)
     where
         Space: StateActionSpace<State = Self::State>,
         Self::Path: ActionPathFor<Space>;
@@ -36,14 +36,14 @@ impl<'a, S, P> TreeNode for MutRefNode<'a, S, P> {
         self.path
     }
 
-    fn apply_action<Space>(&mut self, action: &Space::Action)
+    fn apply_action<Space>(&mut self, space: &Space, action: &Space::Action)
     where
         Space: StateActionSpace<State = Self::State>,
         Self::Path: ActionPathFor<Space>,
     {
         let Self { state, path } = self;
-        let index = Space::index(action);
+        let index = space.index(action);
         unsafe { path.push_unchecked(index) }
-        Space::act(state, action)
+        space.act(state, action)
     }
 }

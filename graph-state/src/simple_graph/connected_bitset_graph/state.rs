@@ -13,15 +13,15 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
 
     const DIM: usize = N * (N - 1) / 2;
 
-    fn index(action: &Self::Action) -> usize {
+    fn index(&self, action: &Self::Action) -> usize {
         action.action_index::<N>()
     }
 
-    fn from_index(index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         Self::Action::from_action_index::<N>(index)
     }
 
-    fn act(state: &mut Self::State, action: &Self::Action) {
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
         match action {
             AddOrDeleteEdge::Add(e) => {
                 debug_assert!(state.neighborhoods[e.max].contains(e.min as _).unwrap());
@@ -38,7 +38,7 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
         }
     }
 
-    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize> {
         let actions = state
             .action_kinds()
             .enumerate()
@@ -52,7 +52,7 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
         actions.into_iter()
     }
 
-    fn write_vec(state: &Self::State, vec: &mut [f32]) {
+    fn write_vec(&self, state: &Self::State, vec: &mut [f32]) {
         debug_assert!(vec.len() == Self::DIM);
         vec.iter_mut()
             .zip(state.edge_bools())
@@ -62,13 +62,13 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
             });
     }
 
-    fn is_terminal(state: &Self::State) -> bool {
-        Self::action_indices(state).next().is_none()
+    fn is_terminal(&self, state: &Self::State) -> bool {
+        self.action_indices(state).next().is_none()
     }
 
-    fn has_action(state: &Self::State, action: &Self::Action) -> bool {
-        let action_index = Self::index(action);
-        Self::action_indices(state).any(|i| i == action_index)
+    fn has_action(&self, state: &Self::State, action: &Self::Action) -> bool {
+        let action_index = self.index(action);
+        self.action_indices(state).any(|i| i == action_index)
     }
 }
 
@@ -335,9 +335,9 @@ mod test {
             .as_ref()
             .try_into()
             .unwrap();
-        type Space = ConnectedAddOrDeleteEdge<4>;
-        let actions = Space::action_indices(&graph)
-            .map(|i| Space::from_index(i))
+        let space = ConnectedAddOrDeleteEdge::<4>;
+        let actions = space.action_indices(&graph)
+            .map(|i| space.action(i))
             .collect::<Vec<_>>();
         assert_eq!(
             actions,

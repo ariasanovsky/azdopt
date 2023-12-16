@@ -1,40 +1,36 @@
-use core::mem::MaybeUninit;
-
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-
 use crate::space::StateActionSpace;
 
-pub struct StateData<const BATCH: usize, const STATE: usize, S, C> {
-    roots: [S; BATCH],
-    states: [S; BATCH],
-    costs: [C; BATCH],
-    vectors: [[f32; STATE]; BATCH],
+// ?todo!
+// pub struct StateData<'a, S, C> {
+//     roots: *mut S,
+//     states: *mut S,
+//     costs: *mut C,
+//     vectors: *mut f32,
+//     batch: usize,
+//     dim: usize,
+//     _marker: std::marker::PhantomData<&'a mut ()>,
+// }
+
+pub struct StateData<'a, S, C> {
+    roots: &'a mut [S],
+    states: &'a mut [S],
+    costs: &'a mut [C],
+    vectors: &'a mut [f32],
 }
 
-impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C> {
-    pub fn par_new<Space>(
-        random_state: impl Fn(usize) -> S + Sync,
-        cost: impl Fn(&S) -> C + Sync,
+impl<'a, S, C> StateData<'a, S, C> {
+    pub fn new(
+        roots: &'a mut [S],
+        states: &'a mut [S],
+        costs: &'a mut [C],
+        vectors: &'a mut [f32],
+        dim: usize,
     ) -> Self
-    where
-        Space: StateActionSpace<State = S>,
-        Space::State: Send + Clone,
-        C: Send,
     {
-        let mut roots: [MaybeUninit<Space::State>; BATCH] = MaybeUninit::uninit_array();
-        let mut costs: [MaybeUninit<C>; BATCH] = MaybeUninit::uninit_array();
-        let mut vectors: [[f32; STATE]; BATCH] = [[0.0; STATE]; BATCH];
-        (&mut roots, &mut costs, &mut vectors)
-            .into_par_iter()
-            .enumerate()
-            .for_each(|(i, (r, c, v))| {
-                r.write(random_state(i));
-                c.write(cost(unsafe { r.assume_init_ref() }));
-                Space::write_vec(unsafe { r.assume_init_ref() }, v);
-            });
-        let roots = unsafe { MaybeUninit::array_assume_init(roots) };
-        let states = roots.clone();
-        let costs = unsafe { MaybeUninit::array_assume_init(costs) };
+        let batch = roots.len();
+        assert_eq!(batch, states.len());
+        assert_eq!(batch, costs.len());
+        assert_eq!(batch, vectors.len() / dim);
         Self {
             roots,
             states,
@@ -43,46 +39,48 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
         }
     }
 
-    pub fn get_states(&self) -> &[S; BATCH] {
-        &self.states
+    pub fn get_states(&self) -> &[S] {
+        self.states
     }
 
-    pub fn get_states_mut(&mut self) -> &mut [S; BATCH] {
-        &mut self.states
+    pub fn get_states_mut(&mut self) -> &mut [S] {
+        self.states
     }
 
-    pub fn get_costs(&self) -> &[C; BATCH] {
-        &self.costs
+    pub fn get_costs(&self) -> &[C] {
+        self.costs
     }
 
-    pub fn get_vectors(&self) -> &[[f32; STATE]; BATCH] {
-        &self.vectors
+    pub fn get_vectors(&self) -> &[f32] {
+        self.vectors
     }
 
     pub fn reset_states(&mut self)
     where
         S: Clone,
     {
-        self.states.clone_from(&self.roots);
+        self.states.clone_from_slice(self.roots);
     }
 
-    pub fn get_roots(&self) -> &[S; BATCH] {
-        &self.roots
+    pub fn get_roots(&self) -> &[S] {
+        self.roots
     }
 
-    pub fn get_roots_mut(&mut self) -> &mut [S; BATCH] {
-        &mut self.roots
+    pub fn get_roots_mut(&mut self) -> &mut [S] {
+        self.roots
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_write_state_vecs<Space>(&mut self)
+    pub fn par_write_state_vecs<Space>(&mut self, space: &Space)
     where
-        Space: StateActionSpace<State = S>,
+        Space: StateActionSpace<State = S> + Sync,
         S: Sync,
     {
-        (&self.states, &mut self.vectors)
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
+
+        (self.states.as_ref(), self.vectors.par_chunks_exact_mut(Space::DIM))
             .into_par_iter()
-            .for_each(|(s, v)| Space::write_vec(s, v));
+            .for_each(|(s, v)| space.write_vec(s, v));
     }
 
     #[cfg(feature = "rayon")]
@@ -91,8 +89,9 @@ impl<const BATCH: usize, const STATE: usize, S, C> StateData<BATCH, STATE, S, C>
         C: Send,
         S: Sync,
     {
-        (&self.states, &mut self.costs)
-            .into_par_iter()
+        use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+
+        self.states.par_iter().zip_eq(self.costs.par_iter_mut())
             .for_each(|(s, c)| *c = cost(s));
     }
 }

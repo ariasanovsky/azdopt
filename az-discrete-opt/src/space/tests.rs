@@ -23,14 +23,14 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
 
     const DIM: usize = 1;
 
-    fn index(action: &Self::Action) -> usize {
+    fn index(&self, action: &Self::Action) -> usize {
         match action {
             PlusOrMinusOne::Minus => 0,
             PlusOrMinusOne::Plus => 1,
         }
     }
 
-    fn from_index(index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         match index {
             0 => PlusOrMinusOne::Minus,
             1 => PlusOrMinusOne::Plus,
@@ -38,7 +38,7 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
         }
     }
 
-    fn act(state: &mut Self::State, action: &Self::Action) {
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
         match (action, state) {
             (PlusOrMinusOne::Minus, Interval(n)) if *n < 5 => *n -= 1,
             (PlusOrMinusOne::Plus, Interval(n)) if *n > -5 => *n += 1,
@@ -46,7 +46,7 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
         }
     }
 
-    fn action_indices(state: &Self::State) -> impl Iterator<Item = usize> {
+    fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize> {
         match state.0 {
             n if n == N => vec![0],
             n if n == -N => vec![1],
@@ -55,7 +55,7 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
         .into_iter()
     }
 
-    fn write_vec(_state: &Self::State, _vec: &mut [f32]) {
+    fn write_vec(&self, _state: &Self::State, _vec: &mut [f32]) {
         todo!()
     }
 }

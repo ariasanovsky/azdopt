@@ -66,11 +66,11 @@ mod tests {
             ],
         ]
         .map(|actions| actions.map(|(i, parent)| PrueferCodeEntry { i, parent }));
-        type Space = ModifyAnyPrueferCodeEntry<3>;
+        let space = ModifyAnyPrueferCodeEntry::<3>;
         // type Action = PrueferCodeEntry;
         for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
-            let actions: Vec<PrueferCodeEntry> = Space::action_indices(&code)
-                .map(|i| Space::from_index(i))
+            let actions: Vec<PrueferCodeEntry> = space.action_indices(&code)
+                .map(|i| space.action(i))
                 .collect();
             assert_eq!(actions, correct_actions);
             // todo!();

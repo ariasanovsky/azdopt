@@ -12,42 +12,42 @@ pub mod state;
 pub mod tree;
 
 pub struct LearningLoop<
-    const BATCH: usize,
-    const STATE: usize,
-    const ACTION: usize,
-    const GAIN: usize,
+    'a,
     Space: StateActionSpace,
     C,
     P,
-    M: AzModel<BATCH, STATE, ACTION, GAIN>,
+    M: AzModel,
 > {
-    pub states: StateData<BATCH, STATE, Space::State, C>,
+    pub states: StateData<'a, Space::State, C>,
     pub models: M,
-    pub predictions: PredictionData<BATCH, ACTION, GAIN>,
-    pub trees: TreeData<BATCH, P>,
+    pub predictions: PredictionData<'a>,
+    pub trees: TreeData<P>,
+    action: usize,
+    gain: usize,
 }
 impl<
-        const BATCH: usize,
-        const STATE: usize,
-        const ACTION: usize,
-        const GAIN: usize,
+        'a,
         Space: StateActionSpace,
         C,
         P,
-        M: AzModel<BATCH, STATE, ACTION, GAIN>,
-    > LearningLoop<BATCH, STATE, ACTION, GAIN, Space, C, P, M>
+        M: AzModel,
+    > LearningLoop<'a, Space, C, P, M>
 {
     pub fn new(
-        states: StateData<BATCH, STATE, Space::State, C>,
+        states: StateData<'a, Space::State, C>,
         models: M,
-        predictions: PredictionData<BATCH, ACTION, GAIN>,
-        trees: TreeData<BATCH, P>,
+        predictions: PredictionData<'a>,
+        trees: TreeData<P>,
+        action: usize,
+        gain: usize,
     ) -> Self {
         Self {
             states,
             models,
             predictions,
             trees,
+            action,
+            gain,
         }
     }
 
@@ -75,10 +75,11 @@ impl<
     #[cfg(feature = "rayon")]
     pub fn par_roll_out_episode(
         &mut self,
+        space: &Space,
         cost: impl Fn(&Space::State) -> C + Sync,
         upper_estimate: impl Fn(UpperEstimateData) -> f32 + Sync,
     ) where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
         P: Send + Sync + ActionPathFor<Space> + Ord + Clone,
         C: Cost<f32> + Send + Sync,
@@ -88,16 +89,21 @@ impl<
             models,
             predictions,
             trees,
+            action,
+            gain,
         } = self;
         states.reset_states();
-        let ends = trees.par_simulate_once::<Space>(states.get_states_mut(), upper_estimate);
+        let ends = trees.par_simulate_once(space, states.get_states_mut(), upper_estimate);
         states.par_write_state_costs(cost);
-        states.par_write_state_vecs::<Space>();
+        states.par_write_state_vecs(space);
         models.write_predictions(states.get_vectors(), predictions);
-        ends.par_update_existing_nodes::<Space, ACTION, GAIN>(
+        ends.par_update_existing_nodes(
+            space,
             states.get_costs(),
             states.get_states(),
             predictions,
+            *action,
+            *gain,
         );
         trees.par_insert_nodes();
     }
@@ -105,11 +111,12 @@ impl<
     #[cfg(feature = "rayon")]
     pub fn par_update_model(
         &mut self,
-        logits_mask: Option<&[[f32; ACTION]; BATCH]>,
+        space: &Space,
+        logits_mask: Option<&[f32]>,
     ) -> crate::az_model::Loss
     where
         P: Sync,
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Sync + Clone,
     {
         let Self {
@@ -117,26 +124,29 @@ impl<
             models,
             predictions,
             trees,
+            action,
+            gain,
         } = self;
-        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         let (pi_t, g_t) = predictions.get_mut();
-        (trees.trees(), pi_t, g_t)
+        (trees.trees(), pi_t.par_chunks_exact_mut(*action), g_t.par_chunks_exact_mut(*gain))
             .into_par_iter()
             .for_each(|(t, pi_t, g_t)| t.write_observations(pi_t, g_t));
         states.reset_states();
-        states.par_write_state_vecs::<Space>();
+        states.par_write_state_vecs(space);
         models.update_model(states.get_vectors(), logits_mask, predictions)
     }
 
     #[cfg(feature = "rayon")]
     pub fn par_reset_with_next_root(
         &mut self,
+        space: &Space,
         modify_root: impl Fn(usize, &INTMinTree<P>, &mut Space::State) + Sync,
         cost: impl Fn(&Space::State) -> C + Sync,
         add_noise: impl Fn(usize, &mut [f32]) + Sync,
     ) where
-        Space: StateActionSpace,
+        Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
         C: Cost<f32> + Send + Sync,
         P: Send + Clone,
@@ -146,20 +156,22 @@ impl<
             models,
             predictions,
             trees,
+            action,
+            gain: _,
         } = self;
-        use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+        use rayon::{iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         (states.get_roots_mut(), trees.trees_mut())
             .into_par_iter()
             .enumerate()
             .for_each(|(i, (s, t))| modify_root(i, t, s));
         states.reset_states();
-        states.par_write_state_vecs::<Space>();
+        states.par_write_state_vecs(space);
         states.par_write_state_costs(cost);
         models.write_predictions(states.get_vectors(), predictions);
         (
             trees.trees_mut(),
-            predictions.pi_mut(),
+            predictions.pi_mut().par_chunks_exact_mut(*action),
             states.get_costs(),
             states.get_states(),
         )
@@ -167,7 +179,7 @@ impl<
             .enumerate()
             .for_each(|(i, (t, pi_0_theta, c_0, s_0))| {
                 add_noise(i, pi_0_theta);
-                t.set_new_root::<Space>(pi_0_theta, c_0.evaluate(), s_0);
+                t.set_new_root(space, pi_0_theta, c_0.evaluate(), s_0);
             });
     }
 }
