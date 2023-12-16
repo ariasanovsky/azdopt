@@ -92,13 +92,14 @@ where
         Output = Tensor<Rank2<BATCH, GAIN>, f32, Cuda, OwnedTape<f32, Cuda>>,
     >,
 {
-    fn write_predictions<'a>(
+    fn write_predictions(
         &mut self,
         x_t: &[f32],
-        predictions: &mut PredictionData<'a>,
+        // logits_mask: Option<&[f32]>,
+        predictions: &mut PredictionData,
     ) {
         let Self {
-            dev: _,
+            dev,
             pi_model,
             g_model,
             pi_adam: _,
@@ -108,21 +109,30 @@ where
             x_t_dev,
             pi_t_dev,
             g_t_dev,
-            logits_mask_dev: _,
+            logits_mask_dev,
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
         x_t_dev.copy_from(x_t);
+        
+        // *pi_t_dev = if let Some(mask) = logits_mask {
+        //     let mask_dev = logits_mask_dev.get_or_insert_with(|| dev.zeros());
+        //     mask_dev.copy_from(mask);
+        //     pi_model.forward(x_t_dev.clone()) + mask_dev.clone()
+        // } else {
+        //     pi_model.forward(x_t_dev.clone())
+        // }.softmax::<Axis<1>>();
         *pi_t_dev = pi_model.forward(x_t_dev.clone()).softmax::<Axis<1>>();
+        
         pi_t_dev.copy_into(pi_t_theta);
         *g_t_dev = g_model.forward(x_t_dev.clone());
         g_t_dev.copy_into(g_t_theta);
     }
 
-    fn update_model<'a>(
+    fn update_model(
         &mut self,
         x_t: &[f32],
         logits_mask: Option<&[f32]>,
-        observations: &PredictionData<'a>,
+        observations: &PredictionData,
     ) -> Loss {
         let Self {
             dev,

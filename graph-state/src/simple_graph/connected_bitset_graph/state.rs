@@ -17,7 +17,7 @@ impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
         action.action_index::<N>()
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         Self::Action::from_action_index::<N>(index)
     }
 
@@ -337,7 +337,7 @@ mod test {
             .unwrap();
         let space = ConnectedAddOrDeleteEdge::<4>;
         let actions = space.action_indices(&graph)
-            .map(|i| space.from_index(i))
+            .map(|i| space.action(i))
             .collect::<Vec<_>>();
         assert_eq!(
             actions,

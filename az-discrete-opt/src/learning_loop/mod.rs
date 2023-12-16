@@ -127,7 +127,7 @@ impl<
             action,
             gain,
         } = self;
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::{ParallelSlice, ParallelSliceMut}};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         let (pi_t, g_t) = predictions.get_mut();
         (trees.trees(), pi_t.par_chunks_exact_mut(*action), g_t.par_chunks_exact_mut(*gain))

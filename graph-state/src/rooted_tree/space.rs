@@ -17,7 +17,7 @@ impl<const N: usize> StateActionSpace for ConstrainedRootedOrderedTree<N> {
         action.index_ignoring_edge_0_1()
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         Self::Action::from_index_ignoring_edge_0_1(index)
     }
 

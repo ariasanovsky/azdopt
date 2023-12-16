@@ -17,7 +17,7 @@ impl<const N: usize> StateActionSpace for ModifyAnyPrueferCodeEntry<N> {
         action.action_index::<N>()
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         PrueferCodeEntry::from_action_index::<N>(index)
     }
 

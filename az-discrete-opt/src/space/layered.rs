@@ -23,8 +23,8 @@ where
         self.space.index(action)
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
-        self.space.from_index(index)
+    fn action(&self, index: usize) -> Self::Action {
+        self.space.action(index)
     }
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {

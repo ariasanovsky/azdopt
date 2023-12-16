@@ -36,7 +36,7 @@ impl<P> INTMinTree<P> {
             // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
         );
         let a_1 = root_data.best_action(&upper_estimate).unwrap();
-        let action_1 = space.from_index(a_1.index());
+        let action_1 = space.action(a_1.index());
         let s_i = s_0;
         let p_i = p_0;
         space.act(s_i, &action_1);
@@ -74,7 +74,7 @@ impl<P> INTMinTree<P> {
             //     // "root_data.actions = {root_data.actions:?}, n_0.actions = {n_0.actions:?}",
             // );
             let a_i_plus_one = state_data.best_action(&upper_estimate).unwrap();
-            let action_i_plus_1 = space.from_index(a_i_plus_one.index());
+            let action_i_plus_1 = space.action(a_i_plus_one.index());
 
             // dbg!(a_i_plus_one);
             debug_assert_eq!(space.index(&action_i_plus_1), a_i_plus_one.index());

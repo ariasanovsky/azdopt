@@ -33,7 +33,6 @@ impl<'a> INTTransition<'a> {
 
     pub(crate) fn cascade_update(&mut self, c_star_i_plus_one: &mut f32) -> bool {
         todo!("when used in `update_existing_nodes`, we seem to remove all actions from a state but do not mark it exhausted; to investigate");
-        dbg!();
         // let Self { data_i, kind } = self;
         // let exhausted = match data_i {
         //     StateDataKindMutRef::Exhausted { c_t_star: _ } => {

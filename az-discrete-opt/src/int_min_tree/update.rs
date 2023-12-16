@@ -7,7 +7,7 @@ use crate::{
 
 use super::transition::INTTransition;
 
-impl<'a, P> EndNodeAndLevel<'a, P> {
+impl<P> EndNodeAndLevel<'_, P> {
     pub fn update_existing_nodes<Space>(
         self,
         space: &Space,
@@ -16,7 +16,7 @@ impl<'a, P> EndNodeAndLevel<'a, P> {
         p_t: &P,
         pi_t_theta: &[f32],
         g_t_theta: &[f32],
-        transitions: &mut [INTTransition<'a>],
+        transitions: &mut [INTTransition],
     ) -> Option<NewTreeLevel<P>>
     where
         Space: StateActionSpace,

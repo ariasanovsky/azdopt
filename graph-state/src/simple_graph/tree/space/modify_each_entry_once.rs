@@ -26,7 +26,7 @@ impl<const N: usize> StateActionSpace for ModifyEachPrueferCodeEntriesExactlyOnc
         action.action_index::<N>()
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         let i = index / N;
         let parent = index % N;
         PrueferCodeEntry { i, parent }
@@ -100,8 +100,6 @@ mod tests {
         space::modify_each_entry_once::ModifyEachPrueferCodeEntriesExactlyOnce, PrueferCode,
     };
 
-    type SASpace<const N: usize> = ModifyEachPrueferCodeEntriesExactlyOnce<N>;
-    // type S<const N: usize> = <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::State;
     type A<const N: usize> =
         <ModifyEachPrueferCodeEntriesExactlyOnce<N> as StateActionSpace>::Action;
 
@@ -109,7 +107,7 @@ mod tests {
     fn pruefer_code_indexes_correct_for_4_vertices() {
         let space = ModifyEachPrueferCodeEntriesExactlyOnce::<4>;
         for i in 0..16 {
-            let a = space.from_index(i);
+            let a = space.action(i);
             let i2 = space.index(&a);
             assert_eq!(i, i2, "i = {i}, i2 = {i2}, a = {a:?}",);
         }
@@ -157,14 +155,14 @@ mod tests {
         ];
         // test the action set before taking actions
         let actions = space.action_indices(&code)
-            .map(|i| space.from_index(i))
+            .map(|i| space.action(i))
             .collect::<BTreeSet<_>>();
         let (action_set_0, action_sets) = action_sets.split_first().unwrap();
         assert_eq!(actions, *action_set_0);
         for i in 0..2 {
             space.act(&mut code, &actions_to_take[i]);
             let actions = space.action_indices(&code)
-                .map(|i| space.from_index(i))
+                .map(|i| space.action(i))
                 .collect::<BTreeSet<_>>();
             assert_eq!(actions, action_sets[i]);
         }

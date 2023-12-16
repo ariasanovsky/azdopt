@@ -30,7 +30,7 @@ impl<const N: i32> StateActionSpace for MinimizeNSquared<N> {
         }
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
+    fn action(&self, index: usize) -> Self::Action {
         match index {
             0 => PlusOrMinusOne::Minus,
             1 => PlusOrMinusOne::Plus,

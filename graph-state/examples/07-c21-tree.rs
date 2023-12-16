@@ -2,7 +2,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
-use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSlice, ParallelSliceMut}};
+use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::ParallelSliceMut};
 use tensorboard_writer::TensorboardWriter;
 
 use std::{
@@ -212,7 +212,7 @@ fn main() -> eyre::Result<()> {
                 s,
                 action
                     .actions_taken(&space)
-                    .map(|a| space.from_index(*a)),
+                    .map(|a| space.action(*a)),
             );
             if space.is_terminal(s) {
                 let prohibited_actions = default_prohibitions(&s.state);

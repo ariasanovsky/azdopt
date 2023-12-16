@@ -46,12 +46,12 @@ pub struct Ends<'new_nodes, P> {
 
 impl<'new_nodes, P> Ends<'new_nodes, P> {
     #[cfg(feature = "rayon")]
-    pub fn par_update_existing_nodes<'a, Space>(
+    pub fn par_update_existing_nodes<Space>(
         self,
         space: &Space,
         c_t: &[impl Cost<f32> + Sync],
         s_t: &[Space::State],
-        predictions: &PredictionData<'a>,
+        predictions: &PredictionData<'_>,
         action: usize,
         gain: usize,
     ) where

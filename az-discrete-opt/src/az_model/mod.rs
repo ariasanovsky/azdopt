@@ -21,18 +21,19 @@ pub fn add_dirichlet_noise(rng: &mut impl rand::Rng, p: &mut [f32], alpha: &[f32
 
 pub trait AzModel {
     // todo! fallible
-    fn write_predictions<'a>(
+    fn write_predictions(
         &mut self,
         x_t: &[f32],
-        predictions: &mut PredictionData<'a>,
+        // logits_mask: Option<&[f32]>,
+        predictions: &mut PredictionData,
     );
 
     // todo! fallible
-    fn update_model<'a>(
+    fn update_model(
         &mut self,
         x_t: &[f32],
         logits_mask: Option<&[f32]>,
-        observations: &PredictionData<'a>,
+        observations: &PredictionData,
     ) -> Loss;
 }
 

@@ -24,8 +24,8 @@ impl<const N: usize> StateActionSpace for ProhibitedConstrainedRootedOrderedTree
         ConstrainedRootedOrderedTree::<N>.index(action)
     }
 
-    fn from_index(&self, index: usize) -> Self::Action {
-        ConstrainedRootedOrderedTree::<N>.from_index(index)
+    fn action(&self, index: usize) -> Self::Action {
+        ConstrainedRootedOrderedTree::<N>.action(index)
     }
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {

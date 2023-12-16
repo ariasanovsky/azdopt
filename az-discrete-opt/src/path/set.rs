@@ -40,7 +40,7 @@ impl ActionPath for ActionSet {
         unsafe { self.push_unchecked(index) }
     }
 
-    fn actions_taken<Space>(&self, space: &Space) -> impl Iterator<Item = &'_ usize> + '_
+    fn actions_taken<Space>(&self, _space: &Space) -> impl Iterator<Item = &'_ usize> + '_
     where
         Space: crate::space::StateActionSpace,
         Self: super::ActionPathFor<Space>,
