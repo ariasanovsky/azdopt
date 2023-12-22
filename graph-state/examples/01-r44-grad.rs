@@ -1,6 +1,6 @@
 use std::io::BufWriter;
 
-use az_discrete_opt::{tensorboard::tf_path, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}};
+use az_discrete_opt::{tensorboard::tf_path, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}, path::set::ActionSet};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
@@ -15,8 +15,8 @@ type RichState = WithProhibitions<RawState>;
 
 const STACK: usize = 8;
 type S = Layers<RichState, STACK>;
-
 type C = TotalCounts<2>;
+type P = ActionSet;
 
 type RichSpace = RichRamseySpace<B32, N, E>;
 type Space = Layered<STACK, RichSpace>;
@@ -54,7 +54,7 @@ fn main() -> eyre::Result<()> {
     };
 
     let dist = rand::distributions::WeightedIndex::new([1., 1.]).unwrap();
-    let init_state_and_cost = || -> S {
+    let init_state = || -> S {
         let mut rng = rand::thread_rng();
         const SIZES: [usize; 2] = [4, 4];
         let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
@@ -70,7 +70,7 @@ fn main() -> eyre::Result<()> {
     let space: RichSpace = RichRamseySpace::new(evaluate);
     let space: Space = Layered::new(space);
 
-    let mut optimizer = NablaOptimizer::new(space, init_state_and_cost, model, BATCH);
+    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(space, init_state, model, BATCH);
     let (s, c, e) = optimizer.argmin().unwrap();
     let mut argmin = ArgminData::new(s, c, 0, 0);
 
