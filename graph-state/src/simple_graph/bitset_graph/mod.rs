@@ -9,35 +9,75 @@ pub mod space;
 mod try_from;
 
 #[derive(Clone, Debug)]
-pub struct BitsetGraph<const N: usize, B = B32> {
+pub struct BitsetGraph<const N: usize, B> {
     pub(crate) neighborhoods: [B; N],
 }
 
-trait AllVertices {
-    type B;
-    const ALL_VERTICES: Self::B;
+#[derive(Clone, Debug)]
+pub struct ColoredCompleteBitsetGraph<const N: usize, const C: usize, B> {
+    graphs: [BitsetGraph<N, B>; C],
 }
 
-impl<const N: usize> AllVertices for BitsetGraph<N> {
-    type B = B32;
-    const ALL_VERTICES: B32 = B32::from_bits((1 << N) - 1);
+impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {
+    pub fn generate(
+        w: &impl rand::distributions::Distribution<usize>,
+        rng: &mut impl rand::Rng,
+    ) -> ColoredCompleteBitsetGraph<N, C, B>
+    where
+        B: Bitset,
+    {
+        debug_assert!(N < 32);
+        let mut graphs: [BitsetGraph<N, B>; C] = core::array::from_fn(|_| BitsetGraph::empty());
+        let edges =
+            (0..N)
+            .flat_map(|v| (0..v).map(move |u| unsafe { Edge::new_unchecked(v, u) }));
+        for (i, e) in edges.enumerate() {
+            let c = w.sample(rng);
+            let g = &mut graphs[c];
+            unsafe { g.add_or_remove_edge_unchecked(e) };
+        }
+        Self { graphs }
+    }
+
+    pub fn graphs(&self) -> &[BitsetGraph<N, B>; C] {
+        &self.graphs
+    }
 }
 
-impl<const N: usize> BitsetGraph<N> {
-    // const ALL_VERTICES: B32 = B32::new((1 << N) - 1);
+// trait AllVertices {
+//     type B;
+//     const ALL_VERTICES: Self::B;
+// }
 
-    // pub fn par_generate_batch<const BATCH: usize>(time: usize, p: f64) -> [StateNode<Self>; BATCH] {
-    //     // todo! size asserts, move par_generate_batch to `StateNode` impl block
-    //     let mut states: [MaybeUninit<StateNode<Self>>; BATCH] = MaybeUninit::uninit_array();
-    //     states.par_iter_mut().for_each(|s| {
-    //         let mut rng = rand::thread_rng();
-    //         s.write(StateNode::new(Self::generate(p, &mut rng), time));
-    //     });
-    //     unsafe { MaybeUninit::array_assume_init(states) }
-    // }
+// impl<const N: usize, B> AllVertices for BitsetGraph<N, B> {
+//     type B = B;
+//     const ALL_VERTICES: B = B::from_bits((1 << N) - 1);
+// }
 
-    pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self {
-        let mut neighborhoods = core::array::from_fn(|_| B32::empty());
+impl<const N: usize, B> BitsetGraph<N, B> {
+    pub unsafe fn add_or_remove_edge_unchecked(&mut self, e: Edge)
+    where
+        B: Bitset,
+    {
+        let (v, u) = e.vertices();
+        self.neighborhoods[v].add_or_remove_unchecked(u as u32);
+        self.neighborhoods[u].add_or_remove_unchecked(v as u32);
+    }
+
+    pub fn empty() -> Self
+    where
+        B: Bitset,
+    {
+        Self {
+            neighborhoods: core::array::from_fn(|_| B::empty()),
+        }
+    }
+    
+    pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self
+    where
+        B: Bitset,
+    {
+        let mut neighborhoods = core::array::from_fn(|_| B::empty());
         for v in 0..N {
             for u in 0..v {
                 if rng.gen_bool(p) {
@@ -49,12 +89,16 @@ impl<const N: usize> BitsetGraph<N> {
         Self { neighborhoods }
     }
 
-    pub fn is_connected(&self) -> bool {
+    pub fn is_connected(&self) -> bool
+    where
+        B: Bitset + Clone + PartialEq,
+        B::Bits: Clone,
+    {
         if N == 0 {
             return true;
         }
         let Self { neighborhoods } = self;
-        let mut visited_vertices = B32::empty();
+        let mut visited_vertices = B::empty();
         unsafe { visited_vertices.add_unchecked(0) };
         let mut seen_vertices = neighborhoods[0].clone();
         while !seen_vertices.is_empty() {
@@ -64,16 +108,20 @@ impl<const N: usize> BitsetGraph<N> {
                     unsafe { visited_vertices.add_unchecked(v as _) };
                     &neighborhoods[v]
                 })
-                .fold(B32::empty(), |mut acc, n| {
+                .fold(B::empty(), |mut acc, n| {
                     acc.union_assign(n);
                     acc
                 });
             seen_vertices.minus_assign(&visited_vertices);
         }
-        visited_vertices == Self::ALL_VERTICES
+        visited_vertices == unsafe { B::range_to_unchecked(N as _) }
     }
 
-    pub fn to_connected(self) -> Option<super::connected_bitset_graph::ConnectedBitsetGraph<N>> {
+    pub fn to_connected(self) -> Option<super::connected_bitset_graph::ConnectedBitsetGraph<N, B>>
+    where
+        B: Bitset + Clone + PartialEq,
+        B::Bits: Clone,
+    {
         if self.is_connected() {
             Some(super::connected_bitset_graph::ConnectedBitsetGraph {
                 neighborhoods: self.neighborhoods,
@@ -83,7 +131,10 @@ impl<const N: usize> BitsetGraph<N> {
         }
     }
 
-    pub fn edges(&self) -> impl Iterator<Item = Edge> + '_ {
+    pub fn edges(&self) -> impl Iterator<Item = Edge> + '_
+    where
+        B: Bitset,
+    {
         let Self { neighborhoods } = self;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).filter_map(move |u| {
@@ -97,11 +148,29 @@ impl<const N: usize> BitsetGraph<N> {
         })
     }
 
-    pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
+    pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_
+    where
+        B: Bitset,
+    {
         let Self { neighborhoods } = self;
         neighborhoods
             .iter()
             .enumerate()
             .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u as _).unwrap()))
+    }
+
+    pub fn count_cliques_inside(&self, common_neighbors: B, size: usize) -> i32
+    where
+        B: Bitset + Clone,
+        B::Bits: Clone,
+    {
+        match size {
+            0 => 1,
+            1 => common_neighbors.cardinality() as i32,
+            _ => common_neighbors.iter().map(|u| {
+                let common_neighbors = common_neighbors.intersection(&self.neighborhoods[u]);
+                self.count_cliques_inside(common_neighbors, size - 1)
+            }).sum(),
+        }
     }
 }

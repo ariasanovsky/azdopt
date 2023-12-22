@@ -5,13 +5,17 @@ use crate::{
 
 use super::ConnectedBitsetGraph;
 
-impl<const N: usize> ConnectedBitsetGraph<N> {
-    pub fn fast_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
+impl<const N: usize, B> ConnectedBitsetGraph<N, B> {
+    pub fn fast_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_
+    where
+        B: Bitset + Clone + core::fmt::Debug + core::fmt::Display + PartialEq,
+        B::Bits: Clone,
+    {
         debug_assert!(N < 32, "N >= 32 not yet supported");
         #[derive(Debug)]
-        struct Block {
-            block_positions_below: B32, // nonempty
-            elements: B32,              // nonempty
+        struct Block<B> {
+            block_positions_below: B, // nonempty
+            elements: B,              // nonempty
             host: usize,
             kind: BlockKind,
         }
@@ -20,15 +24,15 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             Root,
             Cut { neighbor: usize },
         }
-        let mut blocks: Vec<Block> = vec![Block {
-            block_positions_below: unsafe { B32::singleton_unchecked(0) },
-            elements: unsafe { B32::singleton_unchecked(0) },
+        let mut blocks: Vec<Block<B>> = vec![Block {
+            block_positions_below: unsafe { B::singleton_unchecked(0) },
+            elements: unsafe { B::singleton_unchecked(0) },
             host: 0,
             kind: BlockKind::Root,
         }];
-        let mut active_block_indices = unsafe { B32::singleton_unchecked(0) };
+        let mut active_block_indices = unsafe { B::singleton_unchecked(0) };
         let mut inserted_into: [usize; N] = [0; N];
-        let mut explored_vertices = unsafe { B32::singleton_unchecked(0) };
+        let mut explored_vertices = unsafe { B::singleton_unchecked(0) };
         let mut new_vertices = self.neighborhoods[0].clone();
         dbg!(
             &new_vertices,
@@ -45,7 +49,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 &active_block_indices
             );
             debug_assert!(!explored_vertices.contains(v).unwrap());
-            let neighbors: &B32 = &self.neighborhoods[v as usize];
+            let neighbors = &self.neighborhoods[v as usize];
             let unexplored_neighbors = neighbors.minus(&explored_vertices);
             new_vertices.union_assign(&unexplored_neighbors);
             let explored_neighbors = neighbors.intersection(&explored_vertices);
@@ -63,7 +67,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
 
                 let block = Block {
                     block_positions_below,
-                    elements: unsafe { B32::singleton_unchecked(v) },
+                    elements: unsafe { B::singleton_unchecked(v) },
                     host: v as _,
                     kind: BlockKind::Cut { neighbor: u as _ },
                 };
@@ -71,7 +75,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                 blocks.push(block);
                 inserted_into[v as usize] = v_i as usize;
             } else {
-                let mut h_union = B32::empty();
+                let mut h_union = B::empty();
                 let mut h_intersection = active_block_indices.clone();
                 for u in explored_neighbors.iter() {
                     let u_i = inserted_into[u];
@@ -141,8 +145,8 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
 mod tests {
     // use std::mem::MaybeUninit;
 
-    use crate::simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge};
-    type G<const N: usize> = ConnectedBitsetGraph<N>;
+    use crate::{simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge}, bitset::primitive::B32};
+    type G<const N: usize> = ConnectedBitsetGraph<N, B32>;
 
     const S_4: [[usize; 4]; 24] = [
         [0, 1, 2, 3],
@@ -234,7 +238,7 @@ mod tests {
             .into_iter()
             .map(|(u, v)| (sigma[*u], sigma[*v]))
             .collect::<Vec<_>>();
-        let graph: ConnectedBitsetGraph<N> = edges[..].try_into().unwrap();
+        let graph: ConnectedBitsetGraph<N, B32> = edges[..].try_into().unwrap();
         let cut_edges = cut_edges
             .into_iter()
             .map(|(u, v)| Edge::new(sigma[*u], sigma[*v]))
@@ -242,7 +246,7 @@ mod tests {
         assert_eq!(&graph.cut_edges().collect::<Vec<_>>(), &cut_edges)
     }
 
-    fn old_and_new_cut_edge_methods_are_identical<const N: usize>(graph: &ConnectedBitsetGraph<N>) {
+    fn old_and_new_cut_edge_methods_are_identical<const N: usize>(graph: &ConnectedBitsetGraph<N, B32>) {
         let mut cut_edges = graph.cut_edges().collect::<Vec<_>>();
         let mut new_cut_edges = graph.fast_cut_edges().collect::<Vec<_>>();
         cut_edges.sort_by(|a, b| match a.max.cmp(&b.max) {

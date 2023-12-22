@@ -2,11 +2,14 @@ use crate::bitset::{primitive::B32, Bitset};
 
 use super::BitsetGraph;
 
-impl<const N: usize> TryFrom<&[(usize, usize)]> for BitsetGraph<N> {
+impl<const N: usize, B> TryFrom<&[(usize, usize)]> for BitsetGraph<N, B>
+where
+    B: Bitset,
+{
     type Error = ();
 
     fn try_from(value: &[(usize, usize)]) -> Result<Self, Self::Error> {
-        let mut neighborhoods = core::array::from_fn(|_| B32::empty());
+        let mut neighborhoods = core::array::from_fn(|_| B::empty());
         for &(v, u) in value {
             if v >= N || u >= N || v == u {
                 return Err(());

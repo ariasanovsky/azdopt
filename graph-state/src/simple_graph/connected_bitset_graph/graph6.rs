@@ -1,15 +1,23 @@
 use az_discrete_opt::log::ShortForm;
 
+use crate::bitset::Bitset;
+
 use super::ConnectedBitsetGraph;
 
-impl<const N: usize> ShortForm for ConnectedBitsetGraph<N> {
+impl<const N: usize, B> ShortForm for ConnectedBitsetGraph<N, B>
+where
+    B: Bitset,
+{
     fn short_form(&self) -> String {
         let graph6 = self.graph6();
         String::from_utf8(graph6).unwrap()
     }
 }
 
-impl<const N: usize> ConnectedBitsetGraph<N> {
+impl<const N: usize, B> ConnectedBitsetGraph<N, B>
+where
+    B: Bitset,
+{
     /// g6 standard: http://users.cecs.anu.edu.au/~bdm/data/formats.html
     /// http://users.cecs.anu.edu.au/~bdm/data/formats.txt
     pub fn graph6(&self) -> Vec<u8> {
@@ -46,11 +54,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
 #[cfg(test)]
 #[rustfmt::skip]
 mod test {
-    use crate::simple_graph::bitset_graph::BitsetGraph;
+    use crate::{simple_graph::bitset_graph::BitsetGraph, bitset::primitive::B32};
 
     #[test]
     fn complete_graph_on_two_vertices_has_correct_g6_string() {
-        let graph: BitsetGraph<2> = [(0, 1)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<2, B32> = [(0, 1)].as_ref().try_into().unwrap();
         let g6 = graph.to_graph6();
         assert_eq!(&g6, &[b'A', b'_'])
     }
@@ -63,7 +71,7 @@ mod test {
             vec![(0, 3), (3, 5), (5, 0), (1, 4), (4, 7), (7, 2), (2, 6), (6, 1)],
         ];
         let graphs = edges.map(|edges| {
-            let graph: BitsetGraph<8> = edges[..].try_into().unwrap();
+            let graph: BitsetGraph<8, B32> = edges[..].try_into().unwrap();
             graph
         });
         let rhs = graphs.map(|graph| graph.to_graph6());

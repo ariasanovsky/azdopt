@@ -4,7 +4,10 @@ use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
 use super::{space::action::AddOrDeleteEdge, BitsetGraph};
 
-impl<const N: usize> Display for BitsetGraph<N> {
+impl<const N: usize, B: Bitset> Display for BitsetGraph<N, B>
+where
+    B::Bits: Clone,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self { neighborhoods } = self;
         neighborhoods

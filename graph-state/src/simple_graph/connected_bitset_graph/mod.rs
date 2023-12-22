@@ -17,7 +17,7 @@ mod state;
 mod try_from;
 
 #[derive(Clone, Debug)]
-pub struct ConnectedBitsetGraph<const N: usize, B = B32> {
+pub struct ConnectedBitsetGraph<const N: usize, B> {
     pub(crate) neighborhoods: [B; N],
 }
 
@@ -26,23 +26,35 @@ pub enum ActionKind {
     Delete,
 }
 
-impl<const N: usize> ConnectedBitsetGraph<N> {
-    pub fn cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
+impl<const N: usize, B> ConnectedBitsetGraph<N, B> {
+    pub fn cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_
+    where
+        B: Clone + Bitset + core::fmt::Debug + core::fmt::Display + PartialEq,
+        B::Bits: Clone,
+    {
         self.fast_cut_edges()
     }
 
-    pub(crate) fn _slow_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_ {
+    pub(crate) fn _slow_cut_edges(&self) -> impl core::iter::Iterator<Item = Edge> + '_
+    where
+        B: Clone + Bitset,
+        B::Bits: Clone,
+    {
         self.edges().filter(move |e| self.is_cut_edge(e))
     }
 
-    pub fn is_cut_edge(&self, e: &Edge) -> bool {
+    pub fn is_cut_edge(&self, e: &Edge) -> bool
+    where
+        B: Clone + Bitset,
+        B::Bits: Clone,
+    {
         let Self { neighborhoods } = self;
         let (v, u) = e.vertices();
         let mut new_vertices = neighborhoods[v].clone();
         // if `uv` is not an edge, then `new_vertices` is nonempty and contains `u`
         // so we don't need to check if `u` is in `new_vertices`
         unsafe { new_vertices.add_or_remove_unchecked(u as _) };
-        let mut explored_vertices = B32::empty();
+        let mut explored_vertices = B::empty();
         unsafe { explored_vertices.add_unchecked(v as _) };
         while !new_vertices.is_empty() {
             if unsafe { new_vertices.contains_unchecked(u as _) } {
@@ -50,7 +62,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             }
             explored_vertices.union_assign(&new_vertices);
             let recently_seen_vertices = new_vertices;
-            new_vertices = B32::empty();
+            new_vertices = B::empty();
             recently_seen_vertices.iter().for_each(|v| {
                 new_vertices.union_assign(&neighborhoods[v]);
             });
@@ -69,9 +81,13 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
     //     unsafe { MaybeUninit::array_assume_init(states) }
     // }
 
-    pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self {
+    pub fn generate(p: f64, rng: &mut impl rand::Rng) -> Self
+    where
+        B: Bitset + Clone + PartialEq,
+        B::Bits: Clone,
+    {
         loop {
-            let graph = BitsetGraph::<N>::generate(p, rng);
+            let graph = BitsetGraph::<N, B>::generate(p, rng);
             if graph.is_connected() {
                 return Self {
                     neighborhoods: graph.neighborhoods,
@@ -80,7 +96,10 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         }
     }
 
-    pub fn edges(&self) -> impl Iterator<Item = Edge> + '_ {
+    pub fn edges(&self) -> impl Iterator<Item = Edge> + '_
+    where
+        B: Bitset,
+    {
         let Self { neighborhoods } = self;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).filter_map(move |u| {
@@ -94,12 +113,18 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         })
     }
 
-    pub fn num_edges(&self) -> u32 {
+    pub fn num_edges(&self) -> u32
+    where
+        B: Bitset,
+    {
         let Self { neighborhoods } = self;
         neighborhoods.iter().map(|n| n.cardinality()).sum::<u32>() / 2
     }
 
-    pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_ {
+    pub fn edge_bools(&self) -> impl Iterator<Item = bool> + '_
+    where
+        B: Bitset,
+    {
         let Self { neighborhoods } = self;
         neighborhoods
             .iter()
@@ -107,7 +132,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
             .flat_map(move |(v, n)| (0..v).map(move |u| unsafe { n.contains_unchecked(u as u32) }))
     }
 
-    pub fn action_kinds(&self) -> impl Iterator<Item = Option<ActionKind>> + '_ {
+    pub fn action_kinds(&self) -> impl Iterator<Item = Option<ActionKind>> + '_
+    where
+        B: Bitset + Clone + PartialEq,
+        B::Bits: Clone,
+    {
         let Self { neighborhoods } = self;
         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
             (0..v).map(move |u| {
@@ -125,12 +154,16 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         })
     }
 
-    pub fn ah_cost(&self) -> f32 {
+    pub fn ah_cost(&self) -> f32
+    where
+        B: Bitset + Clone,
+        B::Bits: Clone,
+    {
         let mut distances: [[usize; N]; N] = [[0; N]; N];
         let mut diameter = 0;
         let min_transmission = (0..N)
             .map(|u| {
-                let mut explored = B32::empty();
+                let mut explored = B::empty();
                 unsafe { explored.add_unchecked(u as _) };
                 let mut newly_seen_vertices = self.neighborhoods[u].clone();
                 let mut transmission = 0;
@@ -142,7 +175,7 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
                     transmission += newly_seen_vertices.cardinality() * d;
                     explored.union_assign(&newly_seen_vertices);
                     let recently_seen_vertices = newly_seen_vertices;
-                    newly_seen_vertices = B32::empty();
+                    newly_seen_vertices = B::empty();
                     recently_seen_vertices.iter().for_each(|v| {
                         distances[u][v] = d as usize;
                         newly_seen_vertices.union_assign(&self.neighborhoods[v]);
@@ -165,7 +198,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         (proximity + eigs[k]) as f32
     }
 
-    pub fn adjacency_matrix(&self) -> Mat<f64> {
+    pub fn adjacency_matrix(&self) -> Mat<f64>
+    where
+        B: Bitset,
+        B::Bits: Clone,
+    {
         let mut a = faer::Mat::zeros(N, N);
         const ZERO: f64 = 0.0001;
         for i in 0..N {
@@ -179,21 +216,29 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         a
     }
 
-    pub fn matching_number(&self) -> usize {
+    pub fn matching_number(&self) -> usize
+    where
+        B: Bitset + Clone,
+        B::Bits: Clone,
+    {
         self.maximum_matching().len()
     }
 
-    pub fn maximum_matching(&self) -> Vec<Edge> {
-        struct MatchingSearch {
+    pub fn maximum_matching(&self) -> Vec<Edge>
+    where
+        B: Bitset + Clone,
+        B::Bits: Clone,
+    {
+        struct MatchingSearch<B> {
             edges: Vec<Edge>,
-            unvisited_vertices: B32,
+            unvisited_vertices: B,
         }
         if N == 0 {
             return Vec::with_capacity(0);
         }
         let first_matching = MatchingSearch {
             edges: Vec::new(),
-            unvisited_vertices: unsafe { B32::range_to_unchecked(N as _) },
+            unvisited_vertices: unsafe { B::range_to_unchecked(N as _) },
         };
         let mut matching_queue = VecDeque::new();
         matching_queue.push_back(first_matching);
@@ -272,7 +317,11 @@ impl<const N: usize> ConnectedBitsetGraph<N> {
         max_matching
     }
 
-    pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost {
+    pub fn conjecture_2_1_cost(&self) -> Conjecture2Dot1Cost
+    where
+        B: Bitset + Clone,
+        B::Bits: Clone,
+    {
         let a = self.adjacency_matrix();
         // println!("{a:?}");
         // let eigs = a.selfadjoint_eigenvalues(faer::Side::Lower);
@@ -332,7 +381,7 @@ mod tests {
 
     #[test]
     fn complete_graph_on_four_vertices_has_matching_number_two() {
-        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+        let graph: BitsetGraph<4, B32> = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
             .as_ref()
             .try_into()
             .unwrap();
@@ -342,7 +391,7 @@ mod tests {
 
     #[test]
     fn cycle_graph_on_five_vertices_has_matching_number_two() {
-        let graph: BitsetGraph<5> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)]
+        let graph: BitsetGraph<5, B32> = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)]
             .as_ref()
             .try_into()
             .unwrap();
@@ -352,7 +401,7 @@ mod tests {
 
     #[test]
     fn this_one_tree_on_twenty_vertices_has_matching_number_nine() {
-        let graph: BitsetGraph<20> = [
+        let graph: BitsetGraph<20, B32> = [
             (0, 11),
             (0, 16),
             (0, 19),

@@ -5,7 +5,13 @@ use crate::state::layers::Layers;
 use super::{StateActionSpace, axioms::{ActionOrderIndependent, ActionsNeverRepeat}};
 
 pub struct Layered<const LAYERS: usize, Space> {
-    space: Space,
+    pub space: Space,
+}
+
+impl<const LAYERS: usize, Space> Layered<LAYERS, Space> {
+    pub fn new(space: Space) -> Self {
+        Self { space }
+    }
 }
 
 impl<const LAYERS: usize, Space> StateActionSpace for Layered<LAYERS, Space>
