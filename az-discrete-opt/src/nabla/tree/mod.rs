@@ -21,7 +21,8 @@ impl<P> SearchTree<P> {
     ) -> Self {
         Self {
             root_node: match StateNodeKind::new(space, root, cost, h_theta, max_num_root_actions) {
-                _ => todo!(),
+                StateNodeKind::Active { node } => node,
+                StateNodeKind::Exhausted { c_s_star } => unreachable!("root node should never be exhausted")
             },
             nodes: Vec::new(),
         }
