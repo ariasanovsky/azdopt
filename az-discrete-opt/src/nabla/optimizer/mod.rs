@@ -18,6 +18,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         init_states: impl Fn() -> Space::State + Sync + Send,
         mut model: M,
         batch: usize,
+        max_num_root_actions: usize,
     ) -> Self
     where
         Space: Sync,
@@ -40,7 +41,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             (&states, &costs, h_theta_host.par_chunks_exact(Space::ACTION_DIM))
             .into_par_iter()
             .map(|(s, c, h_theta)| {
-                SearchTree::new(&space, s.clone(), c, h_theta)
+                SearchTree::new(&space, s, c, h_theta, max_num_root_actions)
             })
             .collect();
         Self {

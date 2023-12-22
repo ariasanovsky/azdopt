@@ -9,16 +9,17 @@ use tensorboard_writer::TensorboardWriter;
 
 const N: usize = 17;
 const E: usize = N * (N - 1) / 2;
+const C: usize = 2;
 
-type RawState = RamseyCounts<N, E, 2, B32>;
+type RawState = RamseyCounts<N, E, C, B32>;
 type RichState = WithProhibitions<RawState>;
 
 const STACK: usize = 8;
 type S = Layers<RichState, STACK>;
-type C = TotalCounts<2>;
+type Cost = TotalCounts<C>;
 type P = ActionSet;
 
-type RichSpace = RichRamseySpace<B32, N, E>;
+type RichSpace = RichRamseySpace<B32, N, E, C>;
 type Space = Layered<STACK, RichSpace>;
 
 const ACTION: usize = E * 2;
@@ -30,10 +31,10 @@ const HIDDEN_2: usize = 256;
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    Linear<HIDDEN_2, ACTION>,
+    (Linear<HIDDEN_2, ACTION>, ReLU),
 );
 
-const BATCH: usize = 4096;
+const BATCH: usize = 1;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
@@ -64,13 +65,17 @@ fn main() -> eyre::Result<()> {
     };
 
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev);
-    let evaluate = |c: &C| -> f32 {
+    let evaluate = |c: &Cost| -> f32 {
         c.0.iter().sum::<i32>() as f32
     };
-    let space: RichSpace = RichRamseySpace::new(evaluate);
+    let space: RichSpace = RichRamseySpace::new([4, 4], [1., 1.]);
     let space: Space = Layered::new(space);
 
-    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(space, init_state, model, BATCH);
+
+    let max_num_root_actions = 30;
+
+
+    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(space, init_state, model, BATCH, max_num_root_actions);
     let (s, c, e) = optimizer.argmin().unwrap();
     let mut argmin = ArgminData::new(s, c, 0, 0);
 

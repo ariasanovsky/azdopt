@@ -19,7 +19,7 @@ pub trait NablaStateActionSpace {
     //         self.act(state, &action);
     //     }
     // }
-    // fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize>;
+    fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a;
     // fn is_terminal(&self, state: &Self::State) -> bool {
     //     self.action_indices(state).next().is_none()
     // }
@@ -30,7 +30,7 @@ pub trait NablaStateActionSpace {
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]);
     fn cost(&self, state: &Self::State) -> Self::Cost;
     fn evaluate(&self, cost: &Self::Cost) -> f32;
-    // fn c_theta_star_s_a(&self, c_s: f32, r_sa: Self::Reward, h_theta_s_a: f32) -> f32;
+    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::Reward, h_theta_s_a: f32) -> f32;
 }
 
 impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Layered<L, Space> {
@@ -46,6 +46,10 @@ impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Lay
 
     const ACTION_DIM: usize = Space::ACTION_DIM;
 
+    fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
+        self.space.action_data(state.back())
+    }
+
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
         debug_assert!(vector.len() == Self::STATE_DIM * L);
         state.buffer().iter().zip(vector.chunks_exact_mut(Space::STATE_DIM)).for_each(|(s, s_host)| {
@@ -59,5 +63,9 @@ impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Lay
 
     fn evaluate(&self, cost: &Self::Cost) -> f32 {
         self.space.evaluate(cost)
+    }
+
+    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::Reward, h_theta_sa: f32) -> f32 {
+        self.space.g_theta_star_sa(c_s, r_sa, h_theta_sa)
     }
 }

@@ -1,4 +1,4 @@
-use az_discrete_opt::{log::ShortForm, state::cost::Cost};
+use az_discrete_opt::log::ShortForm;
 use itertools::Itertools;
 
 use crate::{simple_graph::bitset_graph::ColoredCompleteBitsetGraph, bitset::Bitset};
@@ -69,7 +69,10 @@ impl AssignColor {
 }
 
 pub struct CountChange {
-
+    pub old_color: usize,
+    pub new_color: usize,
+    pub old_count: i32,
+    pub new_count: i32,
 }
 
 #[derive(Clone, Debug)]

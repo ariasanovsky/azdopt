@@ -4,34 +4,34 @@ use crate::bitset::Bitset;
 
 use super::{RamseyCounts, AssignColor, CountChange, TotalCounts};
 
-pub struct RichRamseySpace<B, const N: usize, const E: usize> {
-    // cost_fn: fn(&RamseyCounts<N, E, 2, B>) -> TotalCounts<2>,
-    evaluate_fn: fn(&TotalCounts<2>) -> f32,
+pub struct RichRamseySpace<B, const N: usize, const E: usize, const C: usize> {
+    sizes: [usize; C],
+    weights: [f32; C],
     _marker: core::marker::PhantomData<B>,
 }
 
-impl<B, const N: usize, const E: usize> RichRamseySpace<B, N, E> {
-    pub fn new(
-        // cost_fn: fn(&RamseyCounts<N, E, 2, B>) -> TotalCounts<2>,
-        evaluate_fn: fn(&TotalCounts<2>) -> f32,
+impl<B, const N: usize, const E: usize, const C: usize> RichRamseySpace<B, N, E, C> {
+    pub const fn new(
+        sizes: [usize; C],
+        weights: [f32; C],
     ) -> Self {
         Self {
-            // cost_fn,
-            evaluate_fn,
+            sizes,
+            weights,
             _marker: core::marker::PhantomData,
         }
     }
 }
 
-impl<B: Bitset, const N: usize, const E: usize> NablaStateActionSpace for RichRamseySpace<B, N, E>
+impl<B: Bitset, const N: usize, const E: usize, const C: usize> NablaStateActionSpace for RichRamseySpace<B, N, E, C>
 {
-    type State = WithProhibitions<RamseyCounts<N, E, 2, B>>;
+    type State = WithProhibitions<RamseyCounts<N, E, C, B>>;
 
     type Action = AssignColor;
 
     type Reward = CountChange;
 
-    type Cost = TotalCounts<2>;
+    type Cost = TotalCounts<C>;
 
     const STATE_DIM: usize = E * 6;
 
@@ -49,9 +49,33 @@ impl<B: Bitset, const N: usize, const E: usize> NablaStateActionSpace for RichRa
     //     todo!()
     // }
 
-    // fn action_indices(&self, state: &Self::State) -> impl Iterator<Item = usize> {
-    //     todo!()
-    // }
+    fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
+        let colors = (0..N).flat_map(move |v| (0..v).map(move |u| state.state.graph().color(v, u)));
+        struct _ActionData {
+            i: usize,
+            a: usize,
+            old_color: usize,
+            new_color: usize,
+        }
+        let candidate_actions = colors.enumerate().flat_map(move |(i, old_color)| {
+            let new_colors = (0..old_color).chain(old_color+1..C);
+            new_colors.map(move |new_color| _ActionData {
+                i,
+                a: i + E * new_color,
+                old_color,
+                new_color,
+            })
+        });
+        candidate_actions.filter_map(move |a| match state.prohibited_actions.contains(&a.a) {
+            true => None,
+            false => Some((a.a, CountChange {
+                old_color: a.old_color,
+                new_color: a.new_color,
+                old_count: state.state.counts[a.old_color][a.i],
+                new_count: state.state.counts[a.new_color][a.i],
+            })),
+        })
+    }
 
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
         debug_assert!(vector.len() == Self::STATE_DIM);
@@ -76,10 +100,19 @@ impl<B: Bitset, const N: usize, const E: usize> NablaStateActionSpace for RichRa
     }
 
     fn evaluate(&self, cost: &Self::Cost) -> f32 {
-        (self.evaluate_fn)(cost)
+        cost.0.iter().zip(self.weights.iter()).map(|(c, w)| *c as f32 * w).sum()
     }
 
-    // fn c_theta_star_s_a(&self, c_s: f32, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
-    //     todo!()
-    // }
+    fn g_theta_star_sa(&self, _c_s: f32, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
+        let CountChange {
+            old_color,
+            new_color,
+            old_count,
+            new_count,
+        } = r_sa;
+        let reward =
+            (old_count as f32 * self.weights[old_color]) - 
+            (new_count as f32 * self.weights[new_color]);
+        reward + h_theta_s_a
+    }
 }

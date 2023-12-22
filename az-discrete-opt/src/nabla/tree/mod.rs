@@ -14,12 +14,13 @@ pub struct SearchTree<P> {
 impl<P> SearchTree<P> {
     pub fn new<Space: NablaStateActionSpace>(
         space: &Space,
-        s_0: Space::State,
-        c_0: &Space::Cost,
+        root: &Space::State,
+        cost: &Space::Cost,
         h_theta: &[f32],
+        max_num_root_actions: usize,
     ) -> Self {
         Self {
-            root_node: match StateNodeKind::new(space, s_0, c_0, h_theta) {
+            root_node: match StateNodeKind::new(space, root, cost, h_theta, max_num_root_actions) {
                 _ => todo!(),
             },
             nodes: Vec::new(),

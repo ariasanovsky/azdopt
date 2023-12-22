@@ -1,4 +1,5 @@
-use crate::bitset::primitive::B32;
+use itertools::Itertools;
+
 use crate::bitset::Bitset;
 
 use super::edge::Edge;
@@ -42,17 +43,19 @@ impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {
     pub fn graphs(&self) -> &[BitsetGraph<N, B>; C] {
         &self.graphs
     }
+
+    pub fn color(&self, u: usize, v: usize) -> usize
+    where
+        B: Bitset,
+    {
+        let c = self.graphs()
+            .iter()
+            .map(|g| &g.neighborhoods[u])
+            .position(|n| n.contains(v as _).unwrap())
+            .unwrap();
+        c
+    }
 }
-
-// trait AllVertices {
-//     type B;
-//     const ALL_VERTICES: Self::B;
-// }
-
-// impl<const N: usize, B> AllVertices for BitsetGraph<N, B> {
-//     type B = B;
-//     const ALL_VERTICES: B = B::from_bits((1 << N) - 1);
-// }
 
 impl<const N: usize, B> BitsetGraph<N, B> {
     pub unsafe fn add_or_remove_edge_unchecked(&mut self, e: Edge)
