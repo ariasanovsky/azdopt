@@ -5,6 +5,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     roots: Vec<Space::State>,
     states: Vec<Space::State>,
     costs: Vec<Space::Cost>,
+    paths: Vec<P>,
     states_host: Vec<f32>,
     h_theta_host: Vec<f32>,
     trees: Vec<SearchTree<P>>,
@@ -24,13 +25,14 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space: Sync,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
-        P: Send,
+        P: Send + crate::path::ActionPath,
     {
         use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator}, slice::{ParallelSlice, ParallelSliceMut}};
 
         let roots: Vec<_> = (0..batch).into_par_iter().map(|_| init_states()).collect();
         let states = roots.clone();
         let costs = roots.as_slice().par_iter().map(|s| space.cost(s)).collect();
+        let paths = (0..batch).into_par_iter().map(|_| P::new()).collect();
         let mut states_host = vec![0.; batch * Space::STATE_DIM];
         (&states, states_host.par_chunks_exact_mut(Space::STATE_DIM)).into_par_iter().for_each(|(s, s_host)| {
             space.write_vec(s, s_host);
@@ -49,6 +51,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots,
             states,
             costs,
+            paths,
             states_host,
             h_theta_host,
             trees,
@@ -69,8 +72,9 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     pub fn par_roll_out_episode(&mut self)
     where
         Space: Sync,
-        Space::State: Clone + Sync,
+        Space::State: Clone + Send + Sync,
         Space::Cost: Send,
+        P: Send + crate::path::ActionPath + crate::path::ActionPathFor<Space>,
     {
         use rayon::iter::{IntoParallelIterator, ParallelIterator};
         let Self {
@@ -78,13 +82,16 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots,
             states,
             costs,
+            paths,
             states_host,
             h_theta_host,
             trees,
             model,
         } = self;
         states.clone_from(roots);
-        todo!("simulate once");
+        let search_results = (trees, states, paths).into_par_iter().map(|(t, s, p)| {
+            t.roll_out_episode(space, s, p)
+        }).collect::<Vec<_>>();
         todo!("should simulate once update cost, too?");
         (states as &_, costs).into_par_iter().for_each(|(s, c)| {
             *c = space.cost(s);

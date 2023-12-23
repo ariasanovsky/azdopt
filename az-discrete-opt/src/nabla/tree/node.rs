@@ -1,23 +1,54 @@
 use crate::nabla::space::NablaStateActionSpace;
 
-pub(super) struct StateNode {
-    n_s: usize,
+pub struct StateNode {
+    n_s: u32,
     c_s: f32,
-    actions: Vec<ActionData>,
+    active_actions: Option<Vec<ActionData>>,
 }
 
-pub(super) struct ActionData {
-    a: usize,
-    n_sa: i32,
-    g_theta_star_sa: f32,
+impl StateNode {
+    pub fn next_action_data(&mut self) -> Option<(usize, &mut f32, &mut ActionDataKind)> {
+        let Self {
+            n_s,
+            c_s: _,
+            active_actions,
+         } = self;
+        let actions = active_actions.as_mut()?;
+        
+        let ActionData {
+            a,
+            n_sa,
+            g_theta_star_sa,
+            kind
+        } = if (*n_s as usize) < actions.len() {
+            &mut actions[*n_s as usize]
+        } else {
+            todo!()
+        };
+        *n_s += 1;
+        *n_sa += 1;
+        Some((
+            *a,
+            g_theta_star_sa,
+            kind,
+        ))
+    }
 }
 
-pub(super) enum StateNodeKind {
-    Active { node: StateNode },
-    Exhausted { c_s_star: f32 },
+pub struct ActionData {
+    pub(super) a: usize,
+    pub(super) n_sa: u32,
+    pub(super) g_theta_star_sa: f32,
+    pub(super) kind: ActionDataKind,
 }
 
-impl StateNodeKind {
+pub enum ActionDataKind {
+    Active,
+    Terminal,
+    Exhausted,
+}
+
+impl StateNode {
     pub(super) fn new<Space: NablaStateActionSpace>(
         space: &Space,
         state: &Space::State,
@@ -30,11 +61,16 @@ impl StateNodeKind {
             a,
             n_sa: 0,
             g_theta_star_sa: space.g_theta_star_sa(c_s, r_sa, h_theta[a]),
+            kind: ActionDataKind::Active,
         }).collect();
         match actions.is_empty() {
-            true => Self::Exhausted { c_s_star: c_s },
+            true => Self {
+                n_s: 0,
+                c_s,
+                active_actions: None,
+            },
             false => {
-                actions.sort_unstable_by(|a, b| b.g_theta_star_sa.partial_cmp(&a.g_theta_star_sa).unwrap());
+                actions.sort_unstable_by(|a, b| a.g_theta_star_sa.partial_cmp(&b.g_theta_star_sa).unwrap());
                 match actions.len() <= max_num_actions {
                     true => {},
                     false => {
@@ -46,12 +82,10 @@ impl StateNodeKind {
                         actions.shrink_to_fit();
                     },
                 }
-                Self::Active {
-                    node: StateNode {
-                        n_s: 0,
-                        c_s,
-                        actions,
-                    },
+                Self {
+                    n_s: 0,
+                    c_s,
+                    active_actions: Some(actions),
                 }
             },
         }
@@ -59,9 +93,6 @@ impl StateNodeKind {
 }
 
 const fn rescaled_index(i: usize, l: usize, k: usize) -> usize {
-    if k == 1 {
-        panic!("k cannot be 1 because it would cause division by zero");
-    }
     (i * 2 * (l - 1) + k - 1) / ((k - 1) * 2)
 }
 

@@ -23,12 +23,9 @@ pub trait ActionPath {
         let index = space.index(action);
         unsafe { self.push_unchecked(index) }
     }
-    fn actions_taken<Space>(&self, space: &Space) -> impl Iterator<Item = &'_ usize> + '_
-    where
-        Space: StateActionSpace,
-        Self: ActionPathFor<Space>;
+    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_;
 }
 
 /// # Safety
 /// `Self` must be a valid `ActionPath` for `Space`
-pub unsafe trait ActionPathFor<Space: StateActionSpace>: ActionPath {}
+pub unsafe trait ActionPathFor<Space>: ActionPath {}

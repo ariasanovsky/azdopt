@@ -33,21 +33,25 @@ impl<B: Bitset, const N: usize, const E: usize, const C: usize> NablaStateAction
 
     type Cost = TotalCounts<C>;
 
-    const STATE_DIM: usize = E * 6;
+    const STATE_DIM: usize = E * C * 3;
 
-    const ACTION_DIM: usize = E * 2;
+    const ACTION_DIM: usize = E * C;
 
     // fn index(&self, action: &Self::Action) -> usize {
     //     todo!()
     // }
 
-    // fn action(&self, index: usize) -> Self::Action {
-    //     todo!()
-    // }
+    fn action(&self, index: usize) -> Self::Action {
+        debug_assert!(index < Self::ACTION_DIM);
+        AssignColor {
+            edge_pos: index % E,
+            new_color: index / E,
+        }
+    }
 
-    // fn act(&self, state: &mut Self::State, action: &Self::Action) {
-    //     todo!()
-    // }
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
+        todo!()
+    }
 
     fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
         let colors = (0..N).flat_map(move |v| (0..v).map(move |u| state.state.graph().color(v, u)));

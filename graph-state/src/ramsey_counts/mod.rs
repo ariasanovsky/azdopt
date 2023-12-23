@@ -61,7 +61,8 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
 }
 
 pub struct AssignColor {
-
+    edge_pos: usize,
+    new_color: usize,
 }
 
 impl AssignColor {

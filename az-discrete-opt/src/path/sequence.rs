@@ -39,13 +39,9 @@ impl ActionPath for ActionSequence {
         unsafe { self.push_unchecked(index) }
     }
 
-    fn actions_taken<Space>(&self, _space: &Space) -> impl Iterator<Item = &'_ usize> + '_
-    where
-        Space: StateActionSpace,
-        Self: ActionPathFor<Space>,
-    {
+    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_ {
         self.actions.iter()
     }
 }
 
-unsafe impl<Space: StateActionSpace> ActionPathFor<Space> for ActionSequence {}
+unsafe impl<Space> ActionPathFor<Space> for ActionSequence {}

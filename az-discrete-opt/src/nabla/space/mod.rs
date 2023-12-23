@@ -12,8 +12,8 @@ pub trait NablaStateActionSpace {
     const ACTION_DIM: usize;
 
     // fn index(&self, action: &Self::Action) -> usize;
-    // fn action(&self, index: usize) -> Self::Action;
-    // fn act(&self, state: &mut Self::State, action: &Self::Action);
+    fn action(&self, index: usize) -> Self::Action;
+    fn act(&self, state: &mut Self::State, action: &Self::Action);
     // fn follow(&self, state: &mut Self::State, actions: impl Iterator<Item = Self::Action>) {
     //     for action in actions {
     //         self.act(state, &action);
@@ -30,10 +30,13 @@ pub trait NablaStateActionSpace {
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]);
     fn cost(&self, state: &Self::State) -> Self::Cost;
     fn evaluate(&self, cost: &Self::Cost) -> f32;
-    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::Reward, h_theta_s_a: f32) -> f32;
+    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::Reward, h_theta_sa: f32) -> f32;
 }
 
-impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Layered<L, Space> {
+impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Layered<L, Space>
+where
+    Space::State: Clone,
+{
     type State = Layers<Space::State, L>;
 
     type Action = Space::Action;
@@ -45,6 +48,18 @@ impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Lay
     const STATE_DIM: usize = Space::STATE_DIM * L;
 
     const ACTION_DIM: usize = Space::ACTION_DIM;
+
+    fn action(&self, index: usize) -> Self::Action {
+        self.space.action(index)
+    }
+
+    fn act(&self, state: &mut Self::State, action: &Self::Action) {
+        state.push_op(|s| {
+            let mut s = s.clone();
+            self.space.act(&mut s, action);
+            s
+        });
+    }
 
     fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
         self.space.action_data(state.back())

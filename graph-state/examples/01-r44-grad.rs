@@ -1,6 +1,6 @@
 use std::io::BufWriter;
 
-use az_discrete_opt::{tensorboard::tf_path, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}, path::set::ActionSet};
+use az_discrete_opt::{tensorboard::tf_path, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}, path::{set::ActionSet, sequence::ActionSequence}};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
@@ -17,7 +17,7 @@ type RichState = WithProhibitions<RawState>;
 const STACK: usize = 8;
 type S = Layers<RichState, STACK>;
 type Cost = TotalCounts<C>;
-type P = ActionSet;
+type P = ActionSequence;
 
 type RichSpace = RichRamseySpace<B32, N, E, C>;
 type Space = Layered<STACK, RichSpace>;

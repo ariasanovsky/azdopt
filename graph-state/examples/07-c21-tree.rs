@@ -211,7 +211,7 @@ fn main() -> eyre::Result<()> {
             space.follow(
                 s,
                 action
-                    .actions_taken(&space)
+                    .actions_taken()
                     .map(|a| space.action(*a)),
             );
             if space.is_terminal(s) {
