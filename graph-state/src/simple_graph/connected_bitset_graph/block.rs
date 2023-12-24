@@ -1,5 +1,5 @@
 use crate::{
-    bitset::{primitive::B32, Bitset},
+    bitset::Bitset,
     simple_graph::edge::Edge,
 };
 

@@ -16,7 +16,7 @@ pub struct BitsetGraph<const N: usize, B> {
 
 #[derive(Clone, Debug)]
 pub struct ColoredCompleteBitsetGraph<const N: usize, const C: usize, B> {
-    graphs: [BitsetGraph<N, B>; C],
+    pub(crate) graphs: [BitsetGraph<N, B>; C],
 }
 
 impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {

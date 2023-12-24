@@ -1,8 +1,8 @@
 use az_discrete_opt::{nabla::space::NablaStateActionSpace, state::prohibit::WithProhibitions};
 
-use crate::bitset::Bitset;
+use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
-use super::{RamseyCounts, AssignColor, CountChange, TotalCounts};
+use super::{RamseyCounts, ReassignColor, CountChange, TotalCounts};
 
 pub struct RichRamseySpace<B, const N: usize, const E: usize, const C: usize> {
     sizes: [usize; C],
@@ -23,11 +23,14 @@ impl<B, const N: usize, const E: usize, const C: usize> RichRamseySpace<B, N, E,
     }
 }
 
-impl<B: Bitset, const N: usize, const E: usize, const C: usize> NablaStateActionSpace for RichRamseySpace<B, N, E, C>
+impl<B, const N: usize, const E: usize, const C: usize> NablaStateActionSpace for RichRamseySpace<B, N, E, C>
+where
+    B: Bitset + Clone,
+    B::Bits: Clone,
 {
     type State = WithProhibitions<RamseyCounts<N, E, C, B>>;
 
-    type Action = AssignColor;
+    type Action = ReassignColor;
 
     type Reward = CountChange;
 
@@ -43,14 +46,25 @@ impl<B: Bitset, const N: usize, const E: usize, const C: usize> NablaStateAction
 
     fn action(&self, index: usize) -> Self::Action {
         debug_assert!(index < Self::ACTION_DIM);
-        AssignColor {
+        ReassignColor {
             edge_pos: index % E,
             new_color: index / E,
         }
     }
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
-        todo!()
+        let WithProhibitions {
+            state,
+            prohibited_actions,
+        } = state;
+        
+        let ReassignColor {
+            edge_pos,
+            new_color,
+        } = *action;
+        let edge = Edge::from_colex_position(edge_pos);
+        state.reassign_color(edge, new_color, &self.sizes);
+        prohibited_actions.extend((0..C).map(|c| edge_pos + E * c));
     }
 
     fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {

@@ -7,7 +7,7 @@ pub struct StateNode {
 }
 
 impl StateNode {
-    pub fn next_action_data(&mut self) -> Option<(usize, &mut f32, &mut ActionDataKind)> {
+    pub fn next_action_data(&mut self) -> Option<(f32, usize, &mut f32, &mut ActionDataKind)> {
         let Self {
             n_s,
             c_s: _,
@@ -28,10 +28,15 @@ impl StateNode {
         *n_s += 1;
         *n_sa += 1;
         Some((
+            self.c_s,
             *a,
             g_theta_star_sa,
             kind,
         ))
+    }
+
+    pub fn cost(&self) -> f32 {
+        self.c_s
     }
 }
 

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::{nabla::tree::node::ActionData, path::{ActionPath, ActionPathFor}};
+use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::{StateNode};
+use self::node::{StateNode, ActionDataKind};
 
 use super::space::NablaStateActionSpace;
 
@@ -32,24 +32,39 @@ impl<P> SearchTree<P> {
         space: &Space,
         state: &mut Space::State,
         path: &mut P,
-    ) -> () //(NewNodeLevel<P>, Transitions)
+    ) -> (Vec<Transition>, NewNodeKind<P>) //(NewNodeLevel<P>, Transitions)
     where
         Space: NablaStateActionSpace,
         P: ActionPath + ActionPathFor<Space>,
     {
         let Self { root_node, nodes } = self;
-        let (a, g_sa, kind_sa) = root_node.next_action_data().unwrap();
+        let (c_s, a, g_sa, kind_sa) = root_node.next_action_data().unwrap();
         let action = space.action(a);
         space.act(state, &action);
-        todo!("path.push(*a)");
-        todo!("*n_sa += 1");
-        todo!()
+        unsafe { path.push_unchecked(a) };
+        let mut transitions = vec![Transition {
+            c_s,
+            g_theta_star_sa: g_sa,
+            kind_sa,
+        }];
+        for (i, level) in nodes.iter_mut().enumerate() {
+            todo!()
+        }
+        (
+            transitions,
+            NewNodeKind::NewLevel,
+        )
     }
 }
 
-pub struct Transitions;
+pub struct Transition<'roll_out> {
+    c_s: f32,
+    g_theta_star_sa: &'roll_out mut f32,
+    kind_sa: &'roll_out mut ActionDataKind,
+}
 
-// pub enum NewNodeLevel<'roll_out, P> {
-//     New,
-//     Old(&'roll_out mut BTreeMap<P, StateNodeKind>),
-// }
+pub enum NewNodeKind<'roll_out, P> {
+    NewLevel,
+    OldLevelNewNode(&'roll_out mut BTreeMap<P, StateNode>),
+    OldExhaustedNode { c_s_star: f32 },
+}

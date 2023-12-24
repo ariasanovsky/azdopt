@@ -6,7 +6,7 @@ use faer::{Faer, Mat};
 #[cfg(feature = "tensorboard")]
 use tensorboard_writer::proto::tensorboard::Summary;
 
-use crate::bitset::{primitive::B32, Bitset};
+use crate::bitset::Bitset;
 
 use super::{bitset_graph::BitsetGraph, edge::Edge};
 
@@ -376,6 +376,8 @@ impl Summarize for Conjecture2Dot1Cost {
 
 #[cfg(test)]
 mod tests {
+
+    use crate::bitset::primitive::B32;
 
     use super::*;
 

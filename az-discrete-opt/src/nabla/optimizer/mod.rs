@@ -76,7 +76,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space::Cost: Send,
         P: Send + crate::path::ActionPath + crate::path::ActionPathFor<Space>,
     {
-        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::ParallelSliceMut};
         let Self {
             space,
             roots,
@@ -92,10 +92,18 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let search_results = (trees, states, paths).into_par_iter().map(|(t, s, p)| {
             t.roll_out_episode(space, s, p)
         }).collect::<Vec<_>>();
-        todo!("should simulate once update cost, too?");
-        (states as &_, costs).into_par_iter().for_each(|(s, c)| {
+        let states = &self.states;
+        (states, costs).into_par_iter().for_each(|(s, c)| {
             *c = space.cost(s);
         });
+        let states = &self.states;
+        let state_vecs = states_host.par_chunks_exact_mut(Space::STATE_DIM);
+        states.par_iter().zip(state_vecs).for_each(|(s, s_host)| {
+            space.write_vec(s, s_host);
+        });
+        todo!("update nodes");
+        todo!("insert nodes");
+        model.write_predictions(states_host, h_theta_host);
         todo!()
     }
 

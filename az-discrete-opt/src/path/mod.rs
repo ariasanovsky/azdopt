@@ -15,6 +15,7 @@ pub trait ActionPath {
     /// # Safety
     /// `action` must be a valid index for `Space`
     unsafe fn push_unchecked(&mut self, action: usize);
+    // todo! deprecated
     fn push<Space>(&mut self, space: &Space, action: &Space::Action)
     where
         Space: StateActionSpace,

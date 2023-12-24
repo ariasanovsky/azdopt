@@ -66,7 +66,12 @@ where
     }
 
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
-        debug_assert!(vector.len() == Self::STATE_DIM * L);
+        debug_assert!(
+            vector.len() == Self::STATE_DIM,
+            "{} != {}",
+            vector.len(),
+            Self::STATE_DIM,
+        );
         state.buffer().iter().zip(vector.chunks_exact_mut(Space::STATE_DIM)).for_each(|(s, s_host)| {
             self.space.write_vec(s, s_host);
         });
