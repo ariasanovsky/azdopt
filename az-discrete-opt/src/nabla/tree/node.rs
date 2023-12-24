@@ -54,7 +54,7 @@ pub enum ActionDataKind {
 }
 
 impl StateNode {
-    pub(super) fn new<Space: NablaStateActionSpace>(
+    pub fn new<Space: NablaStateActionSpace>(
         space: &Space,
         state: &Space::State,
         cost: &Space::Cost,

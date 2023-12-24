@@ -72,7 +72,7 @@ fn main() -> eyre::Result<()> {
     let space: Space = Layered::new(space);
 
 
-    let max_num_root_actions = 30;
+    let max_num_root_actions = 40;
 
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(space, init_state, model, BATCH, max_num_root_actions);
@@ -87,7 +87,7 @@ fn main() -> eyre::Result<()> {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
             }
-            optimizer.par_roll_out_episode();
+            optimizer.par_roll_out_episode(15);
             todo!("update the argmin");
             todo!("write summary to tensorboard");
         }

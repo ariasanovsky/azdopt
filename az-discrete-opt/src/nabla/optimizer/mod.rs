@@ -69,14 +69,16 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_roll_out_episode(&mut self)
+    pub fn par_roll_out_episode(&mut self, max_num_actions: usize)
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
-        Space::Cost: Send,
-        P: Send + crate::path::ActionPath + crate::path::ActionPathFor<Space>,
+        Space::Cost: Send + Sync,
+        P: Send + Sync + crate::path::ActionPath + crate::path::ActionPathFor<Space>,
     {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::ParallelSliceMut};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
+
+        use crate::nabla::tree::node::StateNode;
         let Self {
             space,
             roots,
@@ -93,17 +95,29 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             t.roll_out_episode(space, s, p)
         }).collect::<Vec<_>>();
         let states = &self.states;
-        (states, costs).into_par_iter().for_each(|(s, c)| {
-            *c = space.cost(s);
+        (states, costs, &search_results).into_par_iter().for_each(|(s, c, (_, kind))| {
+            if kind.is_new() {
+                *c = space.cost(s);
+            }
         });
         let states = &self.states;
         let state_vecs = states_host.par_chunks_exact_mut(Space::STATE_DIM);
-        states.par_iter().zip(state_vecs).for_each(|(s, s_host)| {
-            space.write_vec(s, s_host);
+        states.par_iter().zip(state_vecs).zip(&search_results).for_each(|((s, s_host), (_, kind))| {
+            if kind.is_new() {
+                space.write_vec(s, s_host);
+            }
         });
-        todo!("update nodes");
-        todo!("insert nodes");
         model.write_predictions(states_host, h_theta_host);
+        let h_theta_vecs = h_theta_host.par_chunks_exact(Space::ACTION_DIM);
+        let nodes = (&self.states, &self.costs, &search_results).into_par_iter().zip(h_theta_vecs).map(|((s, c, (_, kind)), h_theta)| {
+            if kind.is_new() {
+                Some(StateNode::new(space, s, c, h_theta, max_num_actions))
+            } else {
+                None
+            }
+        }).collect::<Vec<_>>();
+        todo!("insert nodes");
+        todo!("update nodes");
         todo!()
     }
 
