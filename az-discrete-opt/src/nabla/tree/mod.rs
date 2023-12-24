@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::{StateNode, ActionDataKind};
+use self::node::{StateNode, ActionData, Transition};
 
 use super::space::NablaStateActionSpace;
 
@@ -39,15 +39,12 @@ impl<P> SearchTree<P> {
         P: ActionPath + ActionPathFor<Space>,
     {
         let Self { root_node, nodes } = self;
-        let (c_s, a, g_sa, kind_sa) = root_node.next_action_data().unwrap();
+        let transition = root_node.next_transition().unwrap();
+        let a = transition.action_index();
         let action = space.action(a);
         space.act(state, &action);
         unsafe { path.push_unchecked(a) };
-        let mut transitions = vec![Transition {
-            c_s,
-            g_theta_star_sa: g_sa,
-            kind_sa,
-        }];
+        let mut transitions = vec![transition];
         for (i, level) in nodes.iter_mut().enumerate() {
             todo!()
         }
@@ -56,12 +53,6 @@ impl<P> SearchTree<P> {
             NewNodeKind::NewLevel,
         )
     }
-}
-
-pub struct Transition<'roll_out> {
-    c_s: f32,
-    g_theta_star_sa: &'roll_out mut f32,
-    kind_sa: &'roll_out mut ActionDataKind,
 }
 
 pub enum NewNodeKind<'roll_out, P> {

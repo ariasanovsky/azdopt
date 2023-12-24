@@ -117,13 +117,11 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             }
         }).collect::<Vec<_>>();
         (search_results, new_nodes).into_par_iter().for_each(|((trans, kind), n)| {
-            let c_s_t_theta_star = todo!();
             kind.update_existing_nodes(
                 space,
                 trans,
                 n,
             );
-            todo!("update nodes");
         });
         todo!("insert nodes");
         todo!("clear paths")
