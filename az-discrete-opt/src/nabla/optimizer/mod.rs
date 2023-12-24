@@ -109,16 +109,24 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         });
         model.write_predictions(states_host, h_theta_host);
         let h_theta_vecs = h_theta_host.par_chunks_exact(Space::ACTION_DIM);
-        let nodes = (&self.states, &self.costs, &search_results).into_par_iter().zip(h_theta_vecs).map(|((s, c, (_, kind)), h_theta)| {
+        let new_nodes = (&self.states, &self.costs, &search_results).into_par_iter().zip(h_theta_vecs).map(|((s, c, (_, kind)), h_theta)| {
             if kind.is_new() {
                 Some(StateNode::new(space, s, c, h_theta, max_num_actions))
             } else {
                 None
             }
         }).collect::<Vec<_>>();
+        (search_results, new_nodes).into_par_iter().for_each(|((trans, kind), n)| {
+            let c_s_t_theta_star = todo!();
+            kind.update_existing_nodes(
+                space,
+                trans,
+                n,
+            );
+            todo!("update nodes");
+        });
         todo!("insert nodes");
-        todo!("update nodes");
-        todo!()
+        todo!("clear paths")
     }
 
     pub fn update_model(&mut self, weights: impl Fn(usize) -> f32) -> f32 {

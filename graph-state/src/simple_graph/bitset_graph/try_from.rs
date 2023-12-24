@@ -1,4 +1,4 @@
-use crate::bitset::{primitive::B32, Bitset};
+use crate::bitset::Bitset;
 
 use super::BitsetGraph;
 

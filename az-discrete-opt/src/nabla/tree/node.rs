@@ -103,11 +103,53 @@ const fn rescaled_index(i: usize, l: usize, k: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
 
     #[test]
     fn test_nearest_integer() {
         let nearest_integers = (0..5).map(|j| rescaled_index(j, 11, 5)).collect::<Vec<_>>();
         assert_eq!(&nearest_integers, &[0, 3, 5, 8, 10]);
+    }
+
+    #[test]
+    fn foo() {
+        let mut src = VecDeque::new();
+        src.push_back(0);
+        src.push_back(1);
+        src.push_back(2);
+        src.push_back(3);
+        src.push_back(4);
+
+        // let x = buf.get_mut(2);
+        // dbg!(x);
+
+        struct DelayedMove<'a, T> {
+            src: &'a mut VecDeque<T>,
+            dst: &'a mut VecDeque<T>,
+            i: usize,
+        }
+
+        impl<'a, T> DelayedMove<'a, T> {
+            fn new(src: &'a mut VecDeque<T>, dst: &'a mut VecDeque<T>, i: usize) -> Option<Self> {
+                if i < src.len() {
+                    Some(Self { src, dst, i })
+                } else {
+                    None
+                }
+            }
+
+            fn move_to_dst(self) {
+                let DelayedMove { src, dst, i } = self;
+                let x = src.remove(i).unwrap();
+                dst.push_back(x);
+            }
+        }
+        let mut dst = VecDeque::new();
+        dbg!(&src, &dst);
+        let delayed_move = DelayedMove::new(&mut src, &mut dst, 2).unwrap();
+        delayed_move.move_to_dst();
+        dbg!(&src, &dst);
     }
 }

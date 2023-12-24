@@ -6,7 +6,8 @@ use self::node::{StateNode, ActionDataKind};
 
 use super::space::NablaStateActionSpace;
 
-pub(crate) mod node;
+pub mod node;
+pub mod update_nodes;
 
 pub struct SearchTree<P> {
     root_node: StateNode,
@@ -66,7 +67,7 @@ pub struct Transition<'roll_out> {
 pub enum NewNodeKind<'roll_out, P> {
     NewLevel,
     OldLevelNewNode(&'roll_out mut BTreeMap<P, StateNode>),
-    OldExhaustedNode { c_s_star: f32 },
+    OldExhaustedNode { c_s_t_theta_star: f32 },
 }
 
 impl<P> NewNodeKind<'_, P> {

@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use crate::bitset::Bitset;
 
 use super::edge::Edge;
@@ -32,7 +30,7 @@ impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {
         let edges =
             (0..N)
             .flat_map(|v| (0..v).map(move |u| unsafe { Edge::new_unchecked(v, u) }));
-        for (i, e) in edges.enumerate() {
+        for e in edges {
             let c = w.sample(rng);
             let g = &mut graphs[c];
             unsafe { g.add_or_remove_edge_unchecked(e) };
