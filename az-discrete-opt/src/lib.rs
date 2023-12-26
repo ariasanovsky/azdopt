@@ -14,3 +14,5 @@ pub mod state;
 #[cfg(feature = "tensorboard")]
 pub mod tensorboard;
 pub mod tree_node;
+
+pub mod nabla;

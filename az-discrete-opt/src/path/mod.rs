@@ -15,6 +15,7 @@ pub trait ActionPath {
     /// # Safety
     /// `action` must be a valid index for `Space`
     unsafe fn push_unchecked(&mut self, action: usize);
+    // todo! deprecated
     fn push<Space>(&mut self, space: &Space, action: &Space::Action)
     where
         Space: StateActionSpace,
@@ -23,12 +24,9 @@ pub trait ActionPath {
         let index = space.index(action);
         unsafe { self.push_unchecked(index) }
     }
-    fn actions_taken<Space>(&self, space: &Space) -> impl Iterator<Item = &'_ usize> + '_
-    where
-        Space: StateActionSpace,
-        Self: ActionPathFor<Space>;
+    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_;
 }
 
 /// # Safety
 /// `Self` must be a valid `ActionPath` for `Space`
-pub unsafe trait ActionPathFor<Space: StateActionSpace>: ActionPath {}
+pub unsafe trait ActionPathFor<Space>: ActionPath {}

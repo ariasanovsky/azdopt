@@ -2,8 +2,6 @@ use crate::path::{
     multiset::ActionMultiset, ord_set::OrderedActionSet, set::ActionSet, ActionPathFor,
 };
 
-use super::StateActionSpace;
-
 /// # Safety
 /// `Self` must have the state and action space restrictions that prevent actions from being repeated
 pub unsafe trait ActionsNeverRepeat {}
@@ -12,16 +10,16 @@ pub unsafe trait ActionsNeverRepeat {}
 pub unsafe trait ActionOrderIndependent {}
 
 unsafe impl<Space> ActionPathFor<Space> for OrderedActionSet where
-    Space: StateActionSpace + ActionsNeverRepeat
+    Space: ActionsNeverRepeat
 {
 }
 
 unsafe impl<Space> ActionPathFor<Space> for ActionMultiset where
-    Space: StateActionSpace + ActionOrderIndependent
+    Space: ActionOrderIndependent
 {
 }
 
 unsafe impl<Space> ActionPathFor<Space> for ActionSet where
-    Space: StateActionSpace + ActionsNeverRepeat + ActionOrderIndependent
+    Space: ActionsNeverRepeat + ActionOrderIndependent
 {
 }

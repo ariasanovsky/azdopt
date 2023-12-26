@@ -1,7 +1,12 @@
+use crate::bitset::Bitset;
+
 use super::BitsetGraph;
 
-impl<const N: usize> BitsetGraph<N> {
-    pub fn to_graph6(&self) -> Vec<u8> {
+impl<const N: usize, B> BitsetGraph<N, B> {
+    pub fn to_graph6(&self) -> Vec<u8>
+    where
+        B: Bitset,
+    {
         let mut graph6: Vec<u8> = Vec::new();
 
         // Add the number of vertices to the graph6 string

@@ -57,7 +57,7 @@ pub trait Bitset {
     fn min(&self) -> Option<u32> {
         self.is_empty().then(|| unsafe { self.min_unchecked() })
     }
-    fn iter(&self) -> impl Iterator<Item = usize> + '_
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ + Clone
     where
         Self::Bits: Clone;
     /// # Safety

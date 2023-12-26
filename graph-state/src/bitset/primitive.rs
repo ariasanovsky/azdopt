@@ -156,7 +156,7 @@ where
         self.bits.trailing_zeros()
     }
 
-    fn iter(&self) -> impl Iterator<Item = usize> + '_
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ + Clone
     where
         Self::Bits: Clone,
     {

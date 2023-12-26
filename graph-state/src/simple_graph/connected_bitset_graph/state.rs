@@ -4,10 +4,14 @@ use crate::{bitset::Bitset, simple_graph::bitset_graph::space::action::AddOrDele
 
 use super::ConnectedBitsetGraph;
 
-pub struct ConnectedAddOrDeleteEdge<const N: usize>;
+pub struct ConnectedAddOrDeleteEdge<const N: usize, B>(core::marker::PhantomData<B>);
 
-impl<const N: usize> StateActionSpace for ConnectedAddOrDeleteEdge<N> {
-    type State = ConnectedBitsetGraph<N>;
+impl<const N: usize, B> StateActionSpace for ConnectedAddOrDeleteEdge<N, B>
+where
+    B: Bitset + Clone + PartialEq,
+    B::Bits: Clone,
+{
+    type State = ConnectedBitsetGraph<N, B>;
 
     type Action = AddOrDeleteEdge;
 
@@ -268,11 +272,11 @@ mod test {
     use az_discrete_opt::space::StateActionSpace;
 
     use super::*;
-    use crate::simple_graph::{bitset_graph::BitsetGraph, edge::Edge};
+    use crate::{simple_graph::{bitset_graph::BitsetGraph, edge::Edge}, bitset::primitive::B32};
 
     #[test]
     fn c4_is_connected_and_has_no_cut_edges() {
-        let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3), (3, 0)]
+        let graph: BitsetGraph<4, B32> = [(0, 1), (1, 2), (2, 3), (3, 0)]
             .as_ref()
             .try_into()
             .unwrap();
@@ -292,7 +296,7 @@ mod test {
 
     #[test]
     fn p4_is_connected_and_all_edges_are_cut_edges() {
-        let graph: BitsetGraph<4> = [(0, 1), (1, 2), (2, 3)].as_ref().try_into().unwrap();
+        let graph: BitsetGraph<4, B32> = [(0, 1), (1, 2), (2, 3)].as_ref().try_into().unwrap();
         let graph = graph.to_connected().unwrap();
         let len = graph
             .edges()
@@ -309,7 +313,7 @@ mod test {
 
     #[test]
     fn paw_is_connected_and_has_one_cut_edge() {
-        let graph: BitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (2, 3)]
+        let graph: BitsetGraph<4, B32> = [(0, 1), (0, 2), (1, 2), (2, 3)]
             .as_ref()
             .try_into()
             .unwrap();
@@ -331,11 +335,11 @@ mod test {
 
     #[test]
     fn complete_graph_on_four_vertices_has_all_possible_delete_actions() {
-        let graph: ConnectedBitsetGraph<4> = [(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)]
+        let graph: ConnectedBitsetGraph<4, B32> = [(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)]
             .as_ref()
             .try_into()
             .unwrap();
-        let space = ConnectedAddOrDeleteEdge::<4>;
+        let space = ConnectedAddOrDeleteEdge::<4, B32>(core::marker::PhantomData);
         let actions = space.action_indices(&graph)
             .map(|i| space.action(i))
             .collect::<Vec<_>>();

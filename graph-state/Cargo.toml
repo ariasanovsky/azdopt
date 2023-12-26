@@ -36,6 +36,10 @@ tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-write
 name = "07-c21-tree"
 required-features = ["dfdx-model", "tensorboard"]
 
+[[example]]
+name = "01-r44-grad"
+required-features = ["dfdx-model", "tensorboard"]
+
 [[bench]]
 name = "r44_17_search_tree_with_trivial_predictions"
 harness = false
