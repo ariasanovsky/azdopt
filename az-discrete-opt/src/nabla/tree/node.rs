@@ -58,6 +58,14 @@ impl StateNode {
         self.c_s
     }
 
+    pub fn active_actions(&self) -> impl Iterator<Item = &ActionData> {
+        self.active_actions.iter()
+    }
+
+    pub fn exhausted_actions(&self) -> impl Iterator<Item = &ActionData> {
+        self.exhausted_actions.iter()
+    }
+
     // pub fn next_transition_kind(&self) -> TransitionKind {
     //     if self.active_actions.is_empty() {
     //         let c_theta_star =

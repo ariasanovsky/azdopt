@@ -80,6 +80,7 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
         let new_count = self.counts[new_color][edge_pos];
         self.total_counts.0[old_color] -= old_count;
         self.total_counts.0[new_color] += new_count;
+        debug_assert!(self.total_counts.0.iter().all(|&c| c >= 0));
     }
 
     fn reassign_color_count_adjustment<const SUBTRACT: bool>(

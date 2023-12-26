@@ -109,7 +109,7 @@ fn main() -> eyre::Result<()> {
             eps: 1e-8,
             weight_decay: Some(WeightDecay::L2(1e-6)),
         };    
-        let loss = optimizer.update_model(weights, &cfg);
+        let loss = optimizer.par_update_model(weights, &cfg);
         todo!("write loss");
         todo!("write best cost");
         todo!("pick the next roots");

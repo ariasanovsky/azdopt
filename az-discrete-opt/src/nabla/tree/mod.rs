@@ -62,19 +62,6 @@ impl<P> SearchTree<P> {
                 },
                 Err(c) => return (transitions, NodeKind::OldExhausted { c_s_t_theta_star: c })
             }
-            // match level.get_mut(path) {
-            //     Some(node) => match node.next_transition() {
-            //         Ok(trans) => {
-            //             let a = trans.action_index();
-            //             let action = space.action(a);
-            //             space.act(state, &action);
-            //             unsafe { path.push_unchecked(a) };
-            //             transitions.push(trans);
-            //         },
-            //         Err(c) => return (transitions, NodeKind::OldExhausted { c_s_t_theta_star: c })
-            //     }
-            //     None => return (transitions, NodeKind::New(level)),
-            // }
         }
         (transitions, NodeKind::NewLevel)
     }
@@ -93,6 +80,10 @@ impl<P> SearchTree<P> {
         } = self;
         let level = BTreeMap::from_iter(core::iter::once((path, node)));
         levels.push(level);
+    }
+
+    pub(crate) fn root_node(&self) -> &StateNode {
+        &self.root_node
     }
 }
 

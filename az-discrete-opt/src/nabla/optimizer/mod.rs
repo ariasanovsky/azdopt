@@ -9,6 +9,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     states_host: Vec<f32>,
     h_theta_host: Vec<f32>,
     trees: Vec<SearchTree<P>>,
+    weights: Vec<f32>,
     model: M,
 }
 
@@ -46,6 +47,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 SearchTree::new(&space, s, c, h_theta, max_num_root_actions)
             })
             .collect();
+        let weights = vec![0.; batch * Space::ACTION_DIM];
         Self {
             space,
             roots,
@@ -55,6 +57,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states_host,
             h_theta_host,
             trees,
+            weights,
             model,
         }
     }
@@ -76,6 +79,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states_host: _,
             h_theta_host: _,
             trees: _,
+            weights: _,
             model: _,
         } = self;
         (states, costs)
@@ -103,6 +107,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states_host,
             h_theta_host,
             trees,
+            weights: _,
             model,
         } = self;
         states.clone_from(roots);
@@ -160,24 +165,51 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         // p.clear();
     }
 
-    pub fn update_model<A>(
-        &mut self, weights: impl Fn(usize) -> f32,
+    #[cfg(feature = "rayon")]
+    pub fn par_update_model<A>(
+        &mut self,
+        weight_fn: impl Fn(usize) -> f32 + Sync,
         cfg: &A,
-    ) -> f32 {
-        let Self {
-            space,
-            roots: _,
-            states: _,
-            costs,
-            paths: _,
-            states_host,
-            h_theta_host,
-            trees,
-            model,
-        } = self;
-        todo!("write observations");
-        todo!("write weights");
+    ) -> f32
+    where
+        Space: Sync,
+        Space::State: Clone + Send + Sync,
+        Space::Cost: Send + Sync,
+        P: Sync,
+    {
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
+
+        // sync `costs` with `roots`
+        (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
+            *c = self.space.cost(s);
+        });
+        // sync `states_vecs` with `states`
+        let states = &self.states;
+        let state_vecs = self.states_host.par_chunks_exact_mut(Space::STATE_DIM);
+        states.par_iter().zip(state_vecs).for_each(|((s, s_host))| {
+            self.space.write_vec(s, s_host);
+        });
+        // fill `h_theta_host`
+        self.model.write_predictions(&self.states_host, &mut self.h_theta_host);
+        let h_theta_vecs = self.h_theta_host.par_chunks_exact(Space::ACTION_DIM);
+        // clear weight buffer
+        self.weights.fill(0.);
+        let weight_vecs = self.weights.par_chunks_exact_mut(Space::ACTION_DIM);
+        // add default weight to valid actions
+        (&self.states, weight_vecs).into_par_iter().for_each(|(s, w)| {
+            for (a, _) in self.space.action_data(s) {
+                w[a] = weight_fn(a);
+            }
+        });
+        todo!("modify h_theta buffer with h_T(s_0, *) and weight buffer with w(n_T(s_0, *))");
+        let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
+        (&self.trees, weight_vecs, h_theta_vecs).into_par_iter().for_each(|(t, w, h_theta)| {
+            let root_node = t.root_node();
+            let active_actions = root_node.active_actions();
+            let exhausted_actions = root_node.exhausted_actions();
+            todo!()
+        });
         let observations = todo!();
-        model.update_model(states_host, observations)
+        self.model.update_model(&self.states_host, observations)
     }
 }
