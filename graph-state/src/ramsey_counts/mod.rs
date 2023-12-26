@@ -175,6 +175,19 @@ where
     fn short_form(&self) -> String {
         let graphs = self.graph.graphs();
         let counts = self.clique_counts().0;
-        graphs.iter().zip(counts.iter()).map(|(g, c)| format!("{}: {}", g, c)).join(", ")
+        graphs.iter().zip(counts.iter()).enumerate()
+            .map(|(i, (g, c))| format!("g_{i}:\n{g}k_{i}: {c}\n"))
+            .join("\n")
+    }
+}
+
+#[cfg(feature = "tensorboard")]
+impl<const C: usize> az_discrete_opt::tensorboard::Summarize for TotalCounts<C> {
+    fn summary(&self) -> tensorboard_writer::proto::tensorboard::Summary {
+        let mut summary = tensorboard_writer::SummaryBuilder::new();
+        for (c, &count) in self.0.iter().enumerate() {
+            summary = summary.scalar(&format!("clique_counts/{}", c), count as _);
+        }
+        summary.build()
     }
 }

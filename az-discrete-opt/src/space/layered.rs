@@ -9,7 +9,7 @@ pub struct Layered<const LAYERS: usize, Space> {
 }
 
 impl<const LAYERS: usize, Space> Layered<LAYERS, Space> {
-    pub fn new(space: Space) -> Self {
+    pub const fn new(space: Space) -> Self {
         Self { space }
     }
 }

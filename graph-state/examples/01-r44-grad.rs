@@ -1,15 +1,16 @@
-use std::io::BufWriter;
+use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{tensorboard::tf_path, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}, path::{set::ActionSet, sequence::ActionSequence}};
+use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}, path::sequence::ActionSequence};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
 use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RichRamseySpace, TotalCounts}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 17;
+const N: usize = 5;
 const E: usize = N * (N - 1) / 2;
 const C: usize = 2;
+const SIZES: [usize; 2] = [3, 3];
 
 type RawState = RamseyCounts<N, E, C, B32>;
 type RichState = WithProhibitions<RawState>;
@@ -47,17 +48,9 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let h_config = AdamConfig {
-        lr: 2e-2,
-        betas: [0.9, 0.999],
-        eps: 1e-8,
-        weight_decay: Some(WeightDecay::L2(1e-6)),
-    };
-
     let dist = rand::distributions::WeightedIndex::new([1., 1.]).unwrap();
     let init_state = || -> S {
         let mut rng = rand::thread_rng();
-        const SIZES: [usize; 2] = [4, 4];
         let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
         let s = RamseyCounts::new(g, &SIZES);
         let s = WithProhibitions::new(s, core::iter::empty());
@@ -65,20 +58,22 @@ fn main() -> eyre::Result<()> {
     };
 
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev);
-    let evaluate = |c: &Cost| -> f32 {
-        c.0.iter().sum::<i32>() as f32
-    };
-    let space: RichSpace = RichRamseySpace::new([4, 4], [1., 1.]);
-    let space: Space = Layered::new(space);
-
+    const RICH_SPACE: RichSpace = RichRamseySpace::new(SIZES, [1., 1.]);
+    const SPACE: Space = Layered::new(RICH_SPACE);
 
     let max_num_root_actions = 40;
 
-
-    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(space, init_state, model, BATCH, max_num_root_actions);
-    let (s, c, e) = optimizer.argmin().unwrap();
-    let mut argmin = ArgminData::new(s, c, 0, 0);
-
+    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(SPACE, init_state, model, BATCH, max_num_root_actions);
+    let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
+    println!("{}", argmin.0.short_form());
+    
+    writer.write_summary(
+        SystemTime::now(),
+        0,
+        argmin.0.cost().summary(),
+    )?;
+    writer.get_mut().flush()?;
+    
     let epochs: usize = 25;
     let episodes: usize = 800;
 
@@ -88,8 +83,17 @@ fn main() -> eyre::Result<()> {
                 println!("==== EPISODE: {episode} ====");
             }
             optimizer.par_roll_out_episode(15);
-            todo!("update the argmin");
-            todo!("write summary to tensorboard");
+            let episode_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), episode, epoch), e)).unwrap();
+            if episode_argmin.1 < argmin.1 {
+                argmin = episode_argmin;
+                writer.write_summary(
+                    SystemTime::now(),
+                    (episodes * epoch + episode) as i64,
+                    argmin.0.cost().summary(),
+                )?;
+                writer.get_mut().flush()?;
+                println!("{}", argmin.0.short_form());
+            }
         }
         
         let weights = |n_sa: usize| {
@@ -99,7 +103,13 @@ fn main() -> eyre::Result<()> {
                 (n_sa as f32).sqrt()
             }
         };
-        let loss = optimizer.update_model(weights);
+        let cfg = AdamConfig {
+            lr: 2e-2,
+            betas: [0.9, 0.999],
+            eps: 1e-8,
+            weight_decay: Some(WeightDecay::L2(1e-6)),
+        };    
+        let loss = optimizer.update_model(weights, &cfg);
         todo!("write loss");
         todo!("write best cost");
         todo!("pick the next roots");

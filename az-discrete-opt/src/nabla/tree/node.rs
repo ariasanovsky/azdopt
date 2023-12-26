@@ -10,7 +10,7 @@ pub struct StateNode {
 }
 
 impl StateNode {
-    pub fn next_transition(&mut self) -> Option<Transition> {
+    pub fn next_transition(&mut self) -> Result<Transition, f32> {
         let Self {
             n_s,
             c_s,
@@ -18,10 +18,11 @@ impl StateNode {
             exhausted_actions,
         } = self;
         if active_actions.is_empty() {
-            return None;
+            let c_s_theta_star = todo!();
+            return Err(c_s_theta_star)
         }
         if (*n_s as usize) < active_actions.len() {
-            Some(Transition {
+            Ok(Transition {
                 c_s: *c_s,
                 pos: *n_s,
                 n_s,
@@ -29,7 +30,15 @@ impl StateNode {
                 exhausted_actions,
             })
         } else {
-            todo!()
+            // todo! temporary greedy policy
+            let pos = 0;
+            Ok(Transition {
+                c_s: *c_s,
+                pos,
+                n_s,
+                active_actions,
+                exhausted_actions,
+            })
         }
         // let ActionData {
         //     a,
@@ -48,6 +57,27 @@ impl StateNode {
     pub fn cost(&self) -> f32 {
         self.c_s
     }
+
+    // pub fn next_transition_kind(&self) -> TransitionKind {
+    //     if self.active_actions.is_empty() {
+    //         let c_theta_star =
+    //             self.exhausted_actions
+    //             .iter()
+    //             .map(|a| a.g_theta_star_sa)
+    //             .min_by(|a, b| a.partial_cmp(b).unwrap())
+    //             .map_or_else(|| self.c_s, |a| self.c_s - a);
+    //         TransitionKind::Exhausting { c_theta_star }
+    //     } else {
+    //         let c_theta_star = 
+    //             self.active_actions
+    //             .iter()
+    //             .chain(self.exhausted_actions.iter())
+    //             .map(|a| a.g_theta_star_sa)
+    //             .min_by(|a, b| a.partial_cmp(b).unwrap())
+    //             .map_or_else(|| self.c_s, |a| self.c_s - a);
+    //         TransitionKind::Active { c_theta_star }
+    //     }
+    // }
 }
 
 pub struct Transition<'roll_out> {
@@ -59,8 +89,8 @@ pub struct Transition<'roll_out> {
 }
 
 pub enum TransitionKind {
-    Exhausting,
-    Active,
+    Exhausting { c_theta_star: f32 },
+    Active { c_theta_star: f32 },
 }
 
 impl Transition<'_> {
@@ -71,7 +101,6 @@ impl Transition<'_> {
     pub fn update_action_data(
         self,
         kind: &mut TransitionKind,
-        c_theta_star: &mut f32,
     ) {
         let Self {
             n_s,
@@ -81,16 +110,16 @@ impl Transition<'_> {
             exhausted_actions,
         } = self;
         match kind {
-            TransitionKind::Exhausting => {
+            TransitionKind::Exhausting { c_theta_star } => {
                 let mut action = active_actions.remove(pos as _).unwrap();
-                todo!("update the value inside action");
+                action.update_with(c_s, c_theta_star);
                 exhausted_actions.push(action);
                 match active_actions.is_empty() {
-                    true => todo!(),
-                    false => todo!(),
+                    true => {},
+                    false => *kind = TransitionKind::Active { c_theta_star: *c_theta_star },
                 }
             },
-            TransitionKind::Active => {
+            TransitionKind::Active { c_theta_star } => {
                 let action = active_actions.get_mut(pos as _).unwrap();
                 action.update_with(c_s, c_theta_star);
                 *n_s += 1;
@@ -130,7 +159,7 @@ impl StateNode {
         cost: &Space::Cost,
         h_theta: &[f32],
         max_num_actions: usize,
-    ) -> Self {
+    ) -> (Self, TransitionKind) {
         let c_s = space.evaluate(cost);
         let mut actions: VecDeque<ActionData> = space.action_data(&state).map(|(a, r_sa)| ActionData {
             a,
@@ -149,12 +178,19 @@ impl StateNode {
                 actions.shrink_to_fit();
             },
         }
-        Self {
+        let kind = match actions.front() {
+            Some(a_star) => TransitionKind::Active { c_theta_star: c_s - a_star.g_theta_star_sa },
+            None => TransitionKind::Exhausting { c_theta_star: c_s },
+        };
+        (
+            Self {
             n_s: 0,
             c_s,
             active_actions: actions,
             exhausted_actions: Vec::new(),
-        }
+            },
+            kind,
+        )
     }
 }
 

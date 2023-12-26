@@ -14,10 +14,11 @@ where
             .iter()
             .enumerate()
             .try_for_each(|(i, neighborhood)| {
-                writeln!(f, "node {}:", i)?;
+                write!(f, "node {}:", i)?;
                 neighborhood
                     .iter()
-                    .try_for_each(|edge| writeln!(f, "  {}", edge))
+                    .try_for_each(|edge| write!(f, "  {}", edge))?;
+                writeln!(f)
             })
     }
 }
