@@ -1,4 +1,4 @@
-use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::{MeanTo, SumTo}, shapes::Rank1};
+use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::{MeanTo, SumTo, BroadcastTo}, shapes::Rank1};
 
 use dfdx::{
     nn::Module,
@@ -65,10 +65,10 @@ where
     fn write_predictions(&mut self, states: &[f32], predictions: &mut [f32]) {
         let Self {
             model,
-            gradients,
-            optimizer,
+            gradients: _,
+            optimizer: _,
             states_dev,
-            weights_dev,
+            weights_dev: _,
             actions_dev,
         } = self;
         debug_assert_eq!(states.len(), BATCH * STATE);
@@ -98,6 +98,9 @@ where
         states_dev.copy_from(states);
         actions_dev.copy_from(observations);
         weights_dev.copy_from(weights);
+        let normalization = weights_dev.clone().sum::<Rank1<BATCH>, _>().recip();
+        let normalization: Tensor<Rank2<BATCH, ACTION>, _, _> = normalization.broadcast();
+        *weights_dev = weights_dev.clone() * normalization;
         let gradients = gradients.take().unwrap_or_else(|| model.alloc_grads());
         let states_traced = states_dev.clone().trace(gradients);
         let predictions = model.forward(states_traced);
@@ -112,3 +115,4 @@ where
         l
     }
 }
+
