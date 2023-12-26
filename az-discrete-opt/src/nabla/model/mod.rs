@@ -2,8 +2,13 @@
 pub mod dfdx;
 
 pub trait NablaModel {
-    fn write_predictions(&mut self, x_t: &[f32], predictions: &mut [f32]);
-    fn update_model(&mut self, x_t: &[f32], observations: &[f32]) -> f32;
+    fn write_predictions(&mut self, states: &[f32], predictions: &mut [f32]);
+    fn update_model(
+        &mut self,
+        states: &[f32],
+        observations: &[f32],
+        weights: &[f32],
+    ) -> f32;
 }
 
 #[cfg(feature = "tensorboard")]

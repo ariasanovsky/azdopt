@@ -137,9 +137,9 @@ impl Transition<'_> {
 }
 
 pub struct ActionData {
-    pub(super) a: usize,
-    pub(super) n_sa: u32,
-    pub(super) g_theta_star_sa: f32,
+    pub a: usize,
+    pub n_sa: u32,
+    pub g_theta_star_sa: f32,
 }
 
 impl ActionData {
@@ -172,7 +172,7 @@ impl StateNode {
         let mut actions: VecDeque<ActionData> = space.action_data(&state).map(|(a, r_sa)| ActionData {
             a,
             n_sa: 0,
-            g_theta_star_sa: space.g_theta_star_sa(c_s, r_sa, h_theta[a]),
+            g_theta_star_sa: space.g_theta_star_sa(cost, r_sa, h_theta[a]),
         }).collect();
         actions.make_contiguous().sort_unstable_by(|a, b| a.g_theta_star_sa.partial_cmp(&b.g_theta_star_sa).unwrap());
         match actions.len() <= max_num_actions {

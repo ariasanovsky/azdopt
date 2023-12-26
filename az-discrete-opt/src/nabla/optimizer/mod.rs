@@ -14,6 +14,10 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
 }
 
 impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P> {
+    pub fn get_model_mut(&mut self) -> &mut M {
+        &mut self.model
+    }
+    
     #[cfg(feature = "rayon")]
     pub fn par_new(
         space: Space,
@@ -96,7 +100,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space::Cost: Send + Sync,
         P: Ord + Clone + Send + Sync + crate::path::ActionPath + crate::path::ActionPathFor<Space>,
     {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
 
         let Self {
             space,
@@ -122,7 +126,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         });
         let states = &self.states;
         let state_vecs = states_host.par_chunks_exact_mut(Space::STATE_DIM);
-        states.par_iter().zip(state_vecs).zip(&node_kinds).for_each(|((s, s_host), kind)| {
+        (states, state_vecs, &node_kinds).into_par_iter().for_each(|(s, s_host, kind)| {
             if kind.is_new() {
                 space.write_vec(s, s_host);
             }
@@ -146,38 +150,17 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             }
             p.clear();
         });
-        // (&mut self.trees, new_nodes, &mut self.paths, node_kinds).into_par_iter().filter_map(|(t, n, p, k)| {
-        //     n.map(|n| (t, n, p, k))
-        // }).for_each(|(t, n, p, k)| {
-        //     todo!()
-        // });
-        
-        // if let Some(n) = n {
-        //     match kind {
-        //         NodeKind::NewLevel => todo!(),
-        //         NodeKind::New(level) => {
-        //             let old_node = level.insert(p.clone(), n);
-        //             debug_assert!(old_node.is_none());
-        //         },
-        //         NodeKind::OldExhausted { c_s_t_theta_star: _ } => unreachable!(),
-        //     }
-        // }
-        // p.clear();
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_update_model<A>(
-        &mut self,
-        weight_fn: impl Fn(usize) -> f32 + Sync,
-        cfg: &A,
-    ) -> f32
+    pub fn par_update_model(&mut self, weight_fn: impl Fn(u32) -> f32 + Sync) -> f32
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
         P: Sync,
     {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         // sync `costs` with `roots`
         (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
@@ -186,30 +169,36 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         // sync `states_vecs` with `states`
         let states = &self.states;
         let state_vecs = self.states_host.par_chunks_exact_mut(Space::STATE_DIM);
-        states.par_iter().zip(state_vecs).for_each(|((s, s_host))| {
+        (states, state_vecs).into_par_iter().for_each(|(s, s_host)| {
             self.space.write_vec(s, s_host);
         });
+        // states.par_iter().zip(state_vecs).for_each(|((s, s_host))| {
+        //     self.space.write_vec(s, s_host);
+        // });
         // fill `h_theta_host`
         self.model.write_predictions(&self.states_host, &mut self.h_theta_host);
-        let h_theta_vecs = self.h_theta_host.par_chunks_exact(Space::ACTION_DIM);
+        let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
         // clear weight buffer
         self.weights.fill(0.);
         let weight_vecs = self.weights.par_chunks_exact_mut(Space::ACTION_DIM);
         // add default weight to valid actions
         (&self.states, weight_vecs).into_par_iter().for_each(|(s, w)| {
             for (a, _) in self.space.action_data(s) {
-                w[a] = weight_fn(a);
+                w[a] = weight_fn(0);
             }
         });
-        todo!("modify h_theta buffer with h_T(s_0, *) and weight buffer with w(n_T(s_0, *))");
-        let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
-        (&self.trees, weight_vecs, h_theta_vecs).into_par_iter().for_each(|(t, w, h_theta)| {
+        let weight_vecs = self.weights.par_chunks_exact_mut(Space::ACTION_DIM);
+        (&self.trees, &self.roots, &self.costs, weight_vecs, h_theta_vecs).into_par_iter().for_each(|(t, s, c, w, h_theta)| {
             let root_node = t.root_node();
             let active_actions = root_node.active_actions();
             let exhausted_actions = root_node.exhausted_actions();
-            todo!()
+            let action_data = active_actions.chain(exhausted_actions);
+            for crate::nabla::tree::node::ActionData { a, n_sa, g_theta_star_sa} in action_data {
+                w[*a] = weight_fn(*n_sa);
+                let r_sa = self.space.reward(s, *a);
+                h_theta[*a] = self.space.h_sa(c, r_sa, *g_theta_star_sa)
+            }
         });
-        let observations = todo!();
-        self.model.update_model(&self.states_host, observations)
+        self.model.update_model(&self.states_host, &self.h_theta_host, &self.weights)
     }
 }

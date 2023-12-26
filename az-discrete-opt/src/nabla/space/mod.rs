@@ -13,6 +13,7 @@ pub trait NablaStateActionSpace {
 
     // fn index(&self, action: &Self::Action) -> usize;
     fn action(&self, index: usize) -> Self::Action;
+    fn reward(&self, state: &Self::State, index: usize) -> Self::Reward;
     fn act(&self, state: &mut Self::State, action: &Self::Action);
     // fn follow(&self, state: &mut Self::State, actions: impl Iterator<Item = Self::Action>) {
     //     for action in actions {
@@ -30,7 +31,8 @@ pub trait NablaStateActionSpace {
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]);
     fn cost(&self, state: &Self::State) -> Self::Cost;
     fn evaluate(&self, cost: &Self::Cost) -> f32;
-    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::Reward, h_theta_sa: f32) -> f32;
+    fn g_theta_star_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, h_theta_sa: f32) -> f32;
+    fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32;
 }
 
 impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Layered<L, Space>
@@ -51,6 +53,10 @@ where
 
     fn action(&self, index: usize) -> Self::Action {
         self.space.action(index)
+    }
+
+    fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
+        self.space.reward(&state.back(), index)
     }
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
@@ -85,7 +91,11 @@ where
         self.space.evaluate(cost)
     }
 
-    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::Reward, h_theta_sa: f32) -> f32 {
+    fn g_theta_star_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, h_theta_sa: f32) -> f32 {
         self.space.g_theta_star_sa(c_s, r_sa, h_theta_sa)
+    }
+
+    fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32 {
+        self.space.h_sa(c_s, r_sa, g_sa)
     }
 }

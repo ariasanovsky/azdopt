@@ -52,6 +52,22 @@ where
         }
     }
 
+    fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
+        let new_color = index / E;
+        let index = index % E;
+        let edge = Edge::from_colex_position(index);
+        let (v, u) = edge.vertices();
+        let old_color = state.state.graph().color(v, u);
+        let old_count = state.state.counts[old_color][index];
+        let new_count = state.state.counts[new_color][index];
+        CountChange {
+            old_color,
+            new_color,
+            old_count,
+            new_count,
+        }
+    }
+
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
         let WithProhibitions {
             state,
@@ -121,7 +137,8 @@ where
         cost.0.iter().zip(self.weights.iter()).map(|(c, w)| *c as f32 * w).sum()
     }
 
-    fn g_theta_star_sa(&self, _c_s: f32, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
+    fn g_theta_star_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
+        let TotalCounts(_c_s) = c_s;
         let CountChange {
             old_color,
             new_color,
@@ -132,5 +149,19 @@ where
             (old_count as f32 * self.weights[old_color]) - 
             (new_count as f32 * self.weights[new_color]);
         reward + h_theta_s_a
+    }
+
+    fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32 {
+        let TotalCounts(_c_s) = c_s;
+        let CountChange {
+            old_color,
+            new_color,
+            old_count,
+            new_count,
+        } = r_sa;
+        let reward = 
+            (old_count as f32 * self.weights[old_color]) - 
+            (new_count as f32 * self.weights[new_color]);
+        g_sa - reward
     }
 }

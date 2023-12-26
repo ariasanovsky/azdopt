@@ -57,7 +57,13 @@ fn main() -> eyre::Result<()> {
         Layers::new(s)
     };
 
-    let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev);
+    let cfg = AdamConfig {
+        lr: 2e-2,
+        betas: [0.9, 0.999],
+        eps: 1e-8,
+        weight_decay: Some(WeightDecay::L2(1e-6)),
+    };
+    let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     const RICH_SPACE: RichSpace = RichRamseySpace::new(SIZES, [1., 1.]);
     const SPACE: Space = Layered::new(RICH_SPACE);
 
@@ -77,7 +83,7 @@ fn main() -> eyre::Result<()> {
     let epochs: usize = 25;
     let episodes: usize = 800;
 
-    for epoch in 0..epochs {
+    for epoch in 1..epochs {
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
@@ -96,23 +102,30 @@ fn main() -> eyre::Result<()> {
             }
         }
         
-        let weights = |n_sa: usize| {
+        let weights = |n_sa| {
             if n_sa == 0 {
                 0.05
             } else {
                 (n_sa as f32).sqrt()
             }
         };
-        let cfg = AdamConfig {
-            lr: 2e-2,
-            betas: [0.9, 0.999],
-            eps: 1e-8,
-            weight_decay: Some(WeightDecay::L2(1e-6)),
-        };    
-        let loss = optimizer.par_update_model(weights, &cfg);
-        todo!("write loss");
-        todo!("write best cost");
-        todo!("pick the next roots");
+        let loss = optimizer.par_update_model(weights);
+        let summary = loss.summary();
+        writer.write_summary(
+            SystemTime::now(),
+            (episodes * (epoch + 1)) as i64,
+            summary,
+        )?;
+        let summary = argmin.0.cost().summary();
+        writer.write_summary(
+            SystemTime::now(),
+            (episodes * (epoch + 1)) as i64,
+            summary,
+        )?;
+        writer.get_mut().flush()?;
+        if epoch % 4 == 0 {
+            todo!("pick the next roots");
+        }
     }
     Ok(())
 }
