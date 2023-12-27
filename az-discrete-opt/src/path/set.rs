@@ -40,7 +40,7 @@ impl ActionPath for ActionSet {
         unsafe { self.push_unchecked(index) }
     }
 
-    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_ {
-        self.actions.iter()
+    fn actions_taken(&self) -> impl Iterator<Item = usize> + '_ {
+        self.actions.iter().copied()
     }
 }

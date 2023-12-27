@@ -21,9 +21,9 @@ pub trait NablaStateActionSpace {
     //     }
     // }
     fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a;
-    // fn is_terminal(&self, state: &Self::State) -> bool {
-    //     self.action_indices(state).next().is_none()
-    // }
+    fn is_terminal(&self, state: &Self::State) -> bool {
+        self.action_data(state).next().is_none()
+    }
     // fn has_action(&self, state: &Self::State, action: &Self::Action) -> bool {
     //     let action_index = self.index(action);
     //     self.action_indices(state).any(|i| i == action_index)

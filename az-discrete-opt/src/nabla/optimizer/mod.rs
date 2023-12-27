@@ -202,4 +202,79 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         });
         self.model.update_model(&self.states_host, &self.h_theta_host, &self.weights)
     }
+
+    #[cfg(feature = "rayon")]
+    pub fn par_select_next_roots(
+        &mut self,
+        init_states: impl Fn() -> Space::State + Sync + Send,
+        max_num_root_actions: usize,
+    )
+    where
+        Space: Sync,
+        P: Ord + Send + Sync + crate::path::ActionPathFor<Space>,
+        Space::State: Clone + Send + Sync,
+        Space::Cost: Send + Sync,
+    {
+        use rayon::iter::{ParallelIterator, IntoParallelIterator, ParallelExtend};
+
+        use crate::{nabla::tree::node::RetainFencepost, path::ActionPath};
+
+        let mut next_roots = (&self.trees, &self.roots).into_par_iter().flat_map(|(t, s)| {
+            t.par_next_roots().map(move |(p, a, c_star)| (s, p, a, c_star))
+        }).collect::<Vec<_>>();
+        next_roots.sort_unstable_by(|a, b| a.3.partial_cmp(&b.3).unwrap());
+        next_roots.retain_fencepost(self.roots.len());
+        let mut next_roots = next_roots.into_par_iter().filter_map(|(s, p, a, c_star)| {
+            let mut s = s.clone();
+            p.into_iter()
+                .flat_map(ActionPath::actions_taken)
+                .chain(core::iter::once(a))
+                .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
+            if self.space.is_terminal(&s) {
+                None
+            } else {
+                Some(s)
+            }
+        }).collect::<Vec<_>>();
+        let missing = self.roots.len().saturating_sub(next_roots.len());
+        next_roots.par_extend((0..missing).into_par_iter().map(|_| {
+            let mut s = init_states();
+            while self.space.is_terminal(&s) {
+                s = init_states();
+            }
+            s
+        }));
+        self.roots = next_roots;
+        (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
+            *c = self.space.cost(s);
+        });
+        self.par_reset_trees(max_num_root_actions);
+        // todo!("anything else?")
+    }
+
+    #[cfg(feature = "rayon")]
+    fn par_reset_trees(&mut self, max_num_root_actions: usize)
+    where
+        Space: Sync,
+        Space::State: Sync,
+        Space::Cost: Send + Sync,
+        P: Send,
+    {
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
+
+        (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
+            *c = self.space.cost(s);
+        });
+        let state_vecs = self.states_host.par_chunks_exact_mut(Space::STATE_DIM);
+        (&self.states, state_vecs).into_par_iter().for_each(|(s, s_host)| {
+            self.space.write_vec(s, s_host);
+        });
+        self.model.write_predictions(&self.states_host, &mut self.h_theta_host);
+        let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
+        (&mut self.trees, &self.roots, &self.costs, h_theta_vecs).into_par_iter().for_each(|(t, s, c, h_theta)| {
+            // todo! ?perf
+            *t = SearchTree::new(&self.space, s, c, h_theta, max_num_root_actions);
+        });
+        // todo!("anything else?")
+    }
 }

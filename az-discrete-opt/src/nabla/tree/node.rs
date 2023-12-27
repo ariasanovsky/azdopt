@@ -18,7 +18,11 @@ impl StateNode {
             exhausted_actions,
         } = self;
         if active_actions.is_empty() {
-            let c_s_theta_star = todo!();
+            let c_s_theta_star =
+                exhausted_actions.iter()
+                .map(|a| a.g_theta_star_sa)
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .map_or(*c_s, |g_theta_star_sa| *c_s - g_theta_star_sa);
             return Err(c_s_theta_star)
         }
         if (*n_s as usize) < active_actions.len() {
@@ -52,6 +56,20 @@ impl StateNode {
 
     pub fn exhausted_actions(&self) -> impl Iterator<Item = &ActionData> {
         self.exhausted_actions.iter()
+    }
+
+    #[cfg(feature = "rayon")]
+    pub(crate) fn par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (usize, f32)> + '_ {
+        use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
+        let actions = self.active_actions.par_iter().chain(self.exhausted_actions.par_iter());
+        actions.map(|a| {
+            let ActionData { a, n_sa: _, g_theta_star_sa } = a;
+            (
+                *a,
+                self.c_s - *g_theta_star_sa,
+            )
+        })
     }
 }
 
@@ -121,7 +139,11 @@ impl ActionData {
             g_theta_star_sa,
         } = self;
         let g_sa = c_s - *c_theta_star;
-        *g_theta_star_sa = g_sa.min(*g_theta_star_sa);
+        if *n_sa == 0 {
+            *g_theta_star_sa = g_sa;
+        } else {
+            *g_theta_star_sa = g_sa.min(*g_theta_star_sa);
+        }
         *c_theta_star = c_theta_star.min(c_s);
         *n_sa += 1;
     }
@@ -141,7 +163,7 @@ impl StateNode {
             n_sa: 0,
             g_theta_star_sa: space.g_theta_star_sa(cost, r_sa, h_theta[a]),
         }).collect();
-        actions.make_contiguous().sort_unstable_by(|a, b| a.g_theta_star_sa.partial_cmp(&b.g_theta_star_sa).unwrap());
+        actions.make_contiguous().sort_unstable_by(|a, b| b.g_theta_star_sa.partial_cmp(&a.g_theta_star_sa).unwrap());
         match actions.len() <= max_num_actions {
             true => {},
             false => {
@@ -171,6 +193,23 @@ impl StateNode {
 
 const fn rescaled_index(i: usize, l: usize, k: usize) -> usize {
     (i * 2 * (l - 1) + k - 1) / ((k - 1) * 2)
+}
+
+pub(crate) trait RetainFencepost {
+    fn retain_fencepost(&mut self, n: usize);
+}
+
+impl<T> RetainFencepost for Vec<T> {
+    fn retain_fencepost(&mut self, k: usize) {
+        if self.len() < k {
+            return
+        }
+        for j in 0..k {
+            let i = rescaled_index(j, self.len(), k);
+            self.swap(i, j);
+        }
+        self.truncate(k);
+    }
 }
 
 #[cfg(test)]

@@ -37,8 +37,8 @@ impl ActionPath for OrderedActionSet {
         unsafe { self.push_unchecked(index) }
     }
 
-    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_
+    fn actions_taken(&self) -> impl Iterator<Item = usize> + '_
     {
-        self.actions.iter()
+        self.actions.iter().copied()
     }
 }

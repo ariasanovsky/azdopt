@@ -91,6 +91,24 @@ impl<P> SearchTree<P> {
     pub(crate) fn root_node(&self) -> &StateNode {
         &self.root_node
     }
+
+    #[cfg(feature = "rayon")]
+    pub(crate) fn par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, usize, f32)> + '_
+    where
+        P: Ord + Sync,
+    {
+        use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
+
+        let next_from_roots =
+            self.root_node.par_next_roots()
+            .map(|(a, c_star)| (None, a, c_star));
+        let next_from_nodes = self.levels.par_iter().flat_map(|level| {
+            level.par_iter().flat_map(|(p, n)| {
+                n.par_next_roots().map(move |(a, c_star)| (Some(p), a, c_star))
+            })
+        });
+        next_from_roots.chain(next_from_nodes)
+    }
 }
 
 pub enum NodeKind<'roll_out, P> {

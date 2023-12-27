@@ -7,10 +7,10 @@ use eyre::Context;
 use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RichRamseySpace}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 16;
+const N: usize = 5;
 const E: usize = N * (N - 1) / 2;
-const C: usize = 3;
-const SIZES: [usize; C] = [3, 3, 3];
+const C: usize = 2;
+const SIZES: [usize; C] = [3, 3];
 
 type RawState = RamseyCounts<N, E, C, B32>;
 type RichState = WithProhibitions<RawState>;
@@ -25,8 +25,8 @@ type Space = Layered<STACK, RichSpace>;
 const ACTION: usize = E * C;
 const STATE: usize = STACK * 3 * C * E;
 
-const HIDDEN_1: usize = 128;
-const HIDDEN_2: usize = 128;
+const HIDDEN_1: usize = 4096;
+const HIDDEN_2: usize = 4096;
 
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -34,7 +34,7 @@ type ModelH = (
     (Linear<HIDDEN_2, ACTION>, ReLU),
 );
 
-const BATCH: usize = 1024;
+const BATCH: usize = 2;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
@@ -47,7 +47,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
+    let dist = rand::distributions::WeightedIndex::new([1., 1.,])?;
     let init_state = || -> S {
         let mut rng = rand::thread_rng();
         let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
@@ -63,14 +63,14 @@ fn main() -> eyre::Result<()> {
         weight_decay: Some(WeightDecay::L2(1e-6)),
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
-    const RICH_SPACE: RichSpace = RichRamseySpace::new(SIZES, [1., 1., 1.]);
+    const RICH_SPACE: RichSpace = RichRamseySpace::new(SIZES, [1., 1.,]);
     const SPACE: Space = Layered::new(RICH_SPACE);
 
     let max_num_root_actions = 15;
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(SPACE, init_state, model, BATCH, max_num_root_actions);
     let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
-    println!("{}", argmin.0.short_form());
+    println!("{}", argmin.1);
     
     writer.write_summary(
         SystemTime::now(),
@@ -83,6 +83,7 @@ fn main() -> eyre::Result<()> {
     let episodes: usize = 800;
 
     for epoch in 1..epochs {
+        println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
@@ -102,7 +103,8 @@ fn main() -> eyre::Result<()> {
                     argmin.0.cost().summary(),
                 )?;
                 writer.get_mut().flush()?;
-                println!("{}", argmin.0.short_form());
+                // println!("{}", argmin.0.short_form());
+                println!("{}", argmin.1);
             }
         }
         
@@ -117,19 +119,28 @@ fn main() -> eyre::Result<()> {
         let summary = loss.summary();
         writer.write_summary(
             SystemTime::now(),
-            (episodes * (epoch + 1)) as i64,
+            (episodes * epoch) as i64,
             summary,
         )?;
         let summary = argmin.0.cost().summary();
         writer.write_summary(
             SystemTime::now(),
-            (episodes * (epoch + 1)) as i64,
+            (episodes * epoch) as i64,
             summary,
         )?;
         writer.get_mut().flush()?;
-        todo!("clear trees");
-        if epoch % 4 == 0 {
-            // todo!("pick the next roots");
+        optimizer.par_select_next_roots(init_state, max_num_root_actions);
+        let root_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, epoch + 1), e)).unwrap();
+        if root_argmin.1 < argmin.1 {
+            argmin = root_argmin;
+            writer.write_summary(
+                SystemTime::now(),
+                (episodes * epoch) as i64,
+                argmin.0.cost().summary(),
+            )?;
+            writer.get_mut().flush()?;
+            // println!("{}", argmin.0.short_form());
+            println!("{}", argmin.1);
         }
     }
     Ok(())

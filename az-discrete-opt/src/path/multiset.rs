@@ -42,9 +42,10 @@ impl ActionPath for ActionMultiset {
         unsafe { self.push_unchecked(index) }
     }
 
-    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_ {
+    fn actions_taken(&self) -> impl Iterator<Item = usize> + '_ {
         self.actions
             .iter()
             .flat_map(|(action, count)| (0..*count).map(move |_| action))
+            .copied()
     }
 }

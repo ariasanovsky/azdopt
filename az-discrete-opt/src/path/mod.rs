@@ -24,7 +24,7 @@ pub trait ActionPath {
         let index = space.index(action);
         unsafe { self.push_unchecked(index) }
     }
-    fn actions_taken(&self) -> impl Iterator<Item = &'_ usize> + '_;
+    fn actions_taken(&self) -> impl Iterator<Item = usize> + '_;
 }
 
 /// # Safety

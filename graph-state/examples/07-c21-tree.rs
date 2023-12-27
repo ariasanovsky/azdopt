@@ -212,7 +212,7 @@ fn main() -> eyre::Result<()> {
                 s,
                 action
                     .actions_taken()
-                    .map(|a| space.action(*a)),
+                    .map(|a| space.action(a)),
             );
             if space.is_terminal(s) {
                 let prohibited_actions = default_prohibitions(&s.state);

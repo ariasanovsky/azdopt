@@ -53,6 +53,8 @@ where
     }
 
     fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
+        debug_assert!(index < Self::ACTION_DIM);
+        debug_assert!(!state.prohibited_actions.contains(&index));
         let new_color = index / E;
         let index = index % E;
         let edge = Edge::from_colex_position(index);
