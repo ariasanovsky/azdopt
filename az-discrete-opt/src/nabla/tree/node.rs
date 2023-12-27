@@ -30,8 +30,8 @@ impl StateNode {
                 exhausted_actions,
             })
         } else {
-            // todo! temporary greedy policy
-            let pos = 0;
+            // todo! temporary cyclic policy
+            let pos = *n_s % (active_actions.len() as u32);
             Ok(Transition {
                 c_s: *c_s,
                 pos,
@@ -40,18 +40,6 @@ impl StateNode {
                 exhausted_actions,
             })
         }
-        // let ActionData {
-        //     a,
-        //     n_sa,
-        //     g_theta_star_sa,
-        // } = if (*n_s as usize) < actions.len() {
-        //     &mut actions[*n_s as usize]
-        // } else {
-        //     todo!()
-        // };
-        // *n_s += 1;
-        // *n_sa += 1;
-        // todo!()
     }
 
     pub fn cost(&self) -> f32 {
@@ -65,27 +53,6 @@ impl StateNode {
     pub fn exhausted_actions(&self) -> impl Iterator<Item = &ActionData> {
         self.exhausted_actions.iter()
     }
-
-    // pub fn next_transition_kind(&self) -> TransitionKind {
-    //     if self.active_actions.is_empty() {
-    //         let c_theta_star =
-    //             self.exhausted_actions
-    //             .iter()
-    //             .map(|a| a.g_theta_star_sa)
-    //             .min_by(|a, b| a.partial_cmp(b).unwrap())
-    //             .map_or_else(|| self.c_s, |a| self.c_s - a);
-    //         TransitionKind::Exhausting { c_theta_star }
-    //     } else {
-    //         let c_theta_star = 
-    //             self.active_actions
-    //             .iter()
-    //             .chain(self.exhausted_actions.iter())
-    //             .map(|a| a.g_theta_star_sa)
-    //             .min_by(|a, b| a.partial_cmp(b).unwrap())
-    //             .map_or_else(|| self.c_s, |a| self.c_s - a);
-    //         TransitionKind::Active { c_theta_star }
-    //     }
-    // }
 }
 
 pub struct Transition<'roll_out> {
@@ -169,7 +136,7 @@ impl StateNode {
         max_num_actions: usize,
     ) -> (Self, TransitionKind) {
         let c_s = space.evaluate(cost);
-        let mut actions: VecDeque<ActionData> = space.action_data(&state).map(|(a, r_sa)| ActionData {
+        let mut actions: VecDeque<ActionData> = space.action_data(state).map(|(a, r_sa)| ActionData {
             a,
             n_sa: 0,
             g_theta_star_sa: space.g_theta_star_sa(cost, r_sa, h_theta[a]),

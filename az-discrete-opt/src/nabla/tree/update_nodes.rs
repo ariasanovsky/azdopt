@@ -16,7 +16,7 @@ impl<P> NodeKind<'_, P> {
     where
         P: Ord + Clone,
     {
-        let (node, mut kind): (_, TransitionKind) = match self {
+        let (node, mut kind) = match self {
             NodeKind::NewLevel => {
                 let (n, kind) = StateNode::new(space, state, cost, h_theta, max_num_actions);
                 (Some(n), kind)

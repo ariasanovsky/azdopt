@@ -4,10 +4,10 @@ use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithP
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
-use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RichRamseySpace, TotalCounts}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
+use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RichRamseySpace}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 12;
+const N: usize = 16;
 const E: usize = N * (N - 1) / 2;
 const C: usize = 3;
 const SIZES: [usize; C] = [3, 3, 3];
@@ -15,9 +15,8 @@ const SIZES: [usize; C] = [3, 3, 3];
 type RawState = RamseyCounts<N, E, C, B32>;
 type RichState = WithProhibitions<RawState>;
 
-const STACK: usize = 1;
+const STACK: usize = 4;
 type S = Layers<RichState, STACK>;
-type Cost = TotalCounts<C>;
 type P = ActionSequence;
 
 type RichSpace = RichRamseySpace<B32, N, E, C>;
@@ -26,8 +25,8 @@ type Space = Layered<STACK, RichSpace>;
 const ACTION: usize = E * C;
 const STATE: usize = STACK * 3 * C * E;
 
-const HIDDEN_1: usize = 256;
-const HIDDEN_2: usize = 256;
+const HIDDEN_1: usize = 128;
+const HIDDEN_2: usize = 128;
 
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -35,7 +34,7 @@ type ModelH = (
     (Linear<HIDDEN_2, ACTION>, ReLU),
 );
 
-const BATCH: usize = 256;
+const BATCH: usize = 1024;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
@@ -48,7 +47,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.]).unwrap();
+    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
     let init_state = || -> S {
         let mut rng = rand::thread_rng();
         let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
@@ -67,7 +66,7 @@ fn main() -> eyre::Result<()> {
     const RICH_SPACE: RichSpace = RichRamseySpace::new(SIZES, [1., 1., 1.]);
     const SPACE: Space = Layered::new(RICH_SPACE);
 
-    let max_num_root_actions = 3;
+    let max_num_root_actions = 15;
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(SPACE, init_state, model, BATCH, max_num_root_actions);
     let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
@@ -87,6 +86,8 @@ fn main() -> eyre::Result<()> {
         for episode in 1..=episodes {
             if episode % 100 == 0 {
                 println!("==== EPISODE: {episode} ====");
+                let lengths = optimizer.get_trees()[0].sizes().collect::<Vec<_>>();
+                println!("lengths: {lengths:?}");
             }
 
             let max_num_actions = 3;

@@ -94,7 +94,7 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
         B: Bitset + Clone,
         B::Bits: Clone,
     {
-        if N <= 2 {
+        if size <= 2 {
             return
         }
         let counts = &mut self.counts[color];
@@ -129,7 +129,7 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
                 }
             }
         }
-        if N == 3 {
+        if size == 3 {
             return
         }
         // edge `{w, x}` (requires `w, x` in `n_uv`)

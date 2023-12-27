@@ -56,7 +56,7 @@ where
     }
 
     fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
-        self.space.reward(&state.back(), index)
+        self.space.reward(state.back(), index)
     }
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {

@@ -28,6 +28,10 @@ impl<P> SearchTree<P> {
         }
     }
 
+    pub fn sizes(&self) -> impl Iterator<Item = usize> + '_ {
+        self.levels.iter().map(BTreeMap::len)
+    }
+
     pub fn roll_out_episode<Space>(
         &mut self,
         space: &Space,
@@ -38,6 +42,7 @@ impl<P> SearchTree<P> {
         Space: NablaStateActionSpace,
         P: Ord + ActionPath + ActionPathFor<Space>,
     {
+        debug_assert_eq!(path.len(), 0);
         let Self { root_node, levels } = self;
         let transition = root_node.next_transition().unwrap();
         let a = transition.action_index();
@@ -46,7 +51,7 @@ impl<P> SearchTree<P> {
         unsafe { path.push_unchecked(a) };
         let mut transitions = vec![transition];
 
-        for (i, level) in levels.iter_mut().enumerate() {
+        for level in levels.iter_mut() {
             // I hate Polonius case III
             let node = match level.contains_key(path) {
                 true => level.get_mut(path).unwrap(),
@@ -72,12 +77,13 @@ impl<P> SearchTree<P> {
         node: StateNode,
     )
     where
-        P: Ord,
+        P: Ord + ActionPath,
     {
         let Self {
             root_node: _,
             levels,
         } = self;
+        debug_assert_eq!(path.len(), levels.len() + 1);
         let level = BTreeMap::from_iter(core::iter::once((path, node)));
         levels.push(level);
     }

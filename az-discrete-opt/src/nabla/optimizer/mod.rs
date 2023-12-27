@@ -17,6 +17,10 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     pub fn get_model_mut(&mut self) -> &mut M {
         &mut self.model
     }
+
+    pub fn get_trees(&self) -> &[SearchTree<P>] {
+        &self.trees
+    }
     
     #[cfg(feature = "rayon")]
     pub fn par_new(
@@ -172,9 +176,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         (states, state_vecs).into_par_iter().for_each(|(s, s_host)| {
             self.space.write_vec(s, s_host);
         });
-        // states.par_iter().zip(state_vecs).for_each(|((s, s_host))| {
-        //     self.space.write_vec(s, s_host);
-        // });
         // fill `h_theta_host`
         self.model.write_predictions(&self.states_host, &mut self.h_theta_host);
         let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);

@@ -31,45 +31,45 @@ impl<'a> INTTransition<'a> {
         }
     }
 
-    pub(crate) fn cascade_update(&mut self, c_star_i_plus_one: &mut f32) -> bool {
-        todo!("when used in `update_existing_nodes`, we seem to remove all actions from a state but do not mark it exhausted; to investigate");
-        // let Self { data_i, kind } = self;
-        // let exhausted = match data_i {
-        //     StateDataKindMutRef::Exhausted { c_t_star: _ } => {
-        //         unreachable!("cascade update only applies to exhausted states")
-        //     }
-        //     StateDataKindMutRef::Active { data } => {
-        //         let INTStateData {
-        //             n_s,
-        //             c_s,
-        //             c_s_star,
-        //             visited_actions,
-        //             unvisited_actions,
-        //         } = data;
-        //         *n_s += 1;
-        //         // *c_star_i_plus_one = c_star_i_plus_one.min(*c_s);
-        //         *c_star_i_plus_one = c_star_i_plus_one.min(*c_s_star);
-        //         *c_s_star = *c_star_i_plus_one;
-        //         match kind {
-        //             TransitionKind::LastUnvisitedAction => {
-        //                 // remove the last unvisited action from `data`
-        //                 let _ = unvisited_actions.pop().expect("no unvisited actions");
-        //             }
-        //             TransitionKind::LastVisitedAction => {
-        //                 let _ = visited_actions.pop().expect("no visited actions");
-        //             }
-        //         }
-        //         visited_actions.is_empty() && unvisited_actions.is_empty()
-        //     }
-        // };
-        // // we only sort during `best_action` calls
-        // if exhausted {
-        //     *data_i = StateDataKindMutRef::Exhausted {
-        //         c_t_star: *c_star_i_plus_one,
-        //     };
-        // }
-        // exhausted
-    }
+    // pub(crate) fn cascade_update(&mut self, c_star_i_plus_one: &mut f32) -> bool {
+    //     todo!("when used in `update_existing_nodes`, we seem to remove all actions from a state but do not mark it exhausted; to investigate");
+    //     // let Self { data_i, kind } = self;
+    //     // let exhausted = match data_i {
+    //     //     StateDataKindMutRef::Exhausted { c_t_star: _ } => {
+    //     //         unreachable!("cascade update only applies to exhausted states")
+    //     //     }
+    //     //     StateDataKindMutRef::Active { data } => {
+    //     //         let INTStateData {
+    //     //             n_s,
+    //     //             c_s,
+    //     //             c_s_star,
+    //     //             visited_actions,
+    //     //             unvisited_actions,
+    //     //         } = data;
+    //     //         *n_s += 1;
+    //     //         // *c_star_i_plus_one = c_star_i_plus_one.min(*c_s);
+    //     //         *c_star_i_plus_one = c_star_i_plus_one.min(*c_s_star);
+    //     //         *c_s_star = *c_star_i_plus_one;
+    //     //         match kind {
+    //     //             TransitionKind::LastUnvisitedAction => {
+    //     //                 // remove the last unvisited action from `data`
+    //     //                 let _ = unvisited_actions.pop().expect("no unvisited actions");
+    //     //             }
+    //     //             TransitionKind::LastVisitedAction => {
+    //     //                 let _ = visited_actions.pop().expect("no visited actions");
+    //     //             }
+    //     //         }
+    //     //         visited_actions.is_empty() && unvisited_actions.is_empty()
+    //     //     }
+    //     // };
+    //     // // we only sort during `best_action` calls
+    //     // if exhausted {
+    //     //     *data_i = StateDataKindMutRef::Exhausted {
+    //     //         c_t_star: *c_star_i_plus_one,
+    //     //     };
+    //     // }
+    //     // exhausted
+    // }
 
     pub(crate) fn update(&mut self, c_star_theta_i_plus_one: &mut f32) {
         let Self { data_i, kind } = self;

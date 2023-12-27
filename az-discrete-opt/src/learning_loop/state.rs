@@ -78,7 +78,7 @@ impl<'a, S, C> StateData<'a, S, C> {
     {
         use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
-        (self.states.as_ref(), self.vectors.par_chunks_exact_mut(Space::DIM))
+        (self.states as &_, self.vectors.par_chunks_exact_mut(Space::DIM))
             .into_par_iter()
             .for_each(|(s, v)| space.write_vec(s, v));
     }

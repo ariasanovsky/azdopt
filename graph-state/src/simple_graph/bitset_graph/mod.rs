@@ -56,6 +56,8 @@ impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {
 }
 
 impl<const N: usize, B> BitsetGraph<N, B> {
+    /// # Safety
+    /// Safety requirements match those of `B::add_or_remove_unchecked`.
     pub unsafe fn add_or_remove_edge_unchecked(&mut self, e: Edge)
     where
         B: Bitset,
