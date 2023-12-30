@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::{StateNode, Transition};
+use self::node::{StateNode, Transition, SamplePattern, SearchPolicy};
 
 use super::space::NablaStateActionSpace;
 
@@ -20,10 +20,10 @@ impl<P> SearchTree<P> {
         root: &Space::State,
         cost: &Space::Cost,
         h_theta: &[f32],
-        max_num_root_actions: usize,
+        root_action_pattern: SamplePattern,
     ) -> Self {
         Self {
-            root_node: StateNode::new(space, root, cost, h_theta, max_num_root_actions).0,
+            root_node: StateNode::new(space, root, cost, h_theta, root_action_pattern).0,
             levels: Vec::new(),
         }
     }
@@ -37,27 +37,28 @@ impl<P> SearchTree<P> {
         space: &Space,
         state: &mut Space::State,
         path: &mut P,
-    ) -> (Vec<Transition>, NodeKind<P>)
+        policy: impl Fn(usize) -> SearchPolicy,
+    ) -> Option<(Vec<Transition>, NodeKind<P>)>
     where
         Space: NablaStateActionSpace,
         P: Ord + ActionPath + ActionPathFor<Space>,
     {
         debug_assert_eq!(path.len(), 0);
         let Self { root_node, levels } = self;
-        let transition = root_node.next_transition().unwrap();
+        let transition = root_node.next_transition(policy(0)).ok()?;
         let a = transition.action_index();
         let action = space.action(a);
         space.act(state, &action);
         unsafe { path.push_unchecked(a) };
         let mut transitions = vec![transition];
 
-        for level in levels.iter_mut() {
+        for (i, level) in levels.iter_mut().enumerate() {
             // I hate Polonius case III
             let node = match level.contains_key(path) {
                 true => level.get_mut(path).unwrap(),
-                false => return (transitions, NodeKind::New(level)),
+                false => return Some((transitions, NodeKind::New(level)),)
             };
-            match node.next_transition() {
+            match node.next_transition(policy(i+1)) {
                 Ok(trans) => {
                     let a = trans.action_index();
                     let action = space.action(a);
@@ -65,10 +66,10 @@ impl<P> SearchTree<P> {
                     unsafe { path.push_unchecked(a) };
                     transitions.push(trans)
                 },
-                Err(c) => return (transitions, NodeKind::OldExhausted { c_s_t_theta_star: c })
+                Err(c) => return Some((transitions, NodeKind::OldExhausted { c_s_t_theta_star: c }))
             }
         }
-        (transitions, NodeKind::NewLevel)
+        Some((transitions, NodeKind::NewLevel))
     }
 
     pub(crate) fn insert_new_node(
@@ -93,21 +94,34 @@ impl<P> SearchTree<P> {
     }
 
     #[cfg(feature = "rayon")]
-    pub(crate) fn par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, usize, f32)> + '_
+    pub(crate) fn _par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, usize, f32)> + '_
     where
         P: Ord + Sync,
     {
         use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 
         let next_from_roots =
-            self.root_node.par_next_roots()
+            self.root_node._par_next_roots()
             .map(|(a, c_star)| (None, a, c_star));
         let next_from_nodes = self.levels.par_iter().flat_map(|level| {
             level.par_iter().flat_map(|(p, n)| {
-                n.par_next_roots().map(move |(a, c_star)| (Some(p), a, c_star))
+                n._par_next_roots().map(move |(a, c_star)| (Some(p), a, c_star))
             })
         });
         next_from_roots.chain(next_from_nodes)
+    }
+
+    #[cfg(feature = "rayon")]
+    pub(crate) fn par_nodes(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, f32)> + '_
+    where
+        P: Ord + Sync,
+    {
+        use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
+
+        rayon::iter::once((None, self.root_node.cost()))
+            .chain(self.levels.par_iter().flat_map(|level| {
+                level.par_iter().map(|(p, n)| (Some(p), n.cost()))
+            }))
     }
 }
 

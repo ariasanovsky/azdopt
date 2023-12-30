@@ -1,16 +1,16 @@
-use az_discrete_opt::{nabla::space::NablaStateActionSpace, state::prohibit::WithProhibitions};
+use az_discrete_opt::{nabla::space::NablaStateActionSpace, state::prohibit::WithProhibitions, space::axioms::{ActionsNeverRepeat, ActionOrderIndependent}};
 
 use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
 use super::{RamseyCounts, ReassignColor, CountChange, TotalCounts};
 
-pub struct RichRamseySpace<B, const N: usize, const E: usize, const C: usize> {
+pub struct RamseySpaceNoEdgeRecolor<B, const N: usize, const E: usize, const C: usize> {
     sizes: [usize; C],
     weights: [f32; C],
     _marker: core::marker::PhantomData<B>,
 }
 
-impl<B, const N: usize, const E: usize, const C: usize> RichRamseySpace<B, N, E, C> {
+impl<B, const N: usize, const E: usize, const C: usize> RamseySpaceNoEdgeRecolor<B, N, E, C> {
     pub const fn new(
         sizes: [usize; C],
         weights: [f32; C],
@@ -23,7 +23,7 @@ impl<B, const N: usize, const E: usize, const C: usize> RichRamseySpace<B, N, E,
     }
 }
 
-impl<B, const N: usize, const E: usize, const C: usize> NablaStateActionSpace for RichRamseySpace<B, N, E, C>
+impl<B, const N: usize, const E: usize, const C: usize> NablaStateActionSpace for RamseySpaceNoEdgeRecolor<B, N, E, C>
 where
     B: Bitset + Clone,
     B::Bits: Clone,
@@ -139,8 +139,10 @@ where
         cost.0.iter().zip(self.weights.iter()).map(|(c, w)| *c as f32 * w).sum()
     }
 
+    // TODO: pass in c_s: f32 instead of &Self::Cost
     fn g_theta_star_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
-        let TotalCounts(_c_s) = c_s;
+        // debug_assert!(h_theta_s_a >= 0.);
+        let c_s = self.evaluate(c_s);
         let CountChange {
             old_color,
             new_color,
@@ -150,11 +152,13 @@ where
         let reward =
             (old_count as f32 * self.weights[old_color]) - 
             (new_count as f32 * self.weights[new_color]);
-        reward + h_theta_s_a
+        // (reward + h_theta_s_a).min(c_s)
+        reward + h_theta_s_a * (c_s - reward)
     }
 
+    // TODO: ?pass in c_s: f32 instead of &Self::Cost
     fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32 {
-        let TotalCounts(_c_s) = c_s;
+        let c_s = self.evaluate(c_s);
         let CountChange {
             old_color,
             new_color,
@@ -164,6 +168,11 @@ where
         let reward = 
             (old_count as f32 * self.weights[old_color]) - 
             (new_count as f32 * self.weights[new_color]);
-        g_sa - reward
+        debug_assert!(g_sa >= reward);
+        // (g_sa - reward).clamp(0., c_s - reward)
+        (g_sa - reward) / (c_s - reward)
     }
 }
+
+unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionsNeverRepeat for RamseySpaceNoEdgeRecolor<B, N, E, C> {}
+unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionOrderIndependent for RamseySpaceNoEdgeRecolor<B, N, E, C> {}

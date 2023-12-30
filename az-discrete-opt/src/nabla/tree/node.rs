@@ -9,8 +9,23 @@ pub struct StateNode {
     exhausted_actions: Vec<ActionData>,
 }
 
+pub enum SearchPolicy {
+    Cyclic,
+    Rating(fn(TransitionMetadata) -> f32),
+}
+
+pub struct TransitionMetadata {
+    pub n_s: u32,
+    pub c_s: f32,
+    pub n_sa: u32,
+    pub g_theta_star_sa: f32,
+}
+
 impl StateNode {
-    pub fn next_transition(&mut self) -> Result<Transition, f32> {
+    pub fn next_transition(
+        &mut self,
+        policy: SearchPolicy,
+    ) -> Result<Transition, f32> {
         let Self {
             n_s,
             c_s,
@@ -25,25 +40,52 @@ impl StateNode {
                 .map_or(*c_s, |g_theta_star_sa| *c_s - g_theta_star_sa);
             return Err(c_s_theta_star)
         }
-        if (*n_s as usize) < active_actions.len() {
-            Ok(Transition {
+        Ok(match policy {
+            SearchPolicy::Cyclic => Transition {
                 c_s: *c_s,
-                pos: *n_s,
+                pos: *n_s % (active_actions.len() as u32),
                 n_s,
                 active_actions,
                 exhausted_actions,
-            })
-        } else {
-            // todo! temporary cyclic policy
-            let pos = *n_s % (active_actions.len() as u32);
-            Ok(Transition {
-                c_s: *c_s,
-                pos,
-                n_s,
-                active_actions,
-                exhausted_actions,
-            })
-        }
+            },
+            SearchPolicy::Rating(rating) => {
+                let pos = active_actions.iter().enumerate().map(|(i, a)| {
+                    let metadata = TransitionMetadata {
+                        n_s: *n_s,
+                        c_s: *c_s,
+                        n_sa: a.n_sa,
+                        g_theta_star_sa: a.g_theta_star_sa,
+                    };
+                    (i, rating(metadata))
+                }).max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).map(|(i, _)| i).unwrap();
+                Transition {
+                    n_s,
+                    c_s: *c_s,
+                    pos: pos as _,
+                    active_actions,
+                    exhausted_actions,
+                }
+            },
+        })
+        // if (*n_s as usize) < active_actions.len() {
+        //     Ok(Transition {
+        //         c_s: *c_s,
+        //         pos: *n_s,
+        //         n_s,
+        //         active_actions,
+        //         exhausted_actions,
+        //     })
+        // } else {
+        //     // todo! temporary cyclic policy
+        //     let pos = *n_s % (active_actions.len() as u32);
+        //     Ok(Transition {
+        //         c_s: *c_s,
+        //         pos,
+        //         n_s,
+        //         active_actions,
+        //         exhausted_actions,
+        //     })
+        // }
     }
 
     pub fn cost(&self) -> f32 {
@@ -59,7 +101,7 @@ impl StateNode {
     }
 
     #[cfg(feature = "rayon")]
-    pub(crate) fn par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (usize, f32)> + '_ {
+    pub(crate) fn _par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (usize, f32)> + '_ {
         use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
         let actions = self.active_actions.par_iter().chain(self.exhausted_actions.par_iter());
@@ -121,6 +163,7 @@ impl Transition<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct ActionData {
     pub a: usize,
     pub n_sa: u32,
@@ -142,7 +185,7 @@ impl ActionData {
         if *n_sa == 0 {
             *g_theta_star_sa = g_sa;
         } else {
-            *g_theta_star_sa = g_sa.min(*g_theta_star_sa);
+            *g_theta_star_sa = g_sa.max(*g_theta_star_sa);
         }
         *c_theta_star = c_theta_star.min(c_s);
         *n_sa += 1;
@@ -155,7 +198,7 @@ impl StateNode {
         state: &Space::State,
         cost: &Space::Cost,
         h_theta: &[f32],
-        max_num_actions: usize,
+        action_sample_pattern: SamplePattern,
     ) -> (Self, TransitionKind) {
         let c_s = space.evaluate(cost);
         let mut actions: VecDeque<ActionData> = space.action_data(state).map(|(a, r_sa)| ActionData {
@@ -164,16 +207,9 @@ impl StateNode {
             g_theta_star_sa: space.g_theta_star_sa(cost, r_sa, h_theta[a]),
         }).collect();
         actions.make_contiguous().sort_unstable_by(|a, b| b.g_theta_star_sa.partial_cmp(&a.g_theta_star_sa).unwrap());
-        match actions.len() <= max_num_actions {
-            true => {},
-            false => {
-                for j in 0..max_num_actions {
-                    let i = rescaled_index(j, actions.len(), max_num_actions);
-                    actions.swap(i, j);
-                }
-                actions.truncate(max_num_actions);
-                actions.shrink_to_fit();
-            },
+        if sample_swap(actions.make_contiguous(), &action_sample_pattern) {
+            actions.truncate(action_sample_pattern.len());
+            actions.shrink_to_fit();
         }
         let kind = match actions.front() {
             Some(a_star) => TransitionKind::Active { c_theta_star: c_s - a_star.g_theta_star_sa },
@@ -181,10 +217,10 @@ impl StateNode {
         };
         (
             Self {
-            n_s: 0,
-            c_s,
-            active_actions: actions,
-            exhausted_actions: Vec::new(),
+                n_s: 0,
+                c_s,
+                active_actions: actions,
+                exhausted_actions: Vec::new(),
             },
             kind,
         )
@@ -195,21 +231,48 @@ const fn rescaled_index(i: usize, l: usize, k: usize) -> usize {
     (i * 2 * (l - 1) + k - 1) / ((k - 1) * 2)
 }
 
-pub(crate) trait RetainFencepost {
-    fn retain_fencepost(&mut self, n: usize);
+/// A pattern for selecting representatives from a set of samples.
+/// Retains:
+/// - `head` elements from the head of the slice,
+/// - `body` elements uniformly from the body of the slice, and
+/// - `tail` elements from the tail of the slice.
+#[derive(Clone)]
+pub struct SamplePattern {
+    pub head: usize,
+    pub body: usize,
+    pub tail: usize,
 }
 
-impl<T> RetainFencepost for Vec<T> {
-    fn retain_fencepost(&mut self, k: usize) {
-        if self.len() < k {
-            return
-        }
-        for j in 0..k {
-            let i = rescaled_index(j, self.len(), k);
-            self.swap(i, j);
-        }
-        self.truncate(k);
+impl SamplePattern {
+    pub fn len(&self) -> usize {
+        self.head + self.body + self.tail
     }
+}
+
+
+pub(crate) fn sample_swap<T>(slice: &mut [T], pattern: &SamplePattern) -> bool {
+    let SamplePattern { head, body, tail } = *pattern;
+    if slice.len() < head + body + tail {
+        return false
+    }
+    let (_, slice) = slice.split_at_mut(head);
+    let end_of_body = slice.len() - tail;
+    let (middle, _) = slice.split_at_mut(end_of_body);
+    if body == 1 {
+        let i = middle.len() / 2;
+        middle.swap(0, i);
+    } else {
+        for j in 0..body {
+            let i = rescaled_index(j, middle.len(), body);
+            middle.swap(i, j);
+        }
+    }
+    let (_, end) = slice.split_at_mut(body);
+    let old_end = end.len() - tail;
+    for j in 0..tail {
+        end.swap(j, old_end + j);
+    }
+    true
 }
 
 #[cfg(test)]

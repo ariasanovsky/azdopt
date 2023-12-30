@@ -1,6 +1,6 @@
 use crate::nabla::space::NablaStateActionSpace;
 
-use super::{NodeKind, Transition, node::{StateNode, TransitionKind}};
+use super::{NodeKind, Transition, node::{StateNode, TransitionKind, SamplePattern}};
 
 impl<P> NodeKind<'_, P> {
     pub fn update_existing_nodes<Space: NablaStateActionSpace>(
@@ -10,7 +10,7 @@ impl<P> NodeKind<'_, P> {
         cost: &Space::Cost,
         h_theta: &[f32],
         path: &P,
-        max_num_actions: usize,
+        action_sample_pattern: SamplePattern,
         transitions: Vec<Transition>,
     ) -> Option<StateNode>
     where
@@ -18,11 +18,11 @@ impl<P> NodeKind<'_, P> {
     {
         let (node, mut kind) = match self {
             NodeKind::NewLevel => {
-                let (n, kind) = StateNode::new(space, state, cost, h_theta, max_num_actions);
+                let (n, kind) = StateNode::new(space, state, cost, h_theta, action_sample_pattern);
                 (Some(n), kind)
             },
             NodeKind::New(level) => {
-                let (n, kind)= StateNode::new(space, state, cost, h_theta, max_num_actions);
+                let (n, kind)= StateNode::new(space, state, cost, h_theta, action_sample_pattern);
                 level.insert(path.clone(), n);
                 (None, kind)
             },

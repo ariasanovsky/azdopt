@@ -1,40 +1,43 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel}, path::sequence::ActionSequence};
+use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel, tree::node::{SamplePattern, SearchPolicy, TransitionMetadata}}, path::{set::ActionSet, ActionPath}};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
-use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RichRamseySpace}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
+use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 5;
+const N: usize = 16;
 const E: usize = N * (N - 1) / 2;
-const C: usize = 2;
-const SIZES: [usize; C] = [3, 3];
+const C: usize = 3;
+const SIZES: [usize; C] = [3, 3, 3];
 
 type RawState = RamseyCounts<N, E, C, B32>;
 type RichState = WithProhibitions<RawState>;
 
-const STACK: usize = 4;
+const STACK: usize = 1;
 type S = Layers<RichState, STACK>;
-type P = ActionSequence;
+type P = ActionSet;
 
-type RichSpace = RichRamseySpace<B32, N, E, C>;
+type RichSpace = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
 type Space = Layered<STACK, RichSpace>;
 
 const ACTION: usize = E * C;
 const STATE: usize = STACK * 3 * C * E;
 
-const HIDDEN_1: usize = 4096;
-const HIDDEN_2: usize = 4096;
+const HIDDEN_1: usize = 1024;
+const HIDDEN_2: usize = 1024;
+const HIDDEN_3: usize = 1024;
 
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    (Linear<HIDDEN_2, ACTION>, ReLU),
+    (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
+    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 2;
+const BATCH: usize = 256;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
@@ -47,7 +50,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let dist = rand::distributions::WeightedIndex::new([1., 1.,])?;
+    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
     let init_state = || -> S {
         let mut rng = rand::thread_rng();
         let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
@@ -57,18 +60,25 @@ fn main() -> eyre::Result<()> {
     };
 
     let cfg = AdamConfig {
-        lr: 2e-2,
+        lr: 1e-3,
         betas: [0.9, 0.999],
         eps: 1e-8,
-        weight_decay: Some(WeightDecay::L2(1e-6)),
+        weight_decay: Some(WeightDecay::L2(1e-5)),
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
-    const RICH_SPACE: RichSpace = RichRamseySpace::new(SIZES, [1., 1.,]);
+    // let model = TrivialModel;
+    const RICH_SPACE: RichSpace = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
     const SPACE: Space = Layered::new(RICH_SPACE);
 
-    let max_num_root_actions = 15;
+    // let max_num_root_actions = 25;
 
-    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(SPACE, init_state, model, BATCH, max_num_root_actions);
+    let root_action_pattern = SamplePattern {
+        head: 20,
+        body: 20,
+        tail: 10,
+    };
+
+    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(SPACE, init_state, model, BATCH, root_action_pattern.clone());
     let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
     println!("{}", argmin.1);
     
@@ -79,21 +89,44 @@ fn main() -> eyre::Result<()> {
     )?;
     writer.get_mut().flush()?;
     
-    let epochs: usize = 25;
+    let epochs: usize = 250;
     let episodes: usize = 800;
 
     for epoch in 1..epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            if episode % 100 == 0 {
+            if episode % 800 == 0 {
                 println!("==== EPISODE: {episode} ====");
-                let lengths = optimizer.get_trees()[0].sizes().collect::<Vec<_>>();
+                let lengths = optimizer.get_trees().first().unwrap().sizes().collect::<Vec<_>>();
+                println!("lengths: {lengths:?}");
+                let lengths = optimizer.get_trees().last().unwrap().sizes().collect::<Vec<_>>();
                 println!("lengths: {lengths:?}");
             }
 
-            let max_num_actions = 3;
-
-            optimizer.par_roll_out_episode(max_num_actions);
+            let episode_action_pattern = |_depth: usize| {
+                SamplePattern {
+                    head: 5,
+                    body: 0,
+                    tail: 0,
+                }
+            };
+            let search_policy = |depth: usize| {
+                match depth {
+                    0 if episode < root_action_pattern.len() => SearchPolicy::Cyclic,
+                    _ => SearchPolicy::Rating(|metadata| -> f32 {
+                        let TransitionMetadata {
+                            n_s,
+                            c_s,
+                            n_sa,
+                            g_theta_star_sa,
+                        } = metadata;
+                        let explore = g_theta_star_sa / c_s;
+                        let exploit = ((1 + n_s) as f32).sqrt() / (1 + n_sa) as f32;
+                        exploit + 10. * explore
+                    }),
+                }
+            };
+            optimizer.par_roll_out_episode(episode_action_pattern, search_policy);
             let episode_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), episode, epoch), e)).unwrap();
             if episode_argmin.1 < argmin.1 {
                 argmin = episode_argmin;
@@ -103,17 +136,22 @@ fn main() -> eyre::Result<()> {
                     argmin.0.cost().summary(),
                 )?;
                 writer.get_mut().flush()?;
-                // println!("{}", argmin.0.short_form());
+                if argmin.1 < 0.01 {
+                    println!("{}", argmin.0.short_form());
+                }    
                 println!("{}", argmin.1);
             }
         }
         
         let weights = |n_sa| {
-            if n_sa == 0 {
-                0.05
-            } else {
-                (n_sa as f32).sqrt()
-            }
+            // if n_sa == 0 {
+            //     0.01
+            // } else {
+            //     // (n_sa as f32).sqrt()
+            //     // n_sa as f32
+            //     (n_sa * n_sa) as f32
+            // }
+            n_sa as f32
         };
         let loss = optimizer.par_update_model(weights);
         let summary = loss.summary();
@@ -129,7 +167,38 @@ fn main() -> eyre::Result<()> {
             summary,
         )?;
         writer.get_mut().flush()?;
-        optimizer.par_select_next_roots(init_state, max_num_root_actions);
+        // let root_selection_pattern = if epoch % 10 == 0 {
+        //     SamplePattern {
+        //         head: BATCH / 64,
+        //         body: 0,
+        //         tail: 0,
+        //     }
+        // } else {
+        //     SamplePattern {
+        //         head: BATCH / 16,
+        //         body: BATCH / 32,
+        //         tail: BATCH / 32,
+        //     }
+        // };
+        let label = |s: &S, p: Option<&P>| -> usize {
+            let actions_previously_taken = s.back().prohibited_actions.len() / C;
+            let actions_taken = p.map(|p| p.len()).unwrap_or(0);
+            actions_previously_taken + actions_taken
+        };
+        let label_sample = |l: usize| -> SamplePattern {
+            const LABEL_SIZE: usize = ((3 * BATCH) / 4) / E;
+            SamplePattern {
+                head: LABEL_SIZE / 2,
+                body: LABEL_SIZE - LABEL_SIZE / 2 - LABEL_SIZE / 4,
+                tail: LABEL_SIZE / 4,
+            }
+        };
+        let reset_state = |state: &mut S| {
+            let mut s = state.back().clone();
+            s.prohibited_actions.clear();
+            *state = Layers::new(s);
+        };
+        optimizer.par_select_next_roots(reset_state, init_state, root_action_pattern.clone(), label, label_sample);
         let root_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, epoch + 1), e)).unwrap();
         if root_argmin.1 < argmin.1 {
             argmin = root_argmin;
@@ -139,7 +208,9 @@ fn main() -> eyre::Result<()> {
                 argmin.0.cost().summary(),
             )?;
             writer.get_mut().flush()?;
-            // println!("{}", argmin.0.short_form());
+            if argmin.1 < 0.01 {
+                println!("{}", argmin.0.short_form());
+            }
             println!("{}", argmin.1);
         }
     }

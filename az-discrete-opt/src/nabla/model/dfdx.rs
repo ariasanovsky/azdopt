@@ -104,6 +104,7 @@ where
         let gradients = gradients.take().unwrap_or_else(|| model.alloc_grads());
         let states_traced = states_dev.clone().trace(gradients);
         let predictions = model.forward(states_traced);
+
         let error = (predictions - actions_dev.clone()).square();
         let loss = (error * weights_dev.clone()).sum::<Rank1<BATCH>, _>().mean();
         let l = loss.array();
@@ -115,4 +116,3 @@ where
         l
     }
 }
-
