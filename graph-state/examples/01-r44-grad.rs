@@ -5,7 +5,6 @@ use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
 use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
-use itertools::Itertools;
 use rand::seq::SliceRandom;
 use tensorboard_writer::TensorboardWriter;
 
@@ -39,7 +38,7 @@ type ModelH = (
     (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 2048;
+const BATCH: usize = 1;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
