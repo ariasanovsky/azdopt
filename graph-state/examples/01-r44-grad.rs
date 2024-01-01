@@ -143,7 +143,8 @@ fn main() -> eyre::Result<()> {
                     }),
                 }
             };
-            optimizer.par_roll_out_episode(episode_action_pattern, search_policy);
+            // optimizer.par_roll_out_episodes(episode_action_pattern, search_policy);
+            optimizer.par_roll_out_episodes(search_policy);
             let episode_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), episode, epoch), e)).unwrap();
             if episode_argmin.1 < argmin.1 {
                 argmin = episode_argmin;

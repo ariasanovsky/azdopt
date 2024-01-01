@@ -1,4 +1,4 @@
-use super::{space::NablaStateActionSpace, tree::SearchTree, model::NablaModel};
+use super::{space::NablaStateActionSpace, tree::{SearchTree, Transition2}, model::NablaModel};
 
 pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     space: Space,
@@ -6,10 +6,10 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     states: Vec<Space::State>,
     costs: Vec<Space::Cost>,
     paths: Vec<P>,
+    transitions: Vec<Vec<Transition2>>,
     states_host: Vec<f32>,
     h_theta_host: Vec<f32>,
     trees: Vec<SearchTree<P>>,
-    action_weights: Vec<f32>,
     model: M,
 }
 
@@ -55,17 +55,17 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 SearchTree::new(&space, s, c, h_theta, root_action_pattern.clone())
             })
             .collect();
-        let weights = vec![0.; batch * Space::ACTION_DIM];
+        let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
         Self {
             space,
             roots,
             states,
             costs,
             paths,
+            transitions,
             states_host,
             h_theta_host,
             trees,
-            action_weights: weights,
             model,
         }
     }
@@ -84,10 +84,10 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states,
             costs,
             paths: _,
+            transitions: _,
             states_host: _,
             h_theta_host: _,
             trees: _,
-            action_weights: _,
             model: _,
         } = self;
         (states, costs)
@@ -97,9 +97,9 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_roll_out_episode(
+    pub fn par_roll_out_episodes(
         &mut self,
-        action_pattern: impl Fn(usize) -> super::tree::node::SamplePattern + Sync,
+        // action_pattern: impl Fn(usize) -> super::tree::node::SamplePattern + Sync,
         policy: impl Fn(usize) -> super::tree::node::SearchPolicy + Sync,
     )
     where
@@ -112,28 +112,42 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
 
         use crate::nabla::tree::NodeKind;
 
-        let Self {
-            space,
+        let trees = &mut self.trees;
+        let roots = &self.roots;
+        let states = &mut self.states;
+        let paths = &mut self.paths;
+        let transitions = &mut self.transitions;
+        let costs = &mut self.costs;
+        debug_assert!(
+            [
+                roots.len(),
+                states.len(),
+                paths.len(),
+                transitions.len(),
+                costs.len()
+            ]
+            .into_iter()
+            .all(|l| l == trees.len()),
+        );
+        let policy = &policy;
+        let search_results = (
+            trees,
             roots,
             states,
-            costs,
             paths,
-            states_host,
-            h_theta_host,
-            trees,
-            action_weights: _,
-            model,
-        } = self;
-        // states.clone_from(roots);
-        // let (transitions,  node_kinds): (Vec<_>, Vec<_>) = (trees, states, paths).into_par_iter().map(|(t, s, p)| {
-        //     t.roll_out_episodes(space, r, s, p, &policy).unzip()
-        // }).unzip();
-        // let states = &self.states;
-        // (states, costs, &node_kinds).into_par_iter().for_each(|(s, c, kind)| {
-        //     if kind.as_ref().is_some_and(NodeKind::is_new) {
-        //         *c = space.cost(s);
-        //     }
-        // });
+            transitions,
+            costs,
+        ).into_par_iter().map(|(
+            t,
+            r,
+            s,
+            p,
+            trans,
+            c)| {
+                t.roll_out_episodes(&self.space, r, s, c, p, trans, policy)
+            }
+        ).collect::<Vec<_>>();
+        todo!();
         // let states = &self.states;
         // let state_vecs = states_host.par_chunks_exact_mut(Space::STATE_DIM);
         // (states, state_vecs, &node_kinds).into_par_iter().for_each(|(s, s_host, kind)| {
@@ -163,7 +177,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         //     }
         //     p.clear();
         // });
-        todo!()
     }
 
     #[cfg(feature = "rayon")]

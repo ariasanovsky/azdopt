@@ -18,6 +18,10 @@ pub struct SearchTree<P> {
 
 pub struct StateNode2;
 
+pub struct Transition2;
+
+pub struct SearchResult;
+
 impl<P> SearchTree<P> {
     pub fn new<Space: NablaStateActionSpace>(
         space: &Space,
@@ -27,8 +31,8 @@ impl<P> SearchTree<P> {
         root_action_pattern: SamplePattern,
     ) -> Self {
         Self {
-            positions: todo!(),
-            nodes: todo!(),
+            positions: Default::default(),
+            nodes: vec![StateNode2],
         }
     }
 
@@ -43,15 +47,17 @@ impl<P> SearchTree<P> {
         space: &Space,
         root: &Space::State,
         state: &mut Space::State,
+        cost: &mut Space::Cost,
         path: &mut P,
+        transitions: &mut Vec<Transition2>,
         policy: impl Fn(usize) -> SearchPolicy,
-    ) -> Option<(Vec<Transition>, NodeKind<P>)>
+    ) -> SearchResult
     where
         Space: NablaStateActionSpace,
         P: Ord + ActionPath + ActionPathFor<Space>,
     {
-        // debug_assert_eq!(path.len(), 0);
-        // let Self { root_node, levels } = self;
+        let Self { positions, nodes } = self;
+        todo!();
         // let transition = root_node.next_transition(policy(0)).ok()?;
         // let a = transition.action_index();
         // let action = space.action(a);
@@ -77,7 +83,6 @@ impl<P> SearchTree<P> {
         //     }
         // }
         // Some((transitions, NodeKind::NewLevel))
-        todo!()
     }
 
     // pub(crate) fn insert_new_node(
