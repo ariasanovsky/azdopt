@@ -92,6 +92,10 @@ impl StateNode {
         self.c_s
     }
 
+    pub fn c_star(&self) -> f32 {
+        self.exhausted_actions.iter().map(|a| a.g_theta_star_sa).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(self.c_s)
+    }
+
     pub fn active_actions(&self) -> impl Iterator<Item = &ActionData> {
         self.active_actions.iter()
     }
@@ -181,6 +185,7 @@ impl ActionData {
             n_sa,
             g_theta_star_sa,
         } = self;
+        
         let g_sa = c_s - *c_theta_star;
         if *n_sa == 0 {
             *g_theta_star_sa = g_sa;

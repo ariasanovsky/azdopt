@@ -5,6 +5,8 @@ use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
 use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
+use itertools::Itertools;
+use rand::seq::SliceRandom;
 use tensorboard_writer::TensorboardWriter;
 
 const N: usize = 16;
@@ -33,11 +35,11 @@ type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
-    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
-    // (Linear<HIDDEN_3, ACTION>, ReLU),
+    // (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 256;
+const BATCH: usize = 2048;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
@@ -49,18 +51,23 @@ fn main() -> eyre::Result<()> {
     let mut writer = TensorboardWriter::new(writer);
     writer.write_file_version()?;
 
+    let edges: [usize; E] = core::array::from_fn(|i| i);
+
     let dev = AutoDevice::default();
     let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
-    let init_state = || -> S {
+    let init_state = |num_prohibited_edges: usize| -> S {
         let mut rng = rand::thread_rng();
         let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
         let s = RamseyCounts::new(g, &SIZES);
-        let s = WithProhibitions::new(s, core::iter::empty());
+        let p = edges.choose_multiple(&mut rng, num_prohibited_edges).flat_map(|i| {
+            (0..C).map(|c| c * E + *i)
+        });
+        let s = WithProhibitions::new(s, p);
         Layers::new(s)
     };
 
     let cfg = AdamConfig {
-        lr: 1e-3,
+        lr: 3e-3,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-5)),
@@ -78,7 +85,15 @@ fn main() -> eyre::Result<()> {
         tail: 10,
     };
 
-    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(SPACE, init_state, model, BATCH, root_action_pattern.clone());
+    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
+        SPACE, 
+        || {
+            init_state(E - 8)
+        },
+        model,
+        BATCH,
+        root_action_pattern.clone(),
+    );
     let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
     println!("{}", argmin.1);
     
@@ -97,16 +112,19 @@ fn main() -> eyre::Result<()> {
         for episode in 1..=episodes {
             if episode % 800 == 0 {
                 println!("==== EPISODE: {episode} ====");
-                let lengths = optimizer.get_trees().first().unwrap().sizes().collect::<Vec<_>>();
-                println!("lengths: {lengths:?}");
-                let lengths = optimizer.get_trees().last().unwrap().sizes().collect::<Vec<_>>();
-                println!("lengths: {lengths:?}");
+                let max_lengths = optimizer.get_trees().iter().max_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
+                println!("max_lengths: {max_lengths:?}");
+                let min_lengths = optimizer.get_trees().iter().min_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
+                println!("min_lengths: {min_lengths:?}");
+                // println!("lengths: {lengths:?}");
+                // let lengths = optimizer.get_trees().last().unwrap().sizes().collect::<Vec<_>>();
+                // println!("lengths: {lengths:?}");
             }
 
             let episode_action_pattern = |_depth: usize| {
                 SamplePattern {
-                    head: 5,
-                    body: 0,
+                    head: 10,
+                    body: 5,
                     tail: 0,
                 }
             };
@@ -120,9 +138,9 @@ fn main() -> eyre::Result<()> {
                             n_sa,
                             g_theta_star_sa,
                         } = metadata;
-                        let explore = g_theta_star_sa / c_s;
-                        let exploit = ((1 + n_s) as f32).sqrt() / (1 + n_sa) as f32;
-                        exploit + 10. * explore
+                        let exploit = g_theta_star_sa / c_s;
+                        let explore = ((1 + n_s) as f32).sqrt() / (1 + n_sa) as f32;
+                        exploit + 0.1 * explore
                     }),
                 }
             };
@@ -143,17 +161,23 @@ fn main() -> eyre::Result<()> {
             }
         }
         
-        let weights = |n_sa| {
-            // if n_sa == 0 {
-            //     0.01
-            // } else {
-            //     // (n_sa as f32).sqrt()
-            //     // n_sa as f32
-            //     (n_sa * n_sa) as f32
-            // }
-            n_sa as f32
+        let action_weights = |n_sa| {
+            (n_sa as f32).sqrt()
         };
-        let loss = optimizer.par_update_model(weights);
+        let label = |s: &S, p: Option<&P>| -> usize {
+            let actions_previously_taken = s.back().prohibited_actions.len() / C;
+            let actions_taken = p.map(|p| p.len()).unwrap_or(0);
+            actions_previously_taken + actions_taken
+        };
+        let label_weights = |l: usize| -> f32 {
+            const MIN_LABEL: usize = E - 31;
+            (1 + l - MIN_LABEL).pow(2) as f32
+        };
+        let state_weights = |s: &S| -> f32 {
+            let label = label(s, None);
+            label_weights(label)
+        };
+        let loss = optimizer.par_update_model(action_weights, state_weights);
         let summary = loss.summary();
         writer.write_summary(
             SystemTime::now(),
@@ -167,26 +191,8 @@ fn main() -> eyre::Result<()> {
             summary,
         )?;
         writer.get_mut().flush()?;
-        // let root_selection_pattern = if epoch % 10 == 0 {
-        //     SamplePattern {
-        //         head: BATCH / 64,
-        //         body: 0,
-        //         tail: 0,
-        //     }
-        // } else {
-        //     SamplePattern {
-        //         head: BATCH / 16,
-        //         body: BATCH / 32,
-        //         tail: BATCH / 32,
-        //     }
-        // };
-        let label = |s: &S, p: Option<&P>| -> usize {
-            let actions_previously_taken = s.back().prohibited_actions.len() / C;
-            let actions_taken = p.map(|p| p.len()).unwrap_or(0);
-            actions_previously_taken + actions_taken
-        };
         let label_sample = |l: usize| -> SamplePattern {
-            const LABEL_SIZE: usize = ((3 * BATCH) / 4) / E;
+            const LABEL_SIZE: usize = 3 * BATCH / 128;
             SamplePattern {
                 head: LABEL_SIZE / 2,
                 body: LABEL_SIZE - LABEL_SIZE / 2 - LABEL_SIZE / 4,
@@ -196,7 +202,17 @@ fn main() -> eyre::Result<()> {
         let reset_state = |state: &mut S| {
             let mut s = state.back().clone();
             s.prohibited_actions.clear();
+            let num_prohibited = E - epoch.clamp(4, 31);
+            let mut rng = rand::thread_rng();
+            let p = edges.choose_multiple(&mut rng, num_prohibited).flat_map(|i| {
+                (0..C).map(|c| c * E + *i)
+            });
+            s.prohibited_actions.extend(p);
             *state = Layers::new(s);
+        };
+        let init_state = || {
+            let num_prohibited = E - epoch.clamp(4, 31);
+            init_state(num_prohibited)
         };
         optimizer.par_select_next_roots(reset_state, init_state, root_action_pattern.clone(), label, label_sample);
         let root_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, epoch + 1), e)).unwrap();

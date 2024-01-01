@@ -152,8 +152,8 @@ where
         let reward =
             (old_count as f32 * self.weights[old_color]) - 
             (new_count as f32 * self.weights[new_color]);
-        // (reward + h_theta_s_a).min(c_s)
-        reward + h_theta_s_a * (c_s - reward)
+        (reward + h_theta_s_a.powi(2)).min(c_s)
+        // reward + h_theta_s_a * (c_s - reward)
     }
 
     // TODO: ?pass in c_s: f32 instead of &Self::Cost
@@ -169,8 +169,8 @@ where
             (old_count as f32 * self.weights[old_color]) - 
             (new_count as f32 * self.weights[new_color]);
         debug_assert!(g_sa >= reward);
-        // (g_sa - reward).clamp(0., c_s - reward)
-        (g_sa - reward) / (c_s - reward)
+        ((g_sa - reward).clamp(0., c_s - reward)).sqrt()
+        // (g_sa - reward) / (c_s - reward)
     }
 }
 
