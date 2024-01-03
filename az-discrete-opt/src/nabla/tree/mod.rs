@@ -54,6 +54,53 @@ impl<P> SearchTree<P> {
         P: Ord + ActionPath + ActionPathFor<Space>,
     {
         debug_assert_eq!(path.len(), transitions.len());
+        debug_assert_eq!(space.evaluate(&cost), space.evaluate(&space.cost(state)));
+        debug_assert_eq!(self.nodes.len(), self.positions.len() + 1);
+        let (s_pos, a_pos, a_data) = match transitions.is_empty() {
+            true => {
+                let s_pos = 0;
+                match self.nodes[s_pos].next_action() {
+                    Some((a_pos, a_data)) => (s_pos, a_pos, a_data),
+                    None => todo!("return"),
+                }
+            },
+            false => {
+                let s_pos = self.positions.len();
+                match self.nodes[s_pos].next_action() {
+                    Some((a_pos, a_data)) => (s_pos, a_pos, a_data),
+                    None => todo!("clear, etc"),
+                }
+            },
+        };
+        transitions.push(Transition2 {
+            state_position: s_pos,
+            action_position: a_pos,
+        });
+        let action = space.action(a_data.a);
+        space.act(state, &action);
+        unsafe { path.push_unchecked(a_data.a) };
+        let s_prime_pos = &mut a_data.s_prime_pos;
+        let s_prime_pos = match s_prime_pos {
+            Some(pos) => *pos,
+            None => {
+                match self.positions.get(&path) {
+                    Some(pos) => {
+                        *s_prime_pos = Some(*pos);
+                        *pos
+                    },
+                    None => {
+                        let pos = (1 + self.positions.len()).try_into().unwrap();
+                        *s_prime_pos = Some(pos);
+                        match space.is_terminal(state) {
+                            true => todo!("if terminal"),
+                            false => todo!("if not terminal"),
+                        }
+                        pos
+                    },
+                }
+            },
+        };
+        todo!();
         // let state_pos = match transitions.is_empty() {
         //     true => 0,
         //     false => self.nodes.len() - 1,

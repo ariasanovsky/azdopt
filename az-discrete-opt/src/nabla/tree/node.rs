@@ -11,7 +11,7 @@ pub struct StateNode2 {
 }
 
 impl StateNode2 {
-    pub fn new<Space: NablaStateActionSpace>(
+    pub(crate) fn new<Space: NablaStateActionSpace>(
         space: &Space,
         state: &Space::State,
         cost: &Space::Cost,
@@ -24,13 +24,13 @@ impl StateNode2 {
             in_neighborhood: Default::default(),
             active_actions: space.action_data(state).map(|(a, r)| {
                 let g_sa = space.g_theta_star_sa(cost, r, h_theta[a]);
-                ActionData2 { a, s_prime: None, g_sa }
+                ActionData2 { a, s_prime_pos: None, g_sa }
             }).collect(),
             exhausted_actions: Default::default(),
         }
     }
 
-    pub fn next_action(&mut self) -> Option<(usize, &mut ActionData2)> {
+    pub(crate) fn next_action(&mut self) -> Option<(usize, &mut ActionData2)> {
         self.active_actions
             .iter_mut()
             .enumerate()
@@ -40,7 +40,7 @@ impl StateNode2 {
 
 pub struct ActionData2 {
     pub(crate) a: usize,
-    pub(crate) s_prime: Option<NonZeroUsize>,
+    pub(crate) s_prime_pos: Option<NonZeroUsize>,
     pub(crate) g_sa: f32,
 }
 
