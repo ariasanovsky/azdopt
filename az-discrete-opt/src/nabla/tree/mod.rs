@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use core::num::NonZeroUsize;
 
-use crate::path::{ActionPath, ActionPathFor};
+use crate::{path::{ActionPath, ActionPathFor}, nabla::tree::node::ActionData2};
 
-use self::node::{StateNode, Transition, SamplePattern, SearchPolicy};
+use self::node::{StateNode, Transition, SamplePattern, SearchPolicy, StateNode2};
 
 use super::space::NablaStateActionSpace;
 
@@ -16,11 +16,10 @@ pub struct SearchTree<P> {
     nodes: Vec<StateNode2>,
 }
 
-pub struct StateNode2;
-
-pub struct Transition2;
-
-pub struct SearchResult;
+pub struct Transition2 {
+    pub(crate) state_position: usize,
+    pub(crate) action_position: usize,
+}
 
 impl<P> SearchTree<P> {
     pub fn new<Space: NablaStateActionSpace>(
@@ -28,11 +27,10 @@ impl<P> SearchTree<P> {
         root: &Space::State,
         cost: &Space::Cost,
         h_theta: &[f32],
-        root_action_pattern: SamplePattern,
     ) -> Self {
         Self {
             positions: Default::default(),
-            nodes: vec![StateNode2],
+            nodes: vec![StateNode2::new(space, root, cost, h_theta)],
         }
     }
 
@@ -50,13 +48,33 @@ impl<P> SearchTree<P> {
         cost: &mut Space::Cost,
         path: &mut P,
         transitions: &mut Vec<Transition2>,
-        policy: impl Fn(usize) -> SearchPolicy,
-    ) -> SearchResult
+    )
     where
         Space: NablaStateActionSpace,
         P: Ord + ActionPath + ActionPathFor<Space>,
     {
-        let Self { positions, nodes } = self;
+        debug_assert_eq!(path.len(), transitions.len());
+        // let state_pos = match transitions.is_empty() {
+        //     true => 0,
+        //     false => self.nodes.len() - 1,
+        // };
+        // let node = &mut self.nodes[state_pos];
+        // let (action_pos, action_data) = match node.next_action() {
+        //     Some(action_pos) => action_pos,
+        //     None => todo!("node is exhausted"),
+        // };
+        // transitions.push(Transition2 {
+        //     state_position: state_pos,
+        //     action_position: action_pos,
+        // });
+        // let ActionData2 {
+        //     a,
+        //     s_prime,
+        //     g_sa: _,
+        // } = action_data;
+        // let action = space.action(*a);
+        // space.act(state, &action);
+        // unsafe { path.push_unchecked(*a) };
         todo!();
         // let transition = root_node.next_transition(policy(0)).ok()?;
         // let a = transition.action_index();

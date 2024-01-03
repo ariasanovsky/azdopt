@@ -52,7 +52,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             (&states, &costs, h_theta_host.par_chunks_exact(Space::ACTION_DIM))
             .into_par_iter()
             .map(|(s, c, h_theta)| {
-                SearchTree::new(&space, s, c, h_theta, root_action_pattern.clone())
+                SearchTree::new(&space, s, c, h_theta)
             })
             .collect();
         let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
@@ -130,23 +130,29 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             .all(|l| l == trees.len()),
         );
         let policy = &policy;
-        let search_results = (
+        (
             trees,
             roots,
             states,
             paths,
             transitions,
             costs,
-        ).into_par_iter().map(|(
+        ).into_par_iter().for_each(|(
             t,
             r,
             s,
             p,
             trans,
-            c)| {
-                t.roll_out_episodes(&self.space, r, s, c, p, trans, policy)
-            }
-        ).collect::<Vec<_>>();
+            c)| t.roll_out_episodes(
+                &self.space,
+                r,
+                s,
+                c,
+                p,
+                trans,
+                // policy
+            )
+        );
         todo!();
         // let states = &self.states;
         // let state_vecs = states_host.par_chunks_exact_mut(Space::STATE_DIM);
@@ -318,12 +324,12 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
             *c = self.space.cost(s);
         });
-        self.par_reset_trees(root_action_pattern);
+        self.par_reset_trees();
         // todo!("anything else?")
     }
 
     #[cfg(feature = "rayon")]
-    fn par_reset_trees(&mut self, root_action_pattern: super::tree::node::SamplePattern)
+    fn par_reset_trees(&mut self)
     where
         Space: Sync,
         Space::State: Sync,
@@ -343,7 +349,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
         (&mut self.trees, &self.roots, &self.costs, h_theta_vecs).into_par_iter().for_each(|(t, s, c, h_theta)| {
             // todo! ?perf
-            *t = SearchTree::new(&self.space, s, c, h_theta, root_action_pattern.clone());
+            *t = SearchTree::new(&self.space, s, c, h_theta);
         });
         // todo!("anything else?")
     }

@@ -1,6 +1,48 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, num::NonZeroUsize};
 
 use crate::nabla::space::NablaStateActionSpace;
+
+pub struct StateNode2 {
+    pub(crate) c: f32,
+    pub(crate) c_star: f32,
+    pub(crate) in_neighborhood: Vec<usize>,
+    pub(crate) active_actions: VecDeque<ActionData2>,
+    pub(crate) exhausted_actions: Vec<ActionData2>,
+}
+
+impl StateNode2 {
+    pub fn new<Space: NablaStateActionSpace>(
+        space: &Space,
+        state: &Space::State,
+        cost: &Space::Cost,
+        h_theta: &[f32],
+    ) -> Self {
+        let c = space.evaluate(&cost);
+        Self {
+            c,
+            c_star: c,
+            in_neighborhood: Default::default(),
+            active_actions: space.action_data(state).map(|(a, r)| {
+                let g_sa = space.g_theta_star_sa(cost, r, h_theta[a]);
+                ActionData2 { a, s_prime: None, g_sa }
+            }).collect(),
+            exhausted_actions: Default::default(),
+        }
+    }
+
+    pub fn next_action(&mut self) -> Option<(usize, &mut ActionData2)> {
+        self.active_actions
+            .iter_mut()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.g_sa.partial_cmp(&b.g_sa).unwrap())
+    }
+}
+
+pub struct ActionData2 {
+    pub(crate) a: usize,
+    pub(crate) s_prime: Option<NonZeroUsize>,
+    pub(crate) g_sa: f32,
+}
 
 pub struct StateNode {
     n_s: u32,
