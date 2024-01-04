@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use core::num::NonZeroUsize;
 
@@ -14,6 +14,7 @@ pub mod update_nodes;
 pub struct SearchTree<P> {
     positions: BTreeMap<P, NonZeroUsize>,
     nodes: Vec<StateNode2>,
+    in_neighborhoods: Vec<BTreeSet<usize>>,
 }
 
 pub struct Transition2 {
@@ -31,6 +32,7 @@ impl<P> SearchTree<P> {
         Self {
             positions: Default::default(),
             nodes: vec![StateNode2::new(space, root, cost, h_theta)],
+            in_neighborhoods: vec![BTreeSet::new()],
         }
     }
 
@@ -51,8 +53,9 @@ impl<P> SearchTree<P> {
     )
     where
         Space: NablaStateActionSpace,
-        P: Ord + ActionPath + ActionPathFor<Space>,
+        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
     {
+        // dbg!(path.actions_taken().collect::<Vec<_>>());
         debug_assert_eq!(path.len(), transitions.len());
         debug_assert_eq!(space.evaluate(&cost), space.evaluate(&space.cost(state)));
         debug_assert_eq!(self.nodes.len(), self.positions.len() + 1);
@@ -86,14 +89,23 @@ impl<P> SearchTree<P> {
                 match self.positions.get(&path) {
                     Some(pos) => {
                         *s_prime_pos = Some(*pos);
+                        todo!("update the next node's `in_neighborhood` precisely when updating `s_prime_pos`");
                         *pos
                     },
                     None => {
                         let pos = (1 + self.positions.len()).try_into().unwrap();
+                        *cost = space.cost(state);
                         *s_prime_pos = Some(pos);
                         match space.is_terminal(state) {
-                            true => todo!("if terminal"),
-                            false => todo!("if not terminal"),
+                            true => {
+                                let c = space.evaluate(cost);
+                                let n = StateNode2::new_exhausted(c);
+                                self.push_node(path.clone(), s_pos, n);
+                                let last_pos = self.nodes.len() - 1;
+                                self.reset_search(path, transitions, last_pos);
+                                return self.roll_out_episodes(space, root, state, cost, path, transitions);
+                            },
+                            false => return,
                         }
                         pos
                     },
@@ -203,6 +215,57 @@ impl<P> SearchTree<P> {
         //     }))
         todo!();
         it
+    }
+
+    pub(crate) fn push_node(&mut self, path: P, parent_pos: usize, node: StateNode2)
+    where
+        P: Ord + ActionPath,
+    {
+        let Self {
+            positions,
+            nodes,
+            in_neighborhoods,
+        } = self;
+        let pos = nodes.len().try_into().unwrap();
+        positions.insert(path, pos);
+        debug_assert_eq!(nodes.len(), positions.len());
+        nodes.push(node);
+        in_neighborhoods.push(BTreeSet::from_iter(core::iter::once(parent_pos)));
+    }
+
+    pub(crate) fn reset_search(
+        &mut self,
+        path: &mut P,
+        transitions: &mut Vec<Transition2>,
+        last_pos: usize,
+    )
+    where
+        P: ActionPath,
+    {
+        let Self {
+            positions,
+            nodes,
+            in_neighborhoods,
+        } = self;
+        let mut previous_parents: VecDeque<usize> = Default::default();
+        let mut pos = last_pos;
+        let mut c_star = nodes[pos].c_star;
+        let path_nodes = transitions.iter().map(|t| t.state_position).collect::<BTreeSet<_>>();
+        transitions.drain(..).rev().for_each(|t| {
+            let Transition2 { state_position, action_position } = t;
+            previous_parents.extend(
+                in_neighborhoods[pos]
+                .iter()
+                .filter(|&&p| !path_nodes.contains(&p))
+            );
+            while let Some(p) = previous_parents.pop_front() {
+                todo!("cascade down while cost improves")
+            }
+            pos = state_position;
+            todo!("exhaust actions while exhausting")
+        });
+        todo!();
+        path.clear();
     }
 }
 

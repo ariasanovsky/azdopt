@@ -7,7 +7,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     costs: Vec<Space::Cost>,
     paths: Vec<P>,
     transitions: Vec<Vec<Transition2>>,
-    states_host: Vec<f32>,
+    state_vecs: Vec<f32>,
     h_theta_host: Vec<f32>,
     trees: Vec<SearchTree<P>>,
     model: M,
@@ -63,7 +63,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             costs,
             paths,
             transitions,
-            states_host,
+            state_vecs: states_host,
             h_theta_host,
             trees,
             model,
@@ -85,7 +85,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             costs,
             paths: _,
             transitions: _,
-            states_host: _,
+            state_vecs: _,
             h_theta_host: _,
             trees: _,
             model: _,
@@ -110,7 +110,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     {
         use rayon::{iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
 
-        use crate::nabla::tree::NodeKind;
+        use crate::nabla::tree::{NodeKind, node::StateNode2};
 
         let trees = &mut self.trees;
         let roots = &self.roots;
@@ -118,13 +118,15 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let paths = &mut self.paths;
         let transitions = &mut self.transitions;
         let costs = &mut self.costs;
+        let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
         debug_assert!(
             [
                 roots.len(),
                 states.len(),
                 paths.len(),
                 transitions.len(),
-                costs.len()
+                costs.len(),
+                state_vecs.len(),
             ]
             .into_iter()
             .all(|l| l == trees.len()),
@@ -137,13 +139,17 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             paths,
             transitions,
             costs,
+            state_vecs,
         ).into_par_iter().for_each(|(
             t,
             r,
             s,
             p,
             trans,
-            c)| t.roll_out_episodes(
+            c,
+            v,
+        )| {
+            t.roll_out_episodes(
                 &self.space,
                 r,
                 s,
@@ -151,32 +157,33 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 p,
                 trans,
                 // policy
-            )
-        );
-        todo!();
-        // let states = &self.states;
-        // let state_vecs = states_host.par_chunks_exact_mut(Space::STATE_DIM);
-        // (states, state_vecs, &node_kinds).into_par_iter().for_each(|(s, s_host, kind)| {
-        //     if kind.as_ref().is_some_and(NodeKind::is_new) {
-        //         space.write_vec(s, s_host);
-        //     }
-        // });
-        // model.write_predictions(states_host, h_theta_host);
-        // let h_theta_vecs = h_theta_host.par_chunks_exact(Space::ACTION_DIM);
-        // let uninserted_new_nodes =
-        //     (&self.states, &self.costs, &self.paths, node_kinds, transitions).into_par_iter()
-        //     .zip(h_theta_vecs)
-        //     .map(|((s, c, p, kind, trans), h_theta)| {
-        //     kind.map(|kind| kind.update_existing_nodes(
-        //         space, 
-        //         s,
-        //         c,
-        //         h_theta,
-        //         p,
-        //         action_pattern(p.len()),
-        //         trans.unwrap(),
-        //     )).flatten()
-        // }).collect::<Vec<_>>();
+            );
+            if !trans.is_empty() {
+                self.space.write_vec(s, v);
+            }
+        });
+        self.model.write_predictions(&self.state_vecs, &mut self.h_theta_host);
+        (
+            &mut self.trees,
+            &self.states,
+            &self.costs,
+            &self.paths,
+            &self.transitions,
+            self.h_theta_host.par_chunks_exact(Space::ACTION_DIM),
+        ).into_par_iter().for_each(|(
+            t,
+            s,
+            c,
+            p,
+            trans,
+            h,
+        )| {
+            if let Some(a) = trans.last() {
+                let n = StateNode2::new(&self.space, s, c, h);
+                t.push_node(p.clone(), a.state_position, n);
+            }
+        });
+        // todo!();
         // (&mut self.trees, uninserted_new_nodes, &mut self.paths).into_par_iter().for_each(|(t, n, p)| {
         //     if let Some(n) = n {
         //         t.insert_new_node(p.clone(), n);
@@ -341,11 +348,11 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
             *c = self.space.cost(s);
         });
-        let state_vecs = self.states_host.par_chunks_exact_mut(Space::STATE_DIM);
+        let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
         (&self.states, state_vecs).into_par_iter().for_each(|(s, s_host)| {
             self.space.write_vec(s, s_host);
         });
-        self.model.write_predictions(&self.states_host, &mut self.h_theta_host);
+        self.model.write_predictions(&self.state_vecs, &mut self.h_theta_host);
         let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
         (&mut self.trees, &self.roots, &self.costs, h_theta_vecs).into_par_iter().for_each(|(t, s, c, h_theta)| {
             // todo! ?perf

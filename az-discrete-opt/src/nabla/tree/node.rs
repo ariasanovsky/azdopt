@@ -5,9 +5,7 @@ use crate::nabla::space::NablaStateActionSpace;
 pub struct StateNode2 {
     pub(crate) c: f32,
     pub(crate) c_star: f32,
-    pub(crate) in_neighborhood: Vec<usize>,
-    pub(crate) active_actions: VecDeque<ActionData2>,
-    pub(crate) exhausted_actions: Vec<ActionData2>,
+    pub(crate) actions: Vec<ActionData2>,
 }
 
 impl StateNode2 {
@@ -21,27 +19,39 @@ impl StateNode2 {
         Self {
             c,
             c_star: c,
-            in_neighborhood: Default::default(),
-            active_actions: space.action_data(state).map(|(a, r)| {
-                let g_sa = space.g_theta_star_sa(cost, r, h_theta[a]);
+            actions: space.action_data(state).map(|(a, r)| {
+                let g_sa = Some(space.g_theta_star_sa(cost, r, h_theta[a]));
                 ActionData2 { a, s_prime_pos: None, g_sa }
             }).collect(),
-            exhausted_actions: Default::default(),
         }
     }
 
     pub(crate) fn next_action(&mut self) -> Option<(usize, &mut ActionData2)> {
-        self.active_actions
+        self.actions
             .iter_mut()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.g_sa.partial_cmp(&b.g_sa).unwrap())
+            .filter_map(|(i, a)|
+                a.g_sa.map(|g_sa| (i, a, g_sa))
+            )
+            .max_by(|(_, _, a), (_, _, b)|
+                a.partial_cmp(b).unwrap()
+            )
+            .map(|(i, a, _)| (i, a))
+    }
+
+    pub(crate) fn new_exhausted(c: f32) -> Self {
+        Self {
+            c,
+            c_star: c,
+            actions: Default::default(),
+        }
     }
 }
 
 pub struct ActionData2 {
     pub(crate) a: usize,
     pub(crate) s_prime_pos: Option<NonZeroUsize>,
-    pub(crate) g_sa: f32,
+    pub(crate) g_sa: Option<f32>,
 }
 
 pub struct StateNode {
