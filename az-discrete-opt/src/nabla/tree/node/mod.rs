@@ -1,6 +1,10 @@
-use std::{collections::VecDeque, num::NonZeroUsize};
+use std::collections::VecDeque;
 
 use crate::nabla::space::NablaStateActionSpace;
+
+use self::action::ActionData2;
+
+pub mod action;
 
 pub struct StateNode2 {
     pub(crate) c: f32,
@@ -20,23 +24,32 @@ impl StateNode2 {
             c,
             c_star: c,
             actions: space.action_data(state).map(|(a, r)| {
-                let g_sa = Some(space.g_theta_star_sa(cost, r, h_theta[a]));
-                ActionData2 { a, s_prime_pos: None, g_sa }
+                let g_sa = space.g_theta_star_sa(cost, r, h_theta[a]);
+                ActionData2::new(a, g_sa)
             }).collect(),
         }
     }
 
     pub(crate) fn next_action(&mut self) -> Option<(usize, &mut ActionData2)> {
+        for action in &self.actions {
+            println!("action {} has g_sa {:?}", action.action(), action.g_sa());
+        }
+        println!("c_star: {}\n", self.c_star);
+        
         self.actions
             .iter_mut()
             .enumerate()
             .filter_map(|(i, a)|
-                a.g_sa.map(|g_sa| (i, a, g_sa))
+                a.g_sa().map(|g_sa| (i, a, g_sa))
             )
             .max_by(|(_, _, a), (_, _, b)|
                 a.partial_cmp(b).unwrap()
             )
             .map(|(i, a, _)| (i, a))
+    }
+
+    pub(crate) fn is_exhausted(&self) -> bool {
+        self.actions.iter().all(|a| a.g_sa().is_none())
     }
 
     pub(crate) fn new_exhausted(c: f32) -> Self {
@@ -46,12 +59,20 @@ impl StateNode2 {
             actions: Default::default(),
         }
     }
-}
 
-pub struct ActionData2 {
-    pub(crate) a: usize,
-    pub(crate) s_prime_pos: Option<NonZeroUsize>,
-    pub(crate) g_sa: Option<f32>,
+    pub(crate) fn update_c_stars(&mut self, c_star: &mut f32, action_position: usize) {
+        if self.c_star > *c_star {
+            // println!("improve node c_star!");
+            self.c_star = *c_star;
+        } else {
+            *c_star = self.c_star;
+            self.actions[action_position].decay();
+        }
+    }
+
+    pub(crate) fn exhaust_action(&mut self, action_position: usize) {
+        self.actions[action_position].exhaust();
+    }
 }
 
 pub struct StateNode {

@@ -3,8 +3,6 @@ use crate::learning_loop::prediction::PredictionData;
 #[cfg(feature = "tensorboard")]
 use crate::tensorboard::Summarize;
 
-#[cfg(feature = "candle")]
-pub mod candle;
 #[cfg(feature = "dfdx")]
 pub mod dfdx;
 

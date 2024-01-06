@@ -1,6 +1,6 @@
 use crate::nabla::space::NablaStateActionSpace;
 
-use super::{NodeKind, Transition, node::{StateNode, TransitionKind, SamplePattern}};
+use super::{NodeKind, node::{SamplePattern, Transition, StateNode, TransitionKind}};
 
 impl<P> NodeKind<'_, P> {
     pub fn update_existing_nodes<Space: NablaStateActionSpace>(

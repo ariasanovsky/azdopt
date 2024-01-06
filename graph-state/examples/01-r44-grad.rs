@@ -1,6 +1,6 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel, tree::node::{SamplePattern, SearchPolicy, TransitionMetadata}}, path::{set::ActionSet, ActionPath}};
+use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel, tree::node::SamplePattern}, path::{set::ActionSet, ActionPath}};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
@@ -87,11 +87,11 @@ fn main() -> eyre::Result<()> {
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE, 
         || {
-            init_state(E - 8)
+            init_state(E - 7)
         },
         model,
         BATCH,
-        root_action_pattern.clone(),
+        // root_action_pattern.clone(),
     );
     let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
     println!("{}", argmin.1);
@@ -104,47 +104,37 @@ fn main() -> eyre::Result<()> {
     writer.get_mut().flush()?;
     
     let epochs: usize = 250;
-    let episodes: usize = 800;
+    let episodes: usize = 44;
 
     for epoch in 1..epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            if episode % 800 == 0 {
-                println!("==== EPISODE: {episode} ====");
-                let max_lengths = optimizer.get_trees().iter().max_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
-                println!("max_lengths: {max_lengths:?}");
-                let min_lengths = optimizer.get_trees().iter().min_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
-                println!("min_lengths: {min_lengths:?}");
-                // println!("lengths: {lengths:?}");
-                // let lengths = optimizer.get_trees().last().unwrap().sizes().collect::<Vec<_>>();
-                // println!("lengths: {lengths:?}");
-            }
-
-            let episode_action_pattern = |_depth: usize| {
-                SamplePattern {
-                    head: 10,
-                    body: 5,
-                    tail: 0,
-                }
-            };
-            let search_policy = |depth: usize| {
-                match depth {
-                    0 if episode < root_action_pattern.len() => SearchPolicy::Cyclic,
-                    _ => SearchPolicy::Rating(|metadata| -> f32 {
-                        let TransitionMetadata {
-                            n_s,
-                            c_s,
-                            n_sa,
-                            g_theta_star_sa,
-                        } = metadata;
-                        let exploit = g_theta_star_sa / c_s;
-                        let explore = ((1 + n_s) as f32).sqrt() / (1 + n_sa) as f32;
-                        exploit + 0.1 * explore
-                    }),
-                }
-            };
+            // let episode_action_pattern = |_depth: usize| {
+            //     SamplePattern {
+            //         head: 10,
+            //         body: 5,
+            //         tail: 0,
+            //     }
+            // };
+            // let search_policy = |depth: usize| {
+            //     match depth {
+            //         0 if episode < root_action_pattern.len() => SearchPolicy::Cyclic,
+            //         _ => SearchPolicy::Rating(|metadata| -> f32 {
+            //             let TransitionMetadata {
+            //                 n_s,
+            //                 c_s,
+            //                 n_sa,
+            //                 g_theta_star_sa,
+            //             } = metadata;
+            //             let exploit = g_theta_star_sa / c_s;
+            //             let explore = ((1 + n_s) as f32).sqrt() / (1 + n_sa) as f32;
+            //             exploit + 0.1 * explore
+            //         }),
+            //     }
+            // };
             // optimizer.par_roll_out_episodes(episode_action_pattern, search_policy);
-            optimizer.par_roll_out_episodes(search_policy);
+            // optimizer.par_roll_out_episodes(search_policy);
+            optimizer.par_roll_out_episodes();
             let episode_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), episode, epoch), e)).unwrap();
             if episode_argmin.1 < argmin.1 {
                 argmin = episode_argmin;
@@ -159,25 +149,43 @@ fn main() -> eyre::Result<()> {
                 }    
                 println!("{}", argmin.1);
             }
+
+            if episode % episodes == 0 {
+                println!("==== EPISODE: {episode} ====");
+                let sizes = optimizer.get_trees().first().unwrap().sizes().collect::<Vec<_>>();
+                println!("sizes: {sizes:?}");
+
+                let graph = optimizer.get_trees()[0].graphviz();
+                std::fs::write("tree.svg", graph).unwrap();
+                // std::fs::write("tree.dot", format!("{:?}", petgraph::dot::Dot::new(&graph))).unwrap();
+                // let max_lengths = optimizer.get_trees().iter().max_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
+                // println!("max_lengths: {max_lengths:?}");
+                // let min_lengths = optimizer.get_trees().iter().min_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
+                // println!("min_lengths: {min_lengths:?}");
+                // println!("lengths: {lengths:?}");
+                // let lengths = optimizer.get_trees().last().unwrap().sizes().collect::<Vec<_>>();
+                // println!("lengths: {lengths:?}");
+            }
         }
         
-        let action_weights = |n_sa| {
-            (n_sa as f32).sqrt()
-        };
+        // let action_weights = |n_sa| {
+        //     (n_sa as f32).sqrt()
+        // };
         let label = |s: &S, p: Option<&P>| -> usize {
             let actions_previously_taken = s.back().prohibited_actions.len() / C;
             let actions_taken = p.map(|p| p.len()).unwrap_or(0);
             actions_previously_taken + actions_taken
         };
-        let label_weights = |l: usize| -> f32 {
-            const MIN_LABEL: usize = E - 31;
-            (1 + l - MIN_LABEL).pow(2) as f32
-        };
-        let state_weights = |s: &S| -> f32 {
-            let label = label(s, None);
-            label_weights(label)
-        };
-        let loss = optimizer.par_update_model(action_weights, state_weights);
+        // let label_weights = |l: usize| -> f32 {
+        //     const MIN_LABEL: usize = E - 31;
+        //     (1 + l - MIN_LABEL).pow(2) as f32
+        // };
+        // let state_weights = |s: &S| -> f32 {
+        //     let label = label(s, None);
+        //     label_weights(label)
+        // };
+        // let loss = optimizer.par_update_model(action_weights, state_weights);
+        let loss = optimizer.par_update_model();
         let summary = loss.summary();
         writer.write_summary(
             SystemTime::now(),

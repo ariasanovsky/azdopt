@@ -1,4 +1,4 @@
-use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::{MeanTo, SumTo, BroadcastTo}, shapes::{Rank1, Rank0}};
+use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::{SumTo, BroadcastTo}, shapes::{Rank1, Rank0}};
 
 use dfdx::{
     nn::Module,

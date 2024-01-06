@@ -1,14 +1,17 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use core::num::NonZeroUsize;
 
-use crate::{path::{ActionPath, ActionPathFor}, nabla::tree::node::ActionData2};
+use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::{StateNode, Transition, SamplePattern, SearchPolicy, StateNode2};
+use self::node::{StateNode2, StateNode};
 
 use super::space::NablaStateActionSpace;
 
 pub mod node;
+#[cfg(feature = "graphviz")]
+pub mod graphviz;
+pub mod search;
 pub mod update_nodes;
 
 pub struct SearchTree<P> {
@@ -17,6 +20,7 @@ pub struct SearchTree<P> {
     in_neighborhoods: Vec<BTreeSet<usize>>,
 }
 
+#[derive(Debug)]
 pub struct Transition2 {
     pub(crate) state_position: usize,
     pub(crate) action_position: usize,
@@ -36,10 +40,22 @@ impl<P> SearchTree<P> {
         }
     }
 
-    pub fn sizes(&self) -> impl Iterator<Item = usize> + '_ {
-        let it = core::iter::empty();
-        todo!();
-        it
+    pub fn sizes(&self) -> impl Iterator<Item = (usize, usize)> + '_
+    where
+        P: ActionPath,
+    {
+        let mut sizes = vec![(1, 0)];
+        for (p, i) in self.positions.iter() {
+            let len = p.len();
+            if len >= sizes.len() {
+                sizes.resize(len + 1, (0, 0));
+            }
+            sizes[len].0 += 1;
+            if self.nodes[i.get()].is_exhausted() {
+                sizes[len].1 += 1;
+            }
+        }
+        sizes.into_iter()
     }
 
     pub fn roll_out_episodes<Space>(
@@ -50,116 +66,102 @@ impl<P> SearchTree<P> {
         cost: &mut Space::Cost,
         path: &mut P,
         transitions: &mut Vec<Transition2>,
+        state_pos: &mut Option<NonZeroUsize>,
     )
     where
         Space: NablaStateActionSpace,
+        Space::State: Clone,
         P: Ord + ActionPath + ActionPathFor<Space> + Clone,
     {
-        // dbg!(path.actions_taken().collect::<Vec<_>>());
-        debug_assert_eq!(path.len(), transitions.len());
-        debug_assert_eq!(space.evaluate(&cost), space.evaluate(&space.cost(state)));
-        debug_assert_eq!(self.nodes.len(), self.positions.len() + 1);
-        let (s_pos, a_pos, a_data) = match transitions.is_empty() {
-            true => {
-                let s_pos = 0;
-                match self.nodes[s_pos].next_action() {
-                    Some((a_pos, a_data)) => (s_pos, a_pos, a_data),
-                    None => todo!("return"),
+        loop {
+            debug_assert_eq!(path.len(), transitions.len());
+            debug_assert_eq!(self.positions.len() + 1, self.nodes.len());
+            // for (p, pos) in self.positions.iter() {
+            //     let p = p.actions_taken().collect::<Vec<_>>();
+            //     println!("({pos}): {p:?}");
+            // }
+            // println!();
+            let state_position = state_pos.map(NonZeroUsize::get).unwrap_or(0);
+            let node = &mut self.nodes[state_position];
+            let Some((action_position, action_data)) = node.next_action() else {
+                if transitions.is_empty() {
+                    debug_assert_eq!(*state_pos, None);
+                    return;
                 }
-            },
-            false => {
-                let s_pos = self.positions.len();
-                match self.nodes[s_pos].next_action() {
-                    Some((a_pos, a_data)) => (s_pos, a_pos, a_data),
-                    None => todo!("clear, etc"),
-                }
-            },
-        };
-        transitions.push(Transition2 {
-            state_position: s_pos,
-            action_position: a_pos,
-        });
-        let action = space.action(a_data.a);
-        space.act(state, &action);
-        unsafe { path.push_unchecked(a_data.a) };
-        let s_prime_pos = &mut a_data.s_prime_pos;
-        let s_prime_pos = match s_prime_pos {
-            Some(pos) => *pos,
-            None => {
-                match self.positions.get(&path) {
-                    Some(pos) => {
-                        *s_prime_pos = Some(*pos);
-                        todo!("update the next node's `in_neighborhood` precisely when updating `s_prime_pos`");
-                        *pos
+                debug_assert!(self.positions.contains_key(path));
+                self.empty_transitions(
+                    root,
+                    state,
+                    path,
+                    transitions,
+                    state_pos,
+                );
+                return self.roll_out_episodes(
+                    space,
+                    root,
+                    state,
+                    cost,
+                    path,
+                    transitions,
+                    state_pos,
+                );
+            };
+            transitions.push(Transition2 {
+                state_position,
+                action_position,
+            });
+            let action = action_data.action();
+            unsafe { path.push_unchecked(action) };
+            let action = space.action(action);
+            space.act(state, &action);
+
+            let next_position = action_data.next_position_mut();
+            match next_position {
+                Some(_) => {
+                    debug_assert_eq!(self.positions.get(path).copied(), *next_position);
+                    *state_pos = *next_position
+                },
+                None => match self.positions.get(path) {
+                    Some(&pos) => {
+                        let inserted = self.in_neighborhoods[pos.get()].insert(state_position);
+                        debug_assert!(inserted);
+                        *next_position = Some(pos);
+                        *state_pos = Some(pos);
                     },
                     None => {
-                        let pos = (1 + self.positions.len()).try_into().unwrap();
+                        // we will insert a node at the end of the tree
+                        let next_pos = (1 + self.positions.len()).try_into().unwrap();
+                        *next_position = Some(next_pos);
+                        *state_pos = *next_position;
+                        self.in_neighborhoods.push(core::iter::once(state_position).collect());
+                        self.positions.insert(path.clone(), next_pos);
                         *cost = space.cost(state);
-                        *s_prime_pos = Some(pos);
-                        match space.is_terminal(state) {
-                            true => {
-                                let c = space.evaluate(cost);
-                                let n = StateNode2::new_exhausted(c);
-                                self.push_node(path.clone(), s_pos, n);
-                                let last_pos = self.nodes.len() - 1;
-                                self.reset_search(path, transitions, last_pos);
-                                return self.roll_out_episodes(space, root, state, cost, path, transitions);
-                            },
-                            false => return,
+                        if space.is_terminal(state) {
+                            let c_star = space.evaluate(cost);
+                            let node = StateNode2::new_exhausted(c_star);
+                            self.push_node(node);
+                            self.empty_transitions(
+                                root,
+                                state,
+                                path,
+                                transitions,
+                                state_pos,
+                            );
+                            return self.roll_out_episodes(
+                                space,
+                                root,
+                                state,
+                                cost,
+                                path,
+                                transitions,
+                                state_pos,
+                            );
                         }
-                        pos
+                        return;
                     },
-                }
-            },
-        };
-        todo!();
-        // let state_pos = match transitions.is_empty() {
-        //     true => 0,
-        //     false => self.nodes.len() - 1,
-        // };
-        // let node = &mut self.nodes[state_pos];
-        // let (action_pos, action_data) = match node.next_action() {
-        //     Some(action_pos) => action_pos,
-        //     None => todo!("node is exhausted"),
-        // };
-        // transitions.push(Transition2 {
-        //     state_position: state_pos,
-        //     action_position: action_pos,
-        // });
-        // let ActionData2 {
-        //     a,
-        //     s_prime,
-        //     g_sa: _,
-        // } = action_data;
-        // let action = space.action(*a);
-        // space.act(state, &action);
-        // unsafe { path.push_unchecked(*a) };
-        todo!();
-        // let transition = root_node.next_transition(policy(0)).ok()?;
-        // let a = transition.action_index();
-        // let action = space.action(a);
-        // space.act(state, &action);
-        // unsafe { path.push_unchecked(a) };
-        // let mut transitions = vec![transition];
-
-        // for (i, level) in levels.iter_mut().enumerate() {
-        //     // I hate Polonius case III
-        //     let node = match level.contains_key(path) {
-        //         true => level.get_mut(path).unwrap(),
-        //         false => return Some((transitions, NodeKind::New(level)),)
-        //     };
-        //     match node.next_transition(policy(i+1)) {
-        //         Ok(trans) => {
-        //             let a = trans.action_index();
-        //             let action = space.action(a);
-        //             space.act(state, &action);
-        //             unsafe { path.push_unchecked(a) };
-        //             transitions.push(trans)
-        //         },
-        //         Err(c) => return Some((transitions, NodeKind::OldExhausted { c_s_t_theta_star: c }))
-        //     }
-        // }
-        // Some((transitions, NodeKind::NewLevel))
+                },
+            }
+        }
     }
 
     // pub(crate) fn insert_new_node(
@@ -183,24 +185,6 @@ impl<P> SearchTree<P> {
     //     &self.root_node
     // }
 
-    // #[cfg(feature = "rayon")]
-    // pub(crate) fn _par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, usize, f32)> + '_
-    // where
-    //     P: Ord + Sync,
-    // {
-    //     use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
-
-    //     let next_from_roots =
-    //         self.root_node._par_next_roots()
-    //         .map(|(a, c_star)| (None, a, c_star));
-    //     let next_from_nodes = self.levels.par_iter().flat_map(|level| {
-    //         level.par_iter().flat_map(|(p, n)| {
-    //             n._par_next_roots().map(move |(a, c_star)| (Some(p), a, c_star))
-    //         })
-    //     });
-    //     next_from_roots.chain(next_from_nodes)
-    // }
-
     #[cfg(feature = "rayon")]
     pub(crate) fn par_nodes(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, f32)> + '_
     where
@@ -217,56 +201,106 @@ impl<P> SearchTree<P> {
         it
     }
 
-    pub(crate) fn push_node(&mut self, path: P, parent_pos: usize, node: StateNode2)
+    pub(crate) fn push_node(&mut self, node: StateNode2)
     where
         P: Ord + ActionPath,
     {
-        let Self {
-            positions,
-            nodes,
-            in_neighborhoods,
-        } = self;
-        let pos = nodes.len().try_into().unwrap();
-        positions.insert(path, pos);
-        debug_assert_eq!(nodes.len(), positions.len());
-        nodes.push(node);
-        in_neighborhoods.push(BTreeSet::from_iter(core::iter::once(parent_pos)));
+        self.nodes.push(node);
     }
 
-    pub(crate) fn reset_search(
+    pub(crate) fn empty_transitions<Space>(
         &mut self,
+        root: &Space::State,
+        state: &mut Space::State,
         path: &mut P,
         transitions: &mut Vec<Transition2>,
-        last_pos: usize,
+        state_pos: &mut Option<NonZeroUsize>,
     )
     where
-        P: ActionPath,
+        Space: NablaStateActionSpace,
+        Space::State: Clone,
+        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
     {
-        let Self {
-            positions,
-            nodes,
-            in_neighborhoods,
-        } = self;
-        let mut previous_parents: VecDeque<usize> = Default::default();
-        let mut pos = last_pos;
-        let mut c_star = nodes[pos].c_star;
-        let path_nodes = transitions.iter().map(|t| t.state_position).collect::<BTreeSet<_>>();
-        transitions.drain(..).rev().for_each(|t| {
-            let Transition2 { state_position, action_position } = t;
-            previous_parents.extend(
-                in_neighborhoods[pos]
-                .iter()
-                .filter(|&&p| !path_nodes.contains(&p))
-            );
-            while let Some(p) = previous_parents.pop_front() {
-                todo!("cascade down while cost improves")
+        debug_assert!(!transitions.is_empty());
+        debug_assert!(self.positions.contains_key(path));
+        let pos = state_pos.map(NonZeroUsize::get).unwrap_or(0);
+        let mut c_star = self.nodes[pos].c_star;
+        let mut exhausting = true;
+        for transition in transitions.drain(..).rev() {
+            println!("transition: {:?}", transition);
+            println!("c_star: {:?}", c_star);
+            println!("exhausting: {:?}", exhausting);
+            println!();
+            let node = &mut self.nodes[transition.state_position];
+            if exhausting {
+                node.exhaust_action(transition.action_position);
+                exhausting = node.is_exhausted();
+            } else {
+                println!("not exhausting");
+                node.update_c_stars(&mut c_star, transition.action_position);
             }
-            pos = state_position;
-            todo!("exhaust actions while exhausting")
-        });
-        todo!();
+        }
         path.clear();
+        state.clone_from(root);
+        *state_pos = None;
     }
+
+    // pub(crate) fn reset_search(
+    //     &mut self,
+    //     path: &mut P,
+    //     transitions: &mut Vec<Transition2>,
+    //     last_pos: usize,
+    // )
+    // where
+    //     P: ActionPath,
+    // {
+    //     let Self {
+    //         positions: _,
+    //         nodes,
+    //         in_neighborhoods,
+    //     } = self;
+    //     let mut previous_parents: VecDeque<usize> = Default::default();
+    //     let mut pos = last_pos;
+    //     let mut c_star = nodes[pos].c_star;
+    //     let path_nodes = transitions.iter().map(|t| t.state_position).collect::<BTreeSet<_>>();
+    //     transitions.drain(..).rev().for_each(|t| {
+    //         let Transition2 { state_position, action_position } = t;
+    //         if nodes[pos].is_exhausted() {
+    //             nodes[state_position].actions[action_position].g_sa = None
+    //         } else {
+    //             let c_star_below = &mut nodes[state_position].c_star;
+    //             if *c_star_below > c_star {
+    //                 *c_star_below = c_star;
+    //                 // todo!()
+    //             } else {
+    //                 let g_sa = &mut nodes[state_position].actions[action_position].g_sa.unwrap();
+    //                 *g_sa -= 0.5;
+    //                 // todo!()
+    //             }
+    //         }
+            
+    //         previous_parents.extend(
+    //             in_neighborhoods[pos]
+    //             .iter()
+    //             .filter(|&&p| !path_nodes.contains(&p))
+    //         );
+    //         while let Some(p) = previous_parents.pop_front() {
+    //             let c_star_p = &mut nodes[p].c_star;
+    //             if *c_star_p > c_star {
+    //                 *c_star_p = c_star;
+    //                 previous_parents.extend(
+    //                     in_neighborhoods[p].iter()
+    //                     .filter(|&&p| !path_nodes.contains(&p))
+    //                 );
+    //             }
+    //         }
+            
+    //         pos = state_position;
+    //         c_star = nodes[pos].c_star;
+    //     });
+    //     // todo!();
+    //     path.clear();
+    // }
 }
 
 pub enum NodeKind<'roll_out, P> {
