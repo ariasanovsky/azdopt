@@ -278,6 +278,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                     todo!()
                 }
                 *cost = self.space.cost(state);
+                *eval = self.space.evaluate(cost);
                 ArgminImprovement::Improved(&self.argmin_data)
             },
             None => ArgminImprovement::Unchanged,
