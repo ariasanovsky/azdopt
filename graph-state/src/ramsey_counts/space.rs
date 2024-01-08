@@ -139,38 +139,18 @@ where
         cost.0.iter().zip(self.weights.iter()).map(|(c, w)| *c as f32 * w).sum()
     }
 
-    // TODO: pass in c_s: f32 instead of &Self::Cost
-    fn g_theta_star_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
-        // debug_assert!(h_theta_s_a >= 0.);
-        let c_s = self.evaluate(c_s);
-        let CountChange {
-            old_color,
-            new_color,
-            old_count,
-            new_count,
-        } = r_sa;
-        let reward =
-            (old_count as f32 * self.weights[old_color]) - 
-            (new_count as f32 * self.weights[new_color]);
-        (reward + h_theta_s_a.powi(2)).min(c_s)
-        // reward + h_theta_s_a * (c_s - reward)
+    fn g_theta_star_sa(&self, _c_s: &Self::Cost, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
+        let r_sa =
+            r_sa.old_count as f32 * self.weights[r_sa.old_color] -
+            r_sa.new_count as f32 * self.weights[r_sa.new_color]
+            ;
+        // r_sa + h_theta_s_a.powi(2)
+        r_sa + h_theta_s_a
     }
 
-    // TODO: ?pass in c_s: f32 instead of &Self::Cost
-    fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32 {
-        let c_s = self.evaluate(c_s);
-        let CountChange {
-            old_color,
-            new_color,
-            old_count,
-            new_count,
-        } = r_sa;
-        let reward = 
-            (old_count as f32 * self.weights[old_color]) - 
-            (new_count as f32 * self.weights[new_color]);
-        debug_assert!(g_sa >= reward);
-        ((g_sa - reward).clamp(0., c_s - reward)).sqrt()
-        // (g_sa - reward) / (c_s - reward)
+    fn h_sa(&self, _c_s: f32, c_as: f32, c_as_star: f32) -> f32 {
+        // (c_as - c_as_star).sqrt()
+        c_as - c_as_star
     }
 }
 

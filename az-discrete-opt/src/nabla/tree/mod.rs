@@ -1,17 +1,28 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+use core::num::NonZeroUsize;
 
 use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::{StateNode, Transition, SamplePattern, SearchPolicy};
+use self::node::StateNode;
 
 use super::space::NablaStateActionSpace;
 
 pub mod node;
-pub mod update_nodes;
+#[cfg(feature = "graphviz")]
+pub mod graphviz;
+pub mod search;
 
 pub struct SearchTree<P> {
-    root_node: StateNode,
-    levels: Vec<BTreeMap<P, StateNode>>,
+    positions: BTreeMap<P, NonZeroUsize>,
+    nodes: Vec<StateNode>,
+    in_neighborhoods: Vec<BTreeSet<usize>>,
+}
+
+#[derive(Debug)]
+pub struct Transition2 {
+    pub(crate) state_position: usize,
+    pub(crate) action_position: usize,
 }
 
 impl<P> SearchTree<P> {
@@ -20,119 +31,213 @@ impl<P> SearchTree<P> {
         root: &Space::State,
         cost: &Space::Cost,
         h_theta: &[f32],
-        root_action_pattern: SamplePattern,
     ) -> Self {
         Self {
-            root_node: StateNode::new(space, root, cost, h_theta, root_action_pattern).0,
-            levels: Vec::new(),
+            positions: Default::default(),
+            nodes: vec![StateNode::new(space, root, cost, h_theta)],
+            in_neighborhoods: vec![BTreeSet::new()],
         }
     }
 
-    pub fn sizes(&self) -> impl Iterator<Item = usize> + '_ {
-        self.levels.iter().map(BTreeMap::len)
-    }
-
-    pub fn roll_out_episode<Space>(
-        &mut self,
-        space: &Space,
-        state: &mut Space::State,
-        path: &mut P,
-        policy: impl Fn(usize) -> SearchPolicy,
-    ) -> Option<(Vec<Transition>, NodeKind<P>)>
+    pub fn sizes(&self) -> impl Iterator<Item = (usize, usize)> + '_
     where
-        Space: NablaStateActionSpace,
-        P: Ord + ActionPath + ActionPathFor<Space>,
+        P: ActionPath,
     {
-        debug_assert_eq!(path.len(), 0);
-        let Self { root_node, levels } = self;
-        let transition = root_node.next_transition(policy(0)).ok()?;
-        let a = transition.action_index();
-        let action = space.action(a);
-        space.act(state, &action);
-        unsafe { path.push_unchecked(a) };
-        let mut transitions = vec![transition];
-
-        for (i, level) in levels.iter_mut().enumerate() {
-            // I hate Polonius case III
-            let node = match level.contains_key(path) {
-                true => level.get_mut(path).unwrap(),
-                false => return Some((transitions, NodeKind::New(level)),)
-            };
-            match node.next_transition(policy(i+1)) {
-                Ok(trans) => {
-                    let a = trans.action_index();
-                    let action = space.action(a);
-                    space.act(state, &action);
-                    unsafe { path.push_unchecked(a) };
-                    transitions.push(trans)
-                },
-                Err(c) => return Some((transitions, NodeKind::OldExhausted { c_s_t_theta_star: c }))
+        let mut sizes = vec![(1, 0)];
+        for (p, i) in self.positions.iter() {
+            let len = p.len();
+            if len >= sizes.len() {
+                sizes.resize(len + 1, (0, 0));
+            }
+            sizes[len].0 += 1;
+            if self.nodes[i.get()].is_exhausted() {
+                sizes[len].1 += 1;
             }
         }
-        Some((transitions, NodeKind::NewLevel))
+        sizes.into_iter()
     }
 
-    pub(crate) fn insert_new_node(
+    pub fn roll_out_episodes<Space>(
         &mut self,
-        path: P,
-        node: StateNode,
+        space: &Space,
+        root: &Space::State,
+        state: &mut Space::State,
+        cost: &mut Space::Cost,
+        path: &mut P,
+        transitions: &mut Vec<Transition2>,
+        state_pos: &mut Option<NonZeroUsize>,
     )
+    where
+        Space: NablaStateActionSpace,
+        Space::State: Clone,
+        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
+    {
+        loop {
+            debug_assert_eq!(path.len(), transitions.len());
+            debug_assert_eq!(self.positions.len() + 1, self.nodes.len());
+            // for (p, pos) in self.positions.iter() {
+            //     let p = p.actions_taken().collect::<Vec<_>>();
+            //     println!("({pos}): {p:?}");
+            // }
+            // println!();
+            let state_position = state_pos.map(NonZeroUsize::get).unwrap_or(0);
+            let node = &mut self.nodes[state_position];
+            let Some((action_position, action_data)) = node.next_action() else {
+                if transitions.is_empty() {
+                    debug_assert_eq!(*state_pos, None);
+                    return;
+                }
+                debug_assert!(self.positions.contains_key(path));
+                self.empty_transitions(
+                    root,
+                    state,
+                    path,
+                    transitions,
+                    state_pos,
+                );
+                return self.roll_out_episodes(
+                    space,
+                    root,
+                    state,
+                    cost,
+                    path,
+                    transitions,
+                    state_pos,
+                );
+            };
+            transitions.push(Transition2 {
+                state_position,
+                action_position,
+            });
+            let action = action_data.action();
+            unsafe { path.push_unchecked(action) };
+            let action = space.action(action);
+            space.act(state, &action);
+
+            let next_position = action_data.next_position_mut();
+            match next_position {
+                Some(_) => {
+                    debug_assert_eq!(self.positions.get(path).copied(), *next_position);
+                    *state_pos = *next_position
+                },
+                None => match self.positions.get(path) {
+                    Some(&pos) => {
+                        let inserted = self.in_neighborhoods[pos.get()].insert(state_position);
+                        debug_assert!(inserted);
+                        *next_position = Some(pos);
+                        *state_pos = Some(pos);
+                    },
+                    None => {
+                        // we will insert a node at the end of the tree
+                        let next_pos = (1 + self.positions.len()).try_into().unwrap();
+                        *next_position = Some(next_pos);
+                        *state_pos = *next_position;
+                        self.in_neighborhoods.push(core::iter::once(state_position).collect());
+                        self.positions.insert(path.clone(), next_pos);
+                        *cost = space.cost(state);
+                        if space.is_terminal(state) {
+                            let c_star = space.evaluate(cost);
+                            let node = StateNode::new_exhausted(c_star);
+                            self.push_node(node);
+                            self.empty_transitions(
+                                root,
+                                state,
+                                path,
+                                transitions,
+                                state_pos,
+                            );
+                            return self.roll_out_episodes(
+                                space,
+                                root,
+                                state,
+                                cost,
+                                path,
+                                transitions,
+                                state_pos,
+                            );
+                        }
+                        return;
+                    },
+                },
+            }
+        }
+    }
+
+    pub(crate) fn push_node(&mut self, node: StateNode)
     where
         P: Ord + ActionPath,
     {
-        let Self {
-            root_node: _,
-            levels,
-        } = self;
-        debug_assert_eq!(path.len(), levels.len() + 1);
-        let level = BTreeMap::from_iter(core::iter::once((path, node)));
-        levels.push(level);
+        self.nodes.push(node);
     }
 
-    pub(crate) fn root_node(&self) -> &StateNode {
-        &self.root_node
-    }
-
-    #[cfg(feature = "rayon")]
-    pub(crate) fn _par_next_roots(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, usize, f32)> + '_
+    pub(crate) fn empty_transitions<Space>(
+        &mut self,
+        root: &Space::State,
+        state: &mut Space::State,
+        path: &mut P,
+        transitions: &mut Vec<Transition2>,
+        state_pos: &mut Option<NonZeroUsize>,
+    )
     where
-        P: Ord + Sync,
+        Space: NablaStateActionSpace,
+        Space::State: Clone,
+        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
     {
-        use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
+        debug_assert!(!transitions.is_empty());
+        debug_assert!(self.positions.contains_key(path));
+        let pos = state_pos.map(NonZeroUsize::get).unwrap_or(0);
+        let mut c_star = self.nodes[pos].c_star;
+        let mut exhausting = true;
+        for transition in transitions.drain(..).rev() {
+            let node = &mut self.nodes[transition.state_position];
+            if exhausting {
+                node.exhaust_action(transition.action_position);
+                exhausting = node.is_exhausted();
+            } else {
+                node.update_c_stars(&mut c_star, transition.action_position);
+            }
+        }
+        path.clear();
+        state.clone_from(root);
+        *state_pos = None;
+    }
 
-        let next_from_roots =
-            self.root_node._par_next_roots()
-            .map(|(a, c_star)| (None, a, c_star));
-        let next_from_nodes = self.levels.par_iter().flat_map(|level| {
-            level.par_iter().flat_map(|(p, n)| {
-                n._par_next_roots().map(move |(a, c_star)| (Some(p), a, c_star))
+    pub(crate) fn write_observations<Space: NablaStateActionSpace>(
+        &self,
+        space: &Space,
+        observations: &mut [f32],
+        weights: &mut [f32],
+    ) {
+        let root_node = &self.nodes[0];
+        let c_s = root_node.c;
+        // dbg!(c_s);
+        root_node.actions.iter().filter_map(|a| {
+            a.next_position().map(|node_as| {
+                let node_as = &self.nodes[node_as.get()];
+                (a.action(), node_as.c, node_as.c_star)
             })
+        }).for_each(|(a, c_as, c_as_star)| {
+            let h = space.h_sa(c_s, c_as, c_as_star);
+            // dbg!(h, a, c_as, c_as_star);
+            observations[a] = h;
+            weights[a] = 1.0;
         });
-        next_from_roots.chain(next_from_nodes)
     }
 
-    #[cfg(feature = "rayon")]
-    pub(crate) fn par_nodes(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, f32)> + '_
-    where
-        P: Ord + Sync,
-    {
-        use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
-
-        rayon::iter::once((None, self.root_node.cost()))
-            .chain(self.levels.par_iter().flat_map(|level| {
-                level.par_iter().map(|(p, n)| (Some(p), n.cost()))
+    pub(crate) fn node_data(&self) -> Vec<(Option<&P>, f32, f32)> {
+        core::iter::once((None, self.nodes[0].c, self.nodes[0].c_star))
+            .chain(self.positions.iter().map(|(p, pos)| {
+                let node = &self.nodes[pos.get()];
+                (Some(p), node.c, node.c_star)
             }))
+            .collect()
     }
-}
 
-pub enum NodeKind<'roll_out, P> {
-    NewLevel,
-    New(&'roll_out mut BTreeMap<P, StateNode>),
-    OldExhausted { c_s_t_theta_star: f32 },
-}
+    pub(crate) fn positions(&self) -> &BTreeMap<P, NonZeroUsize> {
+        &self.positions
+    }
 
-impl<P> NodeKind<'_, P> {
-    pub fn is_new(&self) -> bool {
-        !matches!(self, Self::OldExhausted { .. })
+    pub(crate) fn nodes(&self) -> &[StateNode] {
+        &self.nodes
     }
 }

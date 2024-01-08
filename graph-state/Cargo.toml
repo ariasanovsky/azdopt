@@ -9,6 +9,7 @@ edition = "2021"
 default = []
 tensorboard = ["tensorboard-writer", "az-discrete-opt/tensorboard"]
 dfdx-model = ["dfdx", "az-discrete-opt/dfdx"]
+graphviz = ["az-discrete-opt/graphviz"]
 
 [dependencies]
 bit-iter = "1.2.0"
@@ -21,6 +22,7 @@ num-traits = "0.2.17"
 faer = "0.15.0"
 tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-writer", optional = true }
 dfdx = { version = "0.13.0", default-features = false, features = ["std", "fast-alloc", "cuda", "cudnn"], optional = true }
+petgraph = { version = "0.6.4", optional = true }
 
 [dev-dependencies]
 chrono = "0.4.31"
@@ -38,7 +40,7 @@ required-features = ["dfdx-model", "tensorboard"]
 
 [[example]]
 name = "01-r44-grad"
-required-features = ["dfdx-model", "tensorboard"]
+required-features = ["dfdx-model", "tensorboard", "graphviz"]
 
 [[bench]]
 name = "r44_17_search_tree_with_trivial_predictions"
