@@ -167,7 +167,7 @@ fn main() -> eyre::Result<()> {
                 }
             }
         };
-        optimizer.reset_trees(modify_root);
+        optimizer.par_reset_trees(modify_root);
     }
     Ok(())
 }

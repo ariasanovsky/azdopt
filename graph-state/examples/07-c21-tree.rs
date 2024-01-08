@@ -14,10 +14,9 @@ use az_discrete_opt::{
     az_model::{add_dirichlet_noise, dfdx::TwoModels},
     int_min_tree::{state_data::UpperEstimateData, INTMinTree},
     learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData, LearningLoop},
-    log::ArgminData,
     path::{set::ActionSet, ActionPath},
     space::StateActionSpace,
-    state::{cost::Cost, prohibit::WithProhibitions},
+    state::prohibit::WithProhibitions,
     tensorboard::{tf_path, Summarize},
 };
 use dfdx::prelude::*;

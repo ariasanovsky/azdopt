@@ -1,13 +1,13 @@
 use core::num::NonZeroUsize;
 use std::ops::SubAssign;
 
-pub struct ActionData2 {
+pub struct ActionData {
     a: usize,
     next_position: Option<NonZeroUsize>,
     g_sa: Option<f32>,
 }
 
-impl ActionData2 {
+impl ActionData {
     pub(crate) fn new(a: usize, g_sa: f32) -> Self {
         Self {
             a,

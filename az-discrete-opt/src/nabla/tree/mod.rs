@@ -4,7 +4,7 @@ use core::num::NonZeroUsize;
 
 use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::{StateNode2, StateNode};
+use self::node::StateNode;
 
 use super::space::NablaStateActionSpace;
 
@@ -12,11 +12,10 @@ pub mod node;
 #[cfg(feature = "graphviz")]
 pub mod graphviz;
 pub mod search;
-pub mod update_nodes;
 
 pub struct SearchTree<P> {
     positions: BTreeMap<P, NonZeroUsize>,
-    nodes: Vec<StateNode2>,
+    nodes: Vec<StateNode>,
     in_neighborhoods: Vec<BTreeSet<usize>>,
 }
 
@@ -35,7 +34,7 @@ impl<P> SearchTree<P> {
     ) -> Self {
         Self {
             positions: Default::default(),
-            nodes: vec![StateNode2::new(space, root, cost, h_theta)],
+            nodes: vec![StateNode::new(space, root, cost, h_theta)],
             in_neighborhoods: vec![BTreeSet::new()],
         }
     }
@@ -138,7 +137,7 @@ impl<P> SearchTree<P> {
                         *cost = space.cost(state);
                         if space.is_terminal(state) {
                             let c_star = space.evaluate(cost);
-                            let node = StateNode2::new_exhausted(c_star);
+                            let node = StateNode::new_exhausted(c_star);
                             self.push_node(node);
                             self.empty_transitions(
                                 root,
@@ -164,7 +163,7 @@ impl<P> SearchTree<P> {
         }
     }
 
-    pub(crate) fn push_node(&mut self, node: StateNode2)
+    pub(crate) fn push_node(&mut self, node: StateNode)
     where
         P: Ord + ActionPath,
     {
@@ -238,19 +237,7 @@ impl<P> SearchTree<P> {
         &self.positions
     }
 
-    pub(crate) fn nodes(&self) -> &[StateNode2] {
+    pub(crate) fn nodes(&self) -> &[StateNode] {
         &self.nodes
-    }
-}
-
-pub enum NodeKind<'roll_out, P> {
-    NewLevel,
-    New(&'roll_out mut BTreeMap<P, StateNode>),
-    OldExhausted { c_s_t_theta_star: f32 },
-}
-
-impl<P> NodeKind<'_, P> {
-    pub fn is_new(&self) -> bool {
-        !matches!(self, Self::OldExhausted { .. })
     }
 }

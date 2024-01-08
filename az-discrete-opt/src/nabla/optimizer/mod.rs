@@ -145,7 +145,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     {
         use rayon::{iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
 
-        use crate::nabla::tree::node::StateNode2;
+        use crate::nabla::tree::node::StateNode;
 
         let trees = &mut self.trees;
         let roots = &self.roots;
@@ -215,7 +215,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             h,
         )| {
             if !trans.is_empty() {
-                let n = StateNode2::new(&self.space, s, c, h);
+                let n = StateNode::new(&self.space, s, c, h);
                 t.push_node(n);
             }
         });
@@ -274,8 +274,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                         let a = self.space.action(a);
                         self.space.act(state, &a);
                     });
-                } else {
-                    todo!()
                 }
                 *cost = self.space.cost(state);
                 *eval = self.space.evaluate(cost);
@@ -322,7 +320,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn reset_trees(
+    pub fn par_reset_trees(
         &mut self,
         modify_root: impl Fn(&Space, &mut Space::State, Vec<(Option<&P>, f32, f32)>) + Sync,
     )
@@ -399,42 +397,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         });
         self.num_inspected_nodes.fill(0);
     }
-
-    #[cfg(feature = "rayon")]
-    fn par_reset_trees(&mut self)
-    where
-        Space: Sync,
-        Space::State: Sync,
-        Space::Cost: Send + Sync,
-        P: Send + crate::path::ActionPath,
-    {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
-
-        (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
-            *c = self.space.cost(s);
-        });
-        let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
-        (&self.states, state_vecs).into_par_iter().for_each(|(s, s_host)| {
-            self.space.write_vec(s, s_host);
-        });
-        self.model.write_predictions(&self.state_vecs, &mut self.h_theta_host);
-        let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
-        (&mut self.trees, &self.roots, &self.costs, h_theta_vecs).into_par_iter().for_each(|(t, s, c, h_theta)| {
-            // todo! ?perf
-            // dbg!();
-            *t = SearchTree::new(&self.space, s, c, h_theta);
-        });
-        self.last_positions.fill(None);
-        (&mut self.paths, &mut self.transitions)
-            .into_par_iter()
-            .for_each(|(p, t)| {
-                p.clear();
-                t.clear();
-            });
-        // todo!("anything else?")
-    }
-
-    pub fn argmin_data(&self) -> &ArgminData<Space::State, Space::Cost> {
+pub fn argmin_data(&self) -> &ArgminData<Space::State, Space::Cost> {
         &self.argmin_data
     }
 }
