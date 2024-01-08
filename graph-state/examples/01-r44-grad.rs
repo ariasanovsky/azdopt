@@ -1,6 +1,6 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel, space::NablaStateActionSpace}, path::{set::ActionSet, ActionPath}};
+use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::{NablaOptimizer, ArgminImprovement}, model::dfdx::ActionModel, space::NablaStateActionSpace}, path::{set::ActionSet, ActionPath}};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
@@ -91,14 +91,8 @@ fn main() -> eyre::Result<()> {
         model,
         BATCH,
     );
-    let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
-    println!("{}", argmin.1);
-    
-    writer.write_summary(
-        SystemTime::now(),
-        0,
-        argmin.0.cost().summary(),
-    )?;
+    let ArgminData { state, cost, eval} = optimizer.argmin_data();
+    writer.write_summary(SystemTime::now(), 0, cost.summary())?;
     writer.get_mut().flush()?;
     
     let epochs: usize = 250;
@@ -107,22 +101,19 @@ fn main() -> eyre::Result<()> {
     for epoch in 1..epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            optimizer.par_roll_out_episodes();
-            let episode_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), episode, epoch), e)).unwrap();
-            if episode_argmin.1 < argmin.1 {
-                argmin = episode_argmin;
-                writer.write_summary(
-                    SystemTime::now(),
-                    (episodes * epoch + episode) as i64,
-                    argmin.0.cost().summary(),
-                )?;
-                writer.get_mut().flush()?;
-                if argmin.1 < 0.01 {
-                    println!("{}", argmin.0.short_form());
-                }    
-                println!("{}", argmin.1);
-            }
-
+            let new_argmin = optimizer.par_roll_out_episodes();
+            match new_argmin {
+                ArgminImprovement::Improved(ArgminData { state, cost, eval }) => {
+                    println!("{eval}\t{cost:?}");
+                    writer.write_summary(
+                        SystemTime::now(),
+                        (episodes * epoch + episode - 1) as i64,
+                        cost.summary(),
+                    )?;
+                    writer.get_mut().flush()?;
+                },
+                ArgminImprovement::Unchanged => {},
+            };
             if episode % episodes == 0 {
                 println!("==== EPISODE: {episode} ====");
                 let sizes = optimizer.get_trees().first().unwrap().sizes().collect::<Vec<_>>();
@@ -142,11 +133,10 @@ fn main() -> eyre::Result<()> {
             (episodes * epoch) as i64,
             summary,
         )?;
-        let summary = argmin.0.cost().summary();
         writer.write_summary(
             SystemTime::now(),
             (episodes * epoch) as i64,
-            summary,
+            optimizer.argmin_data().cost.summary(),
         )?;
         writer.get_mut().flush()?;
         let modify_root = |space: &Space, state: &mut S, mut n: Vec<(Option<&P>, f32, f32)>| {

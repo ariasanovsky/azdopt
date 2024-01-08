@@ -152,10 +152,11 @@ fn main() -> eyre::Result<()> {
     );
     let mut learning_loop: LearningLoop<Space, _, _, _> =
         LearningLoop::new(state_data, models, predictions, tree_data, ACTION, GAIN);
-    let mut global_argmin: ArgminData<C> = learning_loop
-        .par_argmin()
-        .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
-        .unwrap();
+    todo!();
+    // let mut global_argmin: ArgminData<C> = learning_loop
+        // .par_argmin()
+        // .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
+        // .unwrap();
     let epochs: usize = 250;
     let episodes: usize = 800;
 
@@ -170,18 +171,19 @@ fn main() -> eyre::Result<()> {
             learning_loop.par_roll_out_episode(&space, cost, upper_estimate);
             let episode_argmin = learning_loop.par_argmin().unwrap();
             // update the global argmin
-            if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
-                global_argmin =
-                    ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
-                println!("new min = {}", global_argmin.cost().evaluate());
-                println!("argmin  = {global_argmin:?}");
-                writer.write_summary(
-                    SystemTime::now(),
-                    (episodes * epoch + episode) as i64,
-                    global_argmin.cost().summary(),
-                )?;
-                writer.get_mut().flush()?;
-            }
+            todo!();
+            // if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
+            //     global_argmin =
+            //         ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
+            //     println!("new min = {}", global_argmin.cost().evaluate());
+            //     println!("argmin  = {global_argmin:?}");
+            //     writer.write_summary(
+            //         SystemTime::now(),
+            //         (episodes * epoch + episode) as i64,
+            //         global_argmin.cost().summary(),
+            //     )?;
+            //     writer.get_mut().flush()?;
+            // }
         }
         let loss = if true {
             logits_mask.fill(f32::MIN);
@@ -198,11 +200,12 @@ fn main() -> eyre::Result<()> {
         // Write summaries to file.
         writer.write_summary(SystemTime::now(), epoch as i64, loss.summary())?;
         writer.get_mut().flush()?;
-        writer.write_summary(
-            SystemTime::now(),
-            (episodes * epoch + episodes) as i64,
-            global_argmin.cost().summary(),
-        )?;
+        todo!();
+        // writer.write_summary(
+        //     SystemTime::now(),
+        //     (episodes * epoch + episodes) as i64,
+        //     global_argmin.cost().summary(),
+        // )?;
         writer.get_mut().flush()?;
         let modify_root = |i, t: &Tree, s: &mut S| {
             let nodes = t.unstable_sorted_nodes();

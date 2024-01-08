@@ -233,6 +233,14 @@ impl<P> SearchTree<P> {
             }))
             .collect()
     }
+
+    pub(crate) fn positions(&self) -> &BTreeMap<P, NonZeroUsize> {
+        &self.positions
+    }
+
+    pub(crate) fn nodes(&self) -> &[StateNode2] {
+        &self.nodes
+    }
 }
 
 pub enum NodeKind<'roll_out, P> {

@@ -111,46 +111,17 @@ pub trait ShortForm {
     fn short_form(&self) -> String;
 }
 
-pub struct ArgminData<C> {
-    short_form: String,
-    cost: C,
-    episode: usize,
-    epoch: usize,
+pub struct ArgminData<S, C> {
+    pub state: S,
+    pub cost: C,
+    pub eval: f32,
+    // pub episode: usize,
+    // pub epoch: usize,
 }
 
-impl<C> ArgminData<C> {
-    pub fn new(s: &impl ShortForm, cost: C, episode: usize, epoch: usize) -> Self {
-        Self {
-            short_form: s.short_form(),
-            cost,
-            episode,
-            epoch,
-        }
-    }
-
-    pub fn short_form(&self) -> &str {
-        &self.short_form
-    }
-
-    pub fn cost(&self) -> &C {
-        &self.cost
-    }
-}
-
-impl<C: core::fmt::Debug> core::fmt::Debug for ArgminData<C> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self {
-            short_form,
-            cost,
-            episode,
-            epoch,
-        } = self;
-        f.debug_map()
-            .entry(&"short_form", short_form)
-            .entry(&"cost", cost)
-            .entry(&"episode", episode)
-            .entry(&"epoch", epoch)
-            .finish()
+impl<S, C> ArgminData<S, C> {
+    pub fn new(state: S, cost: C, eval: f32) -> Self {
+        Self { state, cost, eval }
     }
 }
 

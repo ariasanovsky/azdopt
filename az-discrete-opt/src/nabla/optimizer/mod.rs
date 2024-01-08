@@ -1,5 +1,7 @@
 use core::num::NonZeroUsize;
 
+use crate::log::ArgminData;
+
 use super::{space::NablaStateActionSpace, tree::{SearchTree, Transition2}, model::NablaModel};
 
 pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
@@ -15,6 +17,13 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     action_weights: Vec<f32>,
     trees: Vec<SearchTree<P>>,
     model: M,
+    num_inspected_nodes: Vec<usize>,
+    argmin_data: ArgminData<Space::State, Space::Cost>,
+}
+
+pub enum ArgminImprovement<'a, S, C> {
+    Improved(&'a ArgminData<S, C>),
+    Unchanged,
 }
 
 impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P> {
@@ -36,14 +45,14 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
-        Space::Cost: Send + Sync,
+        Space::Cost: Clone + Send + Sync,
         P: Send + crate::path::ActionPath,
     {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator}, slice::{ParallelSlice, ParallelSliceMut}};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::{ParallelSlice, ParallelSliceMut}};
 
         let roots: Vec<_> = (0..batch).into_par_iter().map(|_| init_states()).collect();
         let states = roots.clone();
-        let costs = roots.as_slice().par_iter().map(|s| space.cost(s)).collect();
+        let costs: Vec<Space::Cost> = roots.as_slice().par_iter().map(|s| space.cost(s)).collect();
         let paths = (0..batch).into_par_iter().map(|_| P::new()).collect();
         let mut state_vecs = vec![0.; batch * Space::STATE_DIM];
         (&states, state_vecs.par_chunks_exact_mut(Space::STATE_DIM)).into_par_iter().for_each(|(s, s_host)| {
@@ -62,7 +71,19 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
         let last_positions = vec![None; batch];
         let action_weights = vec![0.; batch * Space::ACTION_DIM];
-        // dbg!(action_weights.len());
+        let argmin_data =
+            states.par_iter().zip(costs.par_iter())
+            .map(|(s, c)| {
+                (s, c, space.evaluate(c))
+            })
+            .min_by(|(_, _, e1), (_, _, e2)| {
+            e1.partial_cmp(&e2).unwrap()
+        }).map(|(s, c, e)| ArgminData::new(
+            s.clone(),
+            c.clone(),
+            e,
+        )).unwrap();
+        let num_inspected_nodes = vec![0; batch];
         Self {
             space,
             roots,
@@ -76,43 +97,46 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             action_weights,
             trees,
             model,
+            num_inspected_nodes,
+            argmin_data,
         }
     }
 
-    #[cfg(feature = "rayon")]
-    pub fn par_argmin(&self) -> Option<(&Space::State, &Space::Cost, f32)>
-    where
-        Space: Sync,
-        Space::State: Send + Sync,
-        Space::Cost: Send + Sync,
-    {
-        use rayon::iter::{IntoParallelIterator, ParallelIterator};
-        let Self {
-            space,
-            roots: _,
-            states,
-            costs,
-            paths: _,
-            transitions: _,
-            last_positions: _,
-            state_vecs: _,
-            h_theta_host: _,
-            action_weights: _,
-            trees: _,
-            model: _,
-        } = self;
-        (states, costs)
-            .into_par_iter()
-            .map(|(s, c)| (s, c, space.evaluate(c)))
-            .min_by(|(_, _, e1), (_, _, e2)| e1.partial_cmp(e2).unwrap())
-    }
+    // #[cfg(feature = "rayon")]
+    // pub fn par_argmin(&self) -> Option<(&Space::State, &Space::Cost, f32)>
+    // where
+    //     Space: Sync,
+    //     Space::State: Send + Sync,
+    //     Space::Cost: Send + Sync,
+    // {
+    //     use rayon::iter::{IntoParallelIterator, ParallelIterator};
+    //     let Self {
+    //         space,
+    //         roots: _,
+    //         states,
+    //         costs,
+    //         paths: _,
+    //         transitions: _,
+    //         last_positions: _,
+    //         state_vecs: _,
+    //         h_theta_host: _,
+    //         action_weights: _,
+    //         trees: _,
+    //         model: _,
+
+    //     } = self;
+    //     (states, costs)
+    //         .into_par_iter()
+    //         .map(|(s, c)| (s, c, space.evaluate(c)))
+    //         .min_by(|(_, _, e1), (_, _, e2)| e1.partial_cmp(e2).unwrap())
+    // }
 
     #[cfg(feature = "rayon")]
     pub fn par_roll_out_episodes(
         &mut self,
         // action_pattern: impl Fn(usize) -> super::tree::node::SamplePattern + Sync,
         // policy: impl Fn(usize) -> super::tree::node::SearchPolicy + Sync,
-    )
+    ) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
@@ -195,13 +219,69 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 t.push_node(n);
             }
         });
-        // todo!();
-        // (&mut self.trees, uninserted_new_nodes, &mut self.paths).into_par_iter().for_each(|(t, n, p)| {
-        //     if let Some(n) = n {
-        //         t.insert_new_node(p.clone(), n);
-        //     }
-        //     p.clear();
-        // });
+        self.par_update_argmmim_data()
+    }
+
+    #[cfg(feature = "rayon")]
+    pub fn par_update_argmmim_data(&mut self) -> ArgminImprovement<Space::State, Space::Cost>
+    where
+        Space: Sync,
+        P: Sync + crate::path::ActionPath,
+        Space::State: Clone,
+    {
+        use rayon::iter::{IntoParallelIterator, ParallelIterator, IndexedParallelIterator};
+
+        let min_eval = self.argmin_data.eval;
+        let n = (&mut self.num_inspected_nodes, &self.trees)
+            .into_par_iter()
+            .enumerate()
+            .filter_map(|(tree_pos, (num, t))| {
+                if *num < t.nodes().len() {
+                    let n =
+                        t.nodes()[*num..]
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| {
+                            n.c < min_eval
+                        }).min_by(|(_, n1), (_, n2)| {
+                            n1.c.partial_cmp(&n2.c).unwrap()
+                        })
+                        .map(|(i, n)| (tree_pos, i + *num, n));
+                    // *num = 0;
+                    *num = t.nodes().len();
+                    n
+                } else {
+                    None
+                }
+            })
+            .min_by(|(_, _, n1), (_, _, n2)| {
+                n1.c.partial_cmp(&n2.c).unwrap()
+            });
+        match n {
+            Some((tree_pos, node_pos, n)) => {
+                let tree = &self.trees[tree_pos];
+                let ArgminData { state, cost, eval } = &mut self.argmin_data;
+                state.clone_from(&self.roots[tree_pos]);
+                let p: Option<&P> = tree.positions().iter().find_map(|(p, pos)| {
+                    if pos.get() == node_pos {
+                        Some(p)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(p) = p {
+                    p.actions_taken().for_each(|a| {
+                        let a = self.space.action(a);
+                        self.space.act(state, &a);
+                    });
+                } else {
+                    todo!()
+                }
+                *cost = self.space.cost(state);
+                ArgminImprovement::Improved(&self.argmin_data)
+            },
+            None => ArgminImprovement::Unchanged,
+        }
     }
 
     #[cfg(feature = "rayon")]
@@ -251,7 +331,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
     {
-        use rayon::{iter::{ParallelIterator, IntoParallelIterator, ParallelExtend, IntoParallelRefMutIterator, IntoParallelRefIterator}, slice::{ParallelSliceMut, ParallelSlice}};
+        use rayon::{iter::{ParallelIterator, IntoParallelIterator}, slice::{ParallelSliceMut, ParallelSlice}};
 
         let Self {
             space: _,
@@ -266,6 +346,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             action_weights: _,
             trees: _,
             model,
+            num_inspected_nodes: _,
+            argmin_data: _,
         } = self;
         last_positions.fill(None);
         state_vecs.fill(0.);
@@ -314,73 +396,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         )| {
             *t = SearchTree::new(&self.space, r, c, h);
         });
-        // let mut next_roots = (&self.trees, &self.roots).into_par_iter().flat_map(|(t, s)| {
-        //     t.par_nodes().map(move |(p, c_star)| (s, p, c_star, label(s, p)))
-        // }).collect::<Vec<_>>();
-        // next_roots.sort_unstable_by(|(_, _, c_1, l_1), (_, _, c_2, l_2)| {
-        //     match l_1.cmp(l_2) {
-        //         std::cmp::Ordering::Equal => c_1.partial_cmp(c_2).unwrap(),
-        //         o => o,
-        //     }
-        // });
-        // let slices = next_roots.group_by_mut(|(_, _, _, l_1), (_, _, _, l_2)| *l_1 == *l_2).map(|s| {
-        //     (s.first().unwrap().3, s)
-        // }).collect::<std::collections::BTreeMap<_, _>>();
-        // // for (k, v) in slices.iter() {
-        // //     println!("label {k}: {}", v.len());
-        // // }
-        // let mut next_roots =
-        //     slices
-        //     .into_par_iter()
-        //     .flat_map(|(l, s)| {
-        //         let label_sample = label_sample(l);
-        //         match sample_swap(s, &label_sample) {
-        //             true => &s[..label_sample.len()],
-        //             false => s,
-        //         }.par_iter()
-        //     })
-        //     .map(|(s, p, _, _)| {
-        //         let mut s = (*s).clone();
-        //         p.as_deref()
-        //             .into_iter()
-        //             .flat_map(ActionPath::actions_taken)
-        //             .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
-        //         s
-        //     })
-        //     .collect::<Vec<_>>();
-        // next_roots.truncate(self.roots.len());
-        // dbg!(next_roots.len());
-        // next_roots.par_iter_mut().for_each(|s| {
-        //     if self.space.is_terminal(s) {
-        //         reset_state(s);
-        //     }
-        //     while self.space.is_terminal(s) {
-        //         *s = init_state();
-        //     }
-        // });
-        // dbg!(next_roots.len());
-        // let missing = self.roots.len().saturating_sub(next_roots.len());
-        // next_roots.par_extend((0..missing).into_par_iter().map(|_| {
-        //     init_state()
-        // }));
-        // dbg!(next_roots.len());
-        // // todo!();
-        // // if sample_swap(next_roots.as_mut_slice(), &root_selection_pattern) {
-        // //     next_roots.truncate(root_selection_pattern.len());
-        // // }
-        // // let mut next_roots = next_roots.into_par_iter().map(|(s, p, _)| {
-        // //     let mut s = s.clone();
-        // //     p.into_iter()
-        // //         .flat_map(ActionPath::actions_taken)
-        // //         .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
-        // //     s
-        // // }).collect::<Vec<_>>();
-        // self.roots = next_roots;
-        // (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
-        //     *c = self.space.cost(s);
-        // });
-        // self.par_reset_trees();
-        // todo!("anything else?")
+        self.num_inspected_nodes.fill(0);
     }
 
     #[cfg(feature = "rayon")]
@@ -415,5 +431,9 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 t.clear();
             });
         // todo!("anything else?")
+    }
+
+    pub fn argmin_data(&self) -> &ArgminData<Space::State, Space::Cost> {
+        &self.argmin_data
     }
 }
