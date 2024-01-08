@@ -1,4 +1,4 @@
-use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::{SumTo, BroadcastTo}, shapes::{Rank1, Rank0}};
+use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::SumTo, shapes::{Rank1, Rank0}};
 
 use dfdx::{
     nn::Module,
@@ -22,7 +22,7 @@ pub struct ActionModel<
     optimizer: Adam<<M as BuildOnDevice<Cuda, f32>>::Built, f32, Cuda>,
     states_dev: Tensor<Rank2<BATCH, STATE>, f32, Cuda>,
     action_weights_dev: Tensor<Rank2<BATCH, ACTION>, f32, Cuda>,
-    state_weights_dev: Tensor<Rank1<BATCH>, f32, Cuda>,
+    // state_weights_dev: Tensor<Rank1<BATCH>, f32, Cuda>,
     actions_dev: Tensor<Rank2<BATCH, ACTION>, f32, Cuda>,
 }
 
@@ -36,7 +36,7 @@ where
         let gradients = Some(model.alloc_grads());
         let states_dev = dev.zeros();
         let action_weights_dev = dev.zeros();
-        let state_weights_dev = dev.zeros();
+        // let state_weights_dev = dev.zeros();
         let actions_dev = dev.zeros();
         let optimizer = Adam::new(&model, cfg);
         Self {
@@ -45,7 +45,7 @@ where
             optimizer,
             states_dev,
             action_weights_dev,
-            state_weights_dev,
+            // state_weights_dev,
             actions_dev,
         }
     }
@@ -72,7 +72,7 @@ where
             optimizer: _,
             states_dev,
             action_weights_dev: _,
-            state_weights_dev: _,
+            // state_weights_dev: _,
             actions_dev,
         } = self;
         debug_assert_eq!(states.len(), BATCH * STATE);
@@ -87,7 +87,6 @@ where
         states: &[f32],
         observations: &[f32],
         action_weights: &[f32],
-        state_weights: &[f32],
     ) -> f32 {
         let Self {
             model,
@@ -95,7 +94,6 @@ where
             optimizer,
             states_dev,
             action_weights_dev,
-            state_weights_dev,
             actions_dev,
         } = self;
         debug_assert_eq!(states.len(), BATCH * STATE);
@@ -104,13 +102,14 @@ where
         states_dev.copy_from(states);
         actions_dev.copy_from(observations);
         action_weights_dev.copy_from(action_weights);
-        state_weights_dev.copy_from(state_weights);
-        let action_normalization = action_weights_dev.clone().sum::<Rank1<BATCH>, _>().recip();
-        let action_normalization: Tensor<Rank2<BATCH, ACTION>, _, _> = action_normalization.broadcast();
-        *action_weights_dev = action_weights_dev.clone() * action_normalization;
-        let state_normalization = state_weights_dev.clone().sum::<Rank0, _>().recip();
-        let state_normalization: Tensor<Rank1<BATCH>, _, _> = state_normalization.broadcast();
-        *state_weights_dev = state_weights_dev.clone() * state_normalization;
+        let weight_sum = action_weights.iter().sum::<f32>();
+        dbg!(weight_sum);
+        // let action_normalization = action_weights_dev.clone().sum::<Rank1<BATCH>, _>().recip();
+        // let action_normalization: Tensor<Rank2<BATCH, ACTION>, _, _> = action_normalization.broadcast();
+        *action_weights_dev = action_weights_dev.clone() / weight_sum;
+        // let state_normalization = state_weights_dev.clone().sum::<Rank0, _>().recip();
+        // let state_normalization: Tensor<Rank1<BATCH>, _, _> = state_normalization.broadcast();
+        // *state_weights_dev = state_weights_dev.clone() * state_normalization;
         let gradients = gradients.take().unwrap_or_else(|| model.alloc_grads());
         let states_traced = states_dev.clone().trace(gradients);
         let predictions = model.forward(states_traced);
@@ -119,7 +118,7 @@ where
         let loss =
             (
                 (error * action_weights_dev.clone()).sum::<Rank1<BATCH>, _>()
-                * state_weights_dev.clone()
+                // * state_weights_dev.clone()
             )
             .sum::<Rank0, _>();
         let l = loss.array();

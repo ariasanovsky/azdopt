@@ -32,7 +32,7 @@ pub trait NablaStateActionSpace {
     fn cost(&self, state: &Self::State) -> Self::Cost;
     fn evaluate(&self, cost: &Self::Cost) -> f32;
     fn g_theta_star_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, h_theta_sa: f32) -> f32;
-    fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32;
+    fn h_sa(&self, c_s: f32, c_as: f32, c_as_star: f32) -> f32;
 }
 
 impl<const L: usize, Space: NablaStateActionSpace> NablaStateActionSpace for Layered<L, Space>
@@ -95,7 +95,7 @@ where
         self.space.g_theta_star_sa(c_s, r_sa, h_theta_sa)
     }
 
-    fn h_sa(&self, c_s: &Self::Cost, r_sa: Self::Reward, g_sa: f32) -> f32 {
-        self.space.h_sa(c_s, r_sa, g_sa)
+    fn h_sa(&self, c_s: f32, c_as: f32, c_as_star: f32) -> f32 {
+        self.space.h_sa(c_s, c_as, c_as_star)
     }
 }

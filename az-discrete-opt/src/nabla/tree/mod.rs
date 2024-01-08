@@ -164,43 +164,6 @@ impl<P> SearchTree<P> {
         }
     }
 
-    // pub(crate) fn insert_new_node(
-    //     &mut self,
-    //     path: P,
-    //     node: StateNode2,
-    // )
-    // where
-    //     P: Ord + ActionPath,
-    // {
-    //     let Self {
-    //         root_node: _,
-    //         levels,
-    //     } = self;
-    //     debug_assert_eq!(path.len(), levels.len() + 1);
-    //     let level = BTreeMap::from_iter(core::iter::once((path, node)));
-    //     levels.push(level);
-    // }
-
-    // pub(crate) fn root_node(&self) -> &StateNode {
-    //     &self.root_node
-    // }
-
-    #[cfg(feature = "rayon")]
-    pub(crate) fn par_nodes(&self) -> impl rayon::iter::ParallelIterator<Item = (Option<&P>, f32)> + '_
-    where
-        P: Ord + Sync,
-    {
-        let it = rayon::iter::empty();
-        // use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
-
-        // rayon::iter::once((None, self.root_node.cost()))
-        //     .chain(self.levels.par_iter().flat_map(|level| {
-        //         level.par_iter().map(|(p, n)| (Some(p), n.cost()))
-        //     }))
-        todo!();
-        it
-    }
-
     pub(crate) fn push_node(&mut self, node: StateNode2)
     where
         P: Ord + ActionPath,
@@ -227,16 +190,11 @@ impl<P> SearchTree<P> {
         let mut c_star = self.nodes[pos].c_star;
         let mut exhausting = true;
         for transition in transitions.drain(..).rev() {
-            println!("transition: {:?}", transition);
-            println!("c_star: {:?}", c_star);
-            println!("exhausting: {:?}", exhausting);
-            println!();
             let node = &mut self.nodes[transition.state_position];
             if exhausting {
                 node.exhaust_action(transition.action_position);
                 exhausting = node.is_exhausted();
             } else {
-                println!("not exhausting");
                 node.update_c_stars(&mut c_star, transition.action_position);
             }
         }
@@ -245,62 +203,36 @@ impl<P> SearchTree<P> {
         *state_pos = None;
     }
 
-    // pub(crate) fn reset_search(
-    //     &mut self,
-    //     path: &mut P,
-    //     transitions: &mut Vec<Transition2>,
-    //     last_pos: usize,
-    // )
-    // where
-    //     P: ActionPath,
-    // {
-    //     let Self {
-    //         positions: _,
-    //         nodes,
-    //         in_neighborhoods,
-    //     } = self;
-    //     let mut previous_parents: VecDeque<usize> = Default::default();
-    //     let mut pos = last_pos;
-    //     let mut c_star = nodes[pos].c_star;
-    //     let path_nodes = transitions.iter().map(|t| t.state_position).collect::<BTreeSet<_>>();
-    //     transitions.drain(..).rev().for_each(|t| {
-    //         let Transition2 { state_position, action_position } = t;
-    //         if nodes[pos].is_exhausted() {
-    //             nodes[state_position].actions[action_position].g_sa = None
-    //         } else {
-    //             let c_star_below = &mut nodes[state_position].c_star;
-    //             if *c_star_below > c_star {
-    //                 *c_star_below = c_star;
-    //                 // todo!()
-    //             } else {
-    //                 let g_sa = &mut nodes[state_position].actions[action_position].g_sa.unwrap();
-    //                 *g_sa -= 0.5;
-    //                 // todo!()
-    //             }
-    //         }
-            
-    //         previous_parents.extend(
-    //             in_neighborhoods[pos]
-    //             .iter()
-    //             .filter(|&&p| !path_nodes.contains(&p))
-    //         );
-    //         while let Some(p) = previous_parents.pop_front() {
-    //             let c_star_p = &mut nodes[p].c_star;
-    //             if *c_star_p > c_star {
-    //                 *c_star_p = c_star;
-    //                 previous_parents.extend(
-    //                     in_neighborhoods[p].iter()
-    //                     .filter(|&&p| !path_nodes.contains(&p))
-    //                 );
-    //             }
-    //         }
-            
-    //         pos = state_position;
-    //         c_star = nodes[pos].c_star;
-    //     });
-    //     // todo!();
-    //     path.clear();
-    // }
+    pub(crate) fn write_observations<Space: NablaStateActionSpace>(
+        &self,
+        space: &Space,
+        observations: &mut [f32],
+        weights: &mut [f32],
+    ) {
+        let root_node = &self.nodes[0];
+        let c_s = root_node.c;
+        // dbg!(c_s);
+        root_node.actions.iter().filter_map(|a| {
+            a.next_position().map(|node_as| {
+                let node_as = &self.nodes[node_as.get()];
+                (a.action(), node_as.c, node_as.c_star)
+            })
+        }).for_each(|(a, c_as, c_as_star)| {
+            let h = space.h_sa(c_s, c_as, c_as_star);
+            // dbg!(h, a, c_as, c_as_star);
+            observations[a] = h;
+            weights[a] = 1.0;
+        });
+    }
+
+    pub(crate) fn node_data(&self) -> Vec<(Option<&P>, f32, f32)> {
+        core::iter::once((None, self.nodes[0].c, self.nodes[0].c_star))
+            .chain(self.positions.iter().map(|(p, pos)| {
+                let node = &self.nodes[pos.get()];
+                (Some(p), node.c, node.c_star)
+            }))
+            .collect()
+    }
 }
 
 pub enum NodeKind<'roll_out, P> {

@@ -35,27 +35,10 @@ impl<P> SearchTree<P> {
                 g.add_stmt(e);
             }
         }
-
-
-        // let edges = [
-        //     (0, 1),
-        //     (1, 2),
-        //     (2, 3)
-        // ];
-        // for (a, b) in edges.iter() {
-        //     let e = edge!(
-        //         node_id!(esc a) => node_id!(esc b);
-        //         attr!("color", "red"),
-        //         attr!("dir", "forward"),
-        //         attr!("style", "dashed")
-        //     );
-        //     let e = Stmt::Edge(e);
-        //     g.add_stmt(e);
-        // }
         let graph_svg = exec(
             g,
             &mut PrinterContext::default(),
-            vec![Format::Svg.into()],
+            vec![Format::Png.into()],
         )
         .unwrap();
     graph_svg

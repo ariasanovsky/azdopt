@@ -1,11 +1,11 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel, tree::node::SamplePattern}, path::{set::ActionSet, ActionPath}};
+use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::{prohibit::WithProhibitions, layers::Layers}, space::layered::Layered, log::ArgminData, nabla::{optimizer::NablaOptimizer, model::dfdx::ActionModel, space::NablaStateActionSpace}, path::{set::ActionSet, ActionPath}};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
 use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, rngs::ThreadRng, Rng};
 use tensorboard_writer::TensorboardWriter;
 
 const N: usize = 16;
@@ -26,9 +26,9 @@ type Space = Layered<STACK, RichSpace>;
 const ACTION: usize = E * C;
 const STATE: usize = STACK * 3 * C * E;
 
-const HIDDEN_1: usize = 1024;
+const HIDDEN_1: usize = 512;
 const HIDDEN_2: usize = 1024;
-const HIDDEN_3: usize = 1024;
+const HIDDEN_3: usize = 512;
 
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -38,7 +38,7 @@ type ModelH = (
     (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 1;
+const BATCH: usize = 512;
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
@@ -54,44 +54,42 @@ fn main() -> eyre::Result<()> {
 
     let dev = AutoDevice::default();
     let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
-    let init_state = |num_prohibited_edges: usize| -> S {
-        let mut rng = rand::thread_rng();
-        let g = ColoredCompleteBitsetGraph::generate(&dist, &mut rng);
-        let s = RamseyCounts::new(g, &SIZES);
-        let p = edges.choose_multiple(&mut rng, num_prohibited_edges).flat_map(|i| {
-            (0..C).map(|c| c * E + *i)
-        });
-        let s = WithProhibitions::new(s, p);
+    let new_state = |s: _, p: _| -> S {
+        let s = WithProhibitions {
+            state: s,
+            prohibited_actions: p,
+        };
         Layers::new(s)
+    };
+    let init_state = |rng: &mut ThreadRng, num_prohibitions: usize| -> S {
+        let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
+        let s = RamseyCounts::new(g, &SIZES);
+        let p = edges.choose_multiple(rng, num_prohibitions).flat_map(|i| {
+            (0..C).map(|c| c * E + *i)
+        }).collect();
+        new_state(s, p)
     };
 
     let cfg = AdamConfig {
-        lr: 3e-3,
+        lr: 3e-4,
         betas: [0.9, 0.999],
         eps: 1e-8,
-        weight_decay: Some(WeightDecay::L2(1e-5)),
+        weight_decay: Some(WeightDecay::L2(1e-6)),
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
-    // let model = TrivialModel;
+    // let model = az_discrete_opt::nabla::model::TrivialModel;
     const RICH_SPACE: RichSpace = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
     const SPACE: Space = Layered::new(RICH_SPACE);
-
-    // let max_num_root_actions = 25;
-
-    let root_action_pattern = SamplePattern {
-        head: 20,
-        body: 20,
-        tail: 10,
-    };
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE, 
         || {
-            init_state(E - 7)
+            let mut rng = rand::thread_rng();
+            let num_prohibitions = rng.gen_range(0..E);
+            init_state(&mut rng, num_prohibitions)
         },
         model,
         BATCH,
-        // root_action_pattern.clone(),
     );
     let mut argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, 0), e)).unwrap();
     println!("{}", argmin.1);
@@ -104,36 +102,11 @@ fn main() -> eyre::Result<()> {
     writer.get_mut().flush()?;
     
     let epochs: usize = 250;
-    let episodes: usize = 44;
+    let episodes: usize = 800;
 
     for epoch in 1..epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            // let episode_action_pattern = |_depth: usize| {
-            //     SamplePattern {
-            //         head: 10,
-            //         body: 5,
-            //         tail: 0,
-            //     }
-            // };
-            // let search_policy = |depth: usize| {
-            //     match depth {
-            //         0 if episode < root_action_pattern.len() => SearchPolicy::Cyclic,
-            //         _ => SearchPolicy::Rating(|metadata| -> f32 {
-            //             let TransitionMetadata {
-            //                 n_s,
-            //                 c_s,
-            //                 n_sa,
-            //                 g_theta_star_sa,
-            //             } = metadata;
-            //             let exploit = g_theta_star_sa / c_s;
-            //             let explore = ((1 + n_s) as f32).sqrt() / (1 + n_sa) as f32;
-            //             exploit + 0.1 * explore
-            //         }),
-            //     }
-            // };
-            // optimizer.par_roll_out_episodes(episode_action_pattern, search_policy);
-            // optimizer.par_roll_out_episodes(search_policy);
             optimizer.par_roll_out_episodes();
             let episode_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), episode, epoch), e)).unwrap();
             if episode_argmin.1 < argmin.1 {
@@ -156,35 +129,12 @@ fn main() -> eyre::Result<()> {
                 println!("sizes: {sizes:?}");
 
                 let graph = optimizer.get_trees()[0].graphviz();
-                std::fs::write("tree.svg", graph).unwrap();
-                // std::fs::write("tree.dot", format!("{:?}", petgraph::dot::Dot::new(&graph))).unwrap();
-                // let max_lengths = optimizer.get_trees().iter().max_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
-                // println!("max_lengths: {max_lengths:?}");
-                // let min_lengths = optimizer.get_trees().iter().min_by_key(|t| t.sizes().sum::<usize>()).unwrap().sizes().collect::<Vec<_>>();
-                // println!("min_lengths: {min_lengths:?}");
-                // println!("lengths: {lengths:?}");
-                // let lengths = optimizer.get_trees().last().unwrap().sizes().collect::<Vec<_>>();
-                // println!("lengths: {lengths:?}");
+                std::fs::write("tree.png", graph).unwrap();
+                let graph = optimizer.get_trees()[BATCH-1].graphviz();
+                std::fs::write("tree2.png", graph).unwrap();
             }
         }
         
-        // let action_weights = |n_sa| {
-        //     (n_sa as f32).sqrt()
-        // };
-        let label = |s: &S, p: Option<&P>| -> usize {
-            let actions_previously_taken = s.back().prohibited_actions.len() / C;
-            let actions_taken = p.map(|p| p.len()).unwrap_or(0);
-            actions_previously_taken + actions_taken
-        };
-        // let label_weights = |l: usize| -> f32 {
-        //     const MIN_LABEL: usize = E - 31;
-        //     (1 + l - MIN_LABEL).pow(2) as f32
-        // };
-        // let state_weights = |s: &S| -> f32 {
-        //     let label = label(s, None);
-        //     label_weights(label)
-        // };
-        // let loss = optimizer.par_update_model(action_weights, state_weights);
         let loss = optimizer.par_update_model();
         let summary = loss.summary();
         writer.write_summary(
@@ -199,44 +149,35 @@ fn main() -> eyre::Result<()> {
             summary,
         )?;
         writer.get_mut().flush()?;
-        let label_sample = |l: usize| -> SamplePattern {
-            const LABEL_SIZE: usize = 3 * BATCH / 128;
-            SamplePattern {
-                head: LABEL_SIZE / 2,
-                body: LABEL_SIZE - LABEL_SIZE / 2 - LABEL_SIZE / 4,
-                tail: LABEL_SIZE / 4,
-            }
-        };
-        let reset_state = |state: &mut S| {
-            let mut s = state.back().clone();
-            s.prohibited_actions.clear();
-            let num_prohibited = E - epoch.clamp(4, 31);
+        let modify_root = |space: &Space, state: &mut S, mut n: Vec<(Option<&P>, f32, f32)>| {
             let mut rng = rand::thread_rng();
-            let p = edges.choose_multiple(&mut rng, num_prohibited).flat_map(|i| {
-                (0..C).map(|c| c * E + *i)
-            });
-            s.prohibited_actions.extend(p);
-            *state = Layers::new(s);
-        };
-        let init_state = || {
-            let num_prohibited = E - epoch.clamp(4, 31);
-            init_state(num_prohibited)
-        };
-        optimizer.par_select_next_roots(reset_state, init_state, root_action_pattern.clone(), label, label_sample);
-        let root_argmin = optimizer.par_argmin().map(|(s, c, e)| (ArgminData::new(s, c.clone(), 0, epoch + 1), e)).unwrap();
-        if root_argmin.1 < argmin.1 {
-            argmin = root_argmin;
-            writer.write_summary(
-                SystemTime::now(),
-                (episodes * epoch) as i64,
-                argmin.0.cost().summary(),
-            )?;
-            writer.get_mut().flush()?;
-            if argmin.1 < 0.01 {
-                println!("{}", argmin.0.short_form());
+            let (_, c_root, c_root_star) = n[0];
+            if c_root == c_root_star {
+                let num_prohibitions = state.back().prohibited_actions.len() / C;
+                if num_prohibitions == 0 {
+                    let num_prohibitions = rng.gen_range(0..E);
+                    *state = init_state(&mut rng, num_prohibitions);
+                } else {
+                    let num_prohibitions = rng.gen_range(0..num_prohibitions);
+                    let s = state.back().state.clone();
+                    let p = edges.choose_multiple(&mut rng, num_prohibitions).flat_map(|i| {
+                        (0..C).map(|c| c * E + *i)
+                    }).collect();
+                    *state = new_state(s, p);
+                }
+            } else {
+                n.retain(|(_, c, _)| *c == c_root_star);
+                // dbg!(n.len());
+                let (p, _, _) = n.choose(&mut rng).unwrap();
+                if let Some(p) = p {
+                    p.actions_taken().for_each(|a| {
+                        let a = space.action(a);
+                        space.act(state, &a);
+                    })
+                }
             }
-            println!("{}", argmin.1);
-        }
+        };
+        optimizer.reset_trees(modify_root);
     }
     Ok(())
 }

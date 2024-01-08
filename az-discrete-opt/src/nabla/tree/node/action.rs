@@ -34,12 +34,17 @@ impl ActionData2 {
 
     pub(crate) fn decay(&mut self) {
         let g_sa = self.g_sa.as_mut().unwrap();
-        g_sa.sub_assign(0.4);
+        g_sa.sub_assign(0.05);
     }
 
     pub(crate) fn exhaust(&mut self) {
         debug_assert!(self.g_sa.is_some());
         // println!("exhausting action {}!", self.a);
         self.g_sa = None;
+    }
+
+    pub(crate) fn update_g_sa(&mut self, g: f32) {
+        let g_sa = self.g_sa.as_mut().unwrap();
+        *g_sa = g_sa.max(g);
     }
 }

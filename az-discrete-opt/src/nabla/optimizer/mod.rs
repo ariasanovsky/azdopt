@@ -12,6 +12,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     last_positions: Vec<Option<NonZeroUsize>>,
     state_vecs: Vec<f32>,
     h_theta_host: Vec<f32>,
+    action_weights: Vec<f32>,
     trees: Vec<SearchTree<P>>,
     model: M,
 }
@@ -50,6 +51,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         });
         let mut h_theta_host = vec![0.; batch * Space::ACTION_DIM];
         model.write_predictions(&state_vecs, &mut h_theta_host);
+        // h_theta_host.par_iter_mut().for_each(|x| *x = x.sqrt());
         let trees = 
             (&states, &costs, h_theta_host.par_chunks_exact(Space::ACTION_DIM))
             .into_par_iter()
@@ -59,6 +61,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             .collect();
         let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
         let last_positions = vec![None; batch];
+        let action_weights = vec![0.; batch * Space::ACTION_DIM];
+        // dbg!(action_weights.len());
         Self {
             space,
             roots,
@@ -69,6 +73,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             last_positions,
             state_vecs,
             h_theta_host,
+            action_weights,
             trees,
             model,
         }
@@ -92,6 +97,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             last_positions: _,
             state_vecs: _,
             h_theta_host: _,
+            action_weights: _,
             trees: _,
             model: _,
         } = self;
@@ -210,56 +216,34 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space::Cost: Send + Sync,
         P: Sync,
     {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator}, slice::ParallelSliceMut};
+        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
         // sync `costs` with `roots`
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
         (
             &self.roots,
-            &mut self.costs,
             state_vecs,
-        ).into_par_iter().for_each(|(s, c, v)| {
-            *c = self.space.cost(s);
+        ).into_par_iter().for_each(|(s, v)| {
             self.space.write_vec(s, v);
         });
 
         // fill `h_theta_host`
-        self.model.write_predictions(&self.state_vecs, &mut self.h_theta_host);
+        self.h_theta_host.fill(0.0);
+        self.action_weights.fill(0.0);
         let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
-        (
-            &self.trees,
-            &self.roots,
-            &self.costs,
-            h_theta_vecs,
-        ).into_par_iter().for_each(|(
-            t,
-            s,
-            c,
-            h_theta,
-        )| {
-            todo!()
-        //     let root_node = t.root_node();
-        //     let active_actions = root_node.active_actions();
-        //     let exhausted_actions = root_node.exhausted_actions();
-        //     let action_data = active_actions.chain(exhausted_actions);
-        //     for crate::nabla::tree::node::ActionData { a, n_sa, g_theta_star_sa} in action_data {
-        //         w[*a] = action_weights(*n_sa);
-        //         let r_sa = self.space.reward(s, *a);
-        //         h_theta[*a] = self.space.h_sa(c, r_sa, *g_theta_star_sa)
-        //     }
-        });
-        // self.model.update_model(&self.states_host, &self.h_theta_host, &self.action_weights, &state_weights)
-        todo!();
+        let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
+        (&self.trees, h_theta_vecs, weight_vecs)
+            .into_par_iter()
+            .for_each(|(t, h_theta, weights)|
+                t.write_observations(&self.space, h_theta, weights)
+            );
+        self.model.update_model(&self.state_vecs, &self.h_theta_host, &self.action_weights)
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_select_next_roots(
+    pub fn reset_trees(
         &mut self,
-        reset_state: impl Fn(&mut Space::State) + Sync,
-        init_state: impl Fn() -> Space::State + Sync + Send,
-        root_action_pattern: super::tree::node::SamplePattern,
-        label: impl Fn(&Space::State, Option<&P>) -> usize + Sync,
-        label_sample: impl Fn(usize) -> super::tree::node::SamplePattern + Sync,
+        modify_root: impl Fn(&Space, &mut Space::State, Vec<(Option<&P>, f32, f32)>) + Sync,
     )
     where
         Space: Sync,
@@ -267,75 +251,135 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
     {
-        use rayon::iter::{ParallelIterator, IntoParallelIterator, ParallelExtend, IntoParallelRefMutIterator, IndexedParallelIterator, IntoParallelRefIterator};
+        use rayon::{iter::{ParallelIterator, IntoParallelIterator, ParallelExtend, IntoParallelRefMutIterator, IntoParallelRefIterator}, slice::{ParallelSliceMut, ParallelSlice}};
 
-        use crate::{path::ActionPath, nabla::tree::node::sample_swap};
-        let label = &label;
-        let mut next_roots = (&self.trees, &self.roots).into_par_iter().flat_map(|(t, s)| {
-            t.par_nodes().map(move |(p, c_star)| (s, p, c_star, label(s, p)))
-        }).collect::<Vec<_>>();
-        next_roots.sort_unstable_by(|(_, _, c_1, l_1), (_, _, c_2, l_2)| {
-            match l_1.cmp(l_2) {
-                std::cmp::Ordering::Equal => c_1.partial_cmp(c_2).unwrap(),
-                o => o,
-            }
+        let Self {
+            space: _,
+            roots,
+            states,
+            costs,
+            paths,
+            transitions,
+            last_positions,
+            state_vecs,
+            h_theta_host,
+            action_weights: _,
+            trees: _,
+            model,
+        } = self;
+        last_positions.fill(None);
+        state_vecs.fill(0.);
+        let space = &self.space;
+        let trees = &self.trees;
+        let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
+        let modify_root = &modify_root;
+        (
+            trees,
+            roots,
+            states,
+            costs,
+            paths,
+            transitions,
+            state_vecs,
+        ).into_par_iter().for_each(|(
+            t,
+            r,
+            s,
+            c,
+            p,
+            trans,
+            v,
+        )| {
+            let n = t.node_data();
+            modify_root(space, r, n);
+            s.clone_from(r);
+            *c = space.cost(r);
+            self.space.write_vec(s, v);
+            p.clear();
+            trans.clear();
         });
-        let slices = next_roots.group_by_mut(|(_, _, _, l_1), (_, _, _, l_2)| *l_1 == *l_2).map(|s| {
-            (s.first().unwrap().3, s)
-        }).collect::<std::collections::BTreeMap<_, _>>();
-        for (k, v) in slices.iter() {
-            println!("label {k}: {}", v.len());
-        }
-        let mut next_roots =
-            slices
-            .into_par_iter()
-            .flat_map(|(l, s)| {
-                let label_sample = label_sample(l);
-                match sample_swap(s, &label_sample) {
-                    true => &s[..label_sample.len()],
-                    false => s,
-                }.par_iter()
-            })
-            .map(|(s, p, _, _)| {
-                let mut s = (*s).clone();
-                p.as_deref()
-                    .into_iter()
-                    .flat_map(ActionPath::actions_taken)
-                    .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
-                s
-            })
-            .collect::<Vec<_>>();
-        next_roots.truncate(self.roots.len());
-        next_roots.par_iter_mut().for_each(|s| {
-            if self.space.is_terminal(s) {
-                reset_state(s);
-            }
-            while self.space.is_terminal(s) {
-                *s = init_state();
-            }
+        h_theta_host.fill(0.);
+        model.write_predictions(&self.state_vecs, h_theta_host);
+        let action_vecs = h_theta_host.par_chunks_exact(Space::ACTION_DIM);
+        (
+            &mut self.trees,
+            &self.roots,
+            &self.costs,
+            action_vecs,
+        ).into_par_iter().for_each(|(
+            t,
+            r,
+            c,
+            h,
+        )| {
+            *t = SearchTree::new(&self.space, r, c, h);
         });
-        dbg!(next_roots.len());
-        let missing = self.roots.len().saturating_sub(next_roots.len());
-        next_roots.par_extend((0..missing).into_par_iter().map(|_| {
-            init_state()
-        }));
-        dbg!(next_roots.len());
-        // todo!();
-        // if sample_swap(next_roots.as_mut_slice(), &root_selection_pattern) {
-        //     next_roots.truncate(root_selection_pattern.len());
-        // }
-        // let mut next_roots = next_roots.into_par_iter().map(|(s, p, _)| {
-        //     let mut s = s.clone();
-        //     p.into_iter()
-        //         .flat_map(ActionPath::actions_taken)
-        //         .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
-        //     s
+        // let mut next_roots = (&self.trees, &self.roots).into_par_iter().flat_map(|(t, s)| {
+        //     t.par_nodes().map(move |(p, c_star)| (s, p, c_star, label(s, p)))
         // }).collect::<Vec<_>>();
-        self.roots = next_roots;
-        (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
-            *c = self.space.cost(s);
-        });
-        self.par_reset_trees();
+        // next_roots.sort_unstable_by(|(_, _, c_1, l_1), (_, _, c_2, l_2)| {
+        //     match l_1.cmp(l_2) {
+        //         std::cmp::Ordering::Equal => c_1.partial_cmp(c_2).unwrap(),
+        //         o => o,
+        //     }
+        // });
+        // let slices = next_roots.group_by_mut(|(_, _, _, l_1), (_, _, _, l_2)| *l_1 == *l_2).map(|s| {
+        //     (s.first().unwrap().3, s)
+        // }).collect::<std::collections::BTreeMap<_, _>>();
+        // // for (k, v) in slices.iter() {
+        // //     println!("label {k}: {}", v.len());
+        // // }
+        // let mut next_roots =
+        //     slices
+        //     .into_par_iter()
+        //     .flat_map(|(l, s)| {
+        //         let label_sample = label_sample(l);
+        //         match sample_swap(s, &label_sample) {
+        //             true => &s[..label_sample.len()],
+        //             false => s,
+        //         }.par_iter()
+        //     })
+        //     .map(|(s, p, _, _)| {
+        //         let mut s = (*s).clone();
+        //         p.as_deref()
+        //             .into_iter()
+        //             .flat_map(ActionPath::actions_taken)
+        //             .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
+        //         s
+        //     })
+        //     .collect::<Vec<_>>();
+        // next_roots.truncate(self.roots.len());
+        // dbg!(next_roots.len());
+        // next_roots.par_iter_mut().for_each(|s| {
+        //     if self.space.is_terminal(s) {
+        //         reset_state(s);
+        //     }
+        //     while self.space.is_terminal(s) {
+        //         *s = init_state();
+        //     }
+        // });
+        // dbg!(next_roots.len());
+        // let missing = self.roots.len().saturating_sub(next_roots.len());
+        // next_roots.par_extend((0..missing).into_par_iter().map(|_| {
+        //     init_state()
+        // }));
+        // dbg!(next_roots.len());
+        // // todo!();
+        // // if sample_swap(next_roots.as_mut_slice(), &root_selection_pattern) {
+        // //     next_roots.truncate(root_selection_pattern.len());
+        // // }
+        // // let mut next_roots = next_roots.into_par_iter().map(|(s, p, _)| {
+        // //     let mut s = s.clone();
+        // //     p.into_iter()
+        // //         .flat_map(ActionPath::actions_taken)
+        // //         .for_each(|a| self.space.act(&mut s, &self.space.action(a)));
+        // //     s
+        // // }).collect::<Vec<_>>();
+        // self.roots = next_roots;
+        // (&self.roots, &mut self.costs).into_par_iter().for_each(|(s, c)| {
+        //     *c = self.space.cost(s);
+        // });
+        // self.par_reset_trees();
         // todo!("anything else?")
     }
 
@@ -345,7 +389,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space: Sync,
         Space::State: Sync,
         Space::Cost: Send + Sync,
-        P: Send,
+        P: Send + crate::path::ActionPath,
     {
         use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 
@@ -360,8 +404,16 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
         (&mut self.trees, &self.roots, &self.costs, h_theta_vecs).into_par_iter().for_each(|(t, s, c, h_theta)| {
             // todo! ?perf
+            // dbg!();
             *t = SearchTree::new(&self.space, s, c, h_theta);
         });
+        self.last_positions.fill(None);
+        (&mut self.paths, &mut self.transitions)
+            .into_par_iter()
+            .for_each(|(p, t)| {
+                p.clear();
+                t.clear();
+            });
         // todo!("anything else?")
     }
 }

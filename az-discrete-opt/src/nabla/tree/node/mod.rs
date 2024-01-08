@@ -31,11 +31,6 @@ impl StateNode2 {
     }
 
     pub(crate) fn next_action(&mut self) -> Option<(usize, &mut ActionData2)> {
-        for action in &self.actions {
-            println!("action {} has g_sa {:?}", action.action(), action.g_sa());
-        }
-        println!("c_star: {}\n", self.c_star);
-        
         self.actions
             .iter_mut()
             .enumerate()
@@ -61,9 +56,13 @@ impl StateNode2 {
     }
 
     pub(crate) fn update_c_stars(&mut self, c_star: &mut f32, action_position: usize) {
+        debug_assert!(self.actions[action_position].g_sa().is_some());
         if self.c_star > *c_star {
             // println!("improve node c_star!");
             self.c_star = *c_star;
+            let g = self.c - *c_star;
+            debug_assert!(g > 0.0);
+            self.actions[action_position].update_g_sa(g);
         } else {
             *c_star = self.c_star;
             self.actions[action_position].decay();
