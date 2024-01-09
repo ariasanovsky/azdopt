@@ -8,23 +8,20 @@ use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::R
 use rand::{seq::SliceRandom, rngs::ThreadRng, Rng};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 16;
+const N: usize = 17;
 const E: usize = N * (N - 1) / 2;
-const C: usize = 3;
-const SIZES: [usize; C] = [3, 3, 3];
+const C: usize = 2;
+const SIZES: [usize; C] = [4, 4];
 
 type RawState = RamseyCounts<N, E, C, B32>;
-type RichState = WithProhibitions<RawState>;
+type S = WithProhibitions<RawState>;
 
-const STACK: usize = 1;
-type S = Layers<RichState, STACK>;
 type P = ActionSet;
 
-type RichSpace = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
-type Space = Layered<STACK, RichSpace>;
+type Space = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
 
 const ACTION: usize = E * C;
-const STATE: usize = STACK * 3 * C * E;
+const STATE: usize = 3 * C * E;
 
 const HIDDEN_1: usize = 512;
 const HIDDEN_2: usize = 1024;
@@ -38,9 +35,16 @@ type ModelH = (
     (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 512;
+const BATCH: usize = 128;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 fn main() -> eyre::Result<()> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
@@ -53,18 +57,18 @@ fn main() -> eyre::Result<()> {
     let edges: [usize; E] = core::array::from_fn(|i| i);
 
     let dev = AutoDevice::default();
-    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
+    let dist = rand::distributions::WeightedIndex::new([1., 1.])?;
     let new_state = |s: _, p: _| -> S {
         let s = WithProhibitions {
             state: s,
             prohibited_actions: p,
         };
-        Layers::new(s)
+        s
     };
     let init_state = |rng: &mut ThreadRng, num_prohibitions: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
         let s = RamseyCounts::new(g, &SIZES);
-        let p = edges.choose_multiple(rng, num_prohibitions).flat_map(|i| {
+        let p = (edges).choose_multiple(rng, num_prohibitions).flat_map(|i| {
             (0..C).map(|c| c * E + *i)
         }).collect();
         new_state(s, p)
@@ -78,9 +82,8 @@ fn main() -> eyre::Result<()> {
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
-    const RICH_SPACE: RichSpace = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
-    const SPACE: Space = Layered::new(RICH_SPACE);
-
+    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1.]);
+    
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE, 
         || {
@@ -98,10 +101,12 @@ fn main() -> eyre::Result<()> {
     let epochs: usize = 250;
     let episodes: usize = 800;
 
-    for epoch in 1..epochs {
+    let decay = 0.4;
+
+    for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            let new_argmin = optimizer.par_roll_out_episodes();
+            let new_argmin = optimizer.par_roll_out_episodes(decay);
             match new_argmin {
                 ArgminImprovement::Improved(ArgminData { state, cost, eval }) => {
                     println!("{eval}\t{cost:?}");
@@ -143,13 +148,13 @@ fn main() -> eyre::Result<()> {
             let mut rng = rand::thread_rng();
             let (_, c_root, c_root_star) = n[0];
             if c_root == c_root_star {
-                let num_prohibitions = state.back().prohibited_actions.len() / C;
+                let num_prohibitions = state.prohibited_actions.len() / C;
                 if num_prohibitions == 0 {
                     let num_prohibitions = rng.gen_range(0..E);
                     *state = init_state(&mut rng, num_prohibitions);
                 } else {
                     let num_prohibitions = rng.gen_range(0..num_prohibitions);
-                    let s = state.back().state.clone();
+                    let s = state.state.clone();
                     let p = edges.choose_multiple(&mut rng, num_prohibitions).flat_map(|i| {
                         (0..C).map(|c| c * E + *i)
                     }).collect();

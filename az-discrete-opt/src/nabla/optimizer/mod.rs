@@ -2,7 +2,7 @@ use core::num::NonZeroUsize;
 
 use crate::log::ArgminData;
 
-use super::{space::NablaStateActionSpace, tree::{SearchTree, Transition2}, model::NablaModel};
+use super::{space::NablaStateActionSpace, tree::{SearchTree, Transition}, model::NablaModel};
 
 pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     space: Space,
@@ -10,7 +10,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     states: Vec<Space::State>,
     costs: Vec<Space::Cost>,
     paths: Vec<P>,
-    transitions: Vec<Vec<Transition2>>,
+    // transitions: Vec<Vec<Transition>>,
     last_positions: Vec<Option<NonZeroUsize>>,
     state_vecs: Vec<f32>,
     h_theta_host: Vec<f32>,
@@ -68,7 +68,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 SearchTree::new(&space, s, c, h_theta)
             })
             .collect();
-        let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
+        // let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
         let last_positions = vec![None; batch];
         let action_weights = vec![0.; batch * Space::ACTION_DIM];
         let argmin_data =
@@ -77,7 +77,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 (s, c, space.evaluate(c))
             })
             .min_by(|(_, _, e1), (_, _, e2)| {
-            e1.partial_cmp(&e2).unwrap()
+            e1.partial_cmp(e2).unwrap()
         }).map(|(s, c, e)| ArgminData::new(
             s.clone(),
             c.clone(),
@@ -90,7 +90,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states,
             costs,
             paths,
-            transitions,
+            // transitions,
             last_positions,
             state_vecs,
             h_theta_host,
@@ -134,8 +134,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     #[cfg(feature = "rayon")]
     pub fn par_roll_out_episodes(
         &mut self,
-        // action_pattern: impl Fn(usize) -> super::tree::node::SamplePattern + Sync,
-        // policy: impl Fn(usize) -> super::tree::node::SearchPolicy + Sync,
+        decay: f32,
     ) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
@@ -151,7 +150,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let roots = &self.roots;
         let states = &mut self.states;
         let paths = &mut self.paths;
-        let transitions = &mut self.transitions;
+        // let transitions = &mut self.transitions;
         let costs = &mut self.costs;
         let last_positions = &mut self.last_positions;
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
@@ -160,7 +159,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 roots.len(),
                 states.len(),
                 paths.len(),
-                transitions.len(),
+                // transitions.len(),
                 costs.len(),
                 last_positions.len(),
                 state_vecs.len(),
@@ -173,7 +172,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots,
             states,
             paths,
-            transitions,
+            // transitions,
             costs,
             last_positions,
             state_vecs,
@@ -182,7 +181,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             r,
             s,
             p,
-            trans,
+            // trans,
             c,
             pos,
             v,
@@ -193,10 +192,11 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 s,
                 c,
                 p,
-                trans,
+                // trans,
                 pos,
+                decay,
             );    
-            if !trans.is_empty() {
+            if !p.is_empty() {
                 self.space.write_vec(s, v);
             }
         });
@@ -205,16 +205,16 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             &mut self.trees,
             &self.states,
             &self.costs,
-            &self.transitions,
+            &self.paths,
             self.h_theta_host.par_chunks_exact(Space::ACTION_DIM),
         ).into_par_iter().for_each(|(
             t,
             s,
             c,
-            trans,
+            p,
             h,
         )| {
-            if !trans.is_empty() {
+            if !p.is_empty() {
                 let n = StateNode::new(&self.space, s, c, h);
                 t.push_node(n);
             }
@@ -258,11 +258,11 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 n1.c.partial_cmp(&n2.c).unwrap()
             });
         match n {
-            Some((tree_pos, node_pos, n)) => {
+            Some((tree_pos, node_pos, _n)) => {
                 let tree = &self.trees[tree_pos];
                 let ArgminData { state, cost, eval } = &mut self.argmin_data;
                 state.clone_from(&self.roots[tree_pos]);
-                let p: Option<&P> = tree.positions().iter().find_map(|(p, pos)| {
+                let p = tree.positions().iter().find_map(|(p, pos)| {
                     if pos.get() == node_pos {
                         Some(p)
                     } else {
@@ -338,7 +338,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states,
             costs,
             paths,
-            transitions,
+            // transitions,
             last_positions,
             state_vecs,
             h_theta_host,
@@ -360,7 +360,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states,
             costs,
             paths,
-            transitions,
+            // transitions,
             state_vecs,
         ).into_par_iter().for_each(|(
             t,
@@ -368,7 +368,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             s,
             c,
             p,
-            trans,
+            // trans,
             v,
         )| {
             let n = t.node_data();
@@ -377,7 +377,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             *c = space.cost(r);
             self.space.write_vec(s, v);
             p.clear();
-            trans.clear();
+            // trans.clear();
         });
         h_theta_host.fill(0.);
         model.write_predictions(&self.state_vecs, h_theta_host);

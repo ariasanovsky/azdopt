@@ -11,16 +11,17 @@ use super::space::NablaStateActionSpace;
 pub mod node;
 #[cfg(feature = "graphviz")]
 pub mod graphviz;
+pub mod empty_transitions;
 pub mod search;
 
 pub struct SearchTree<P> {
     positions: BTreeMap<P, NonZeroUsize>,
     nodes: Vec<StateNode>,
-    in_neighborhoods: Vec<BTreeSet<usize>>,
+    in_neighborhoods: Vec<BTreeSet<Transition>>,
 }
 
-#[derive(Debug)]
-pub struct Transition2 {
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct Transition {
     pub(crate) state_position: usize,
     pub(crate) action_position: usize,
 }
@@ -64,8 +65,9 @@ impl<P> SearchTree<P> {
         state: &mut Space::State,
         cost: &mut Space::Cost,
         path: &mut P,
-        transitions: &mut Vec<Transition2>,
+        // transitions: &mut Vec<Transition>,
         state_pos: &mut Option<NonZeroUsize>,
+        decay: f32,
     )
     where
         Space: NablaStateActionSpace,
@@ -73,7 +75,7 @@ impl<P> SearchTree<P> {
         P: Ord + ActionPath + ActionPathFor<Space> + Clone,
     {
         loop {
-            debug_assert_eq!(path.len(), transitions.len());
+            // debug_assert_eq!(path.len(), transitions.len());
             debug_assert_eq!(self.positions.len() + 1, self.nodes.len());
             // for (p, pos) in self.positions.iter() {
             //     let p = p.actions_taken().collect::<Vec<_>>();
@@ -83,17 +85,18 @@ impl<P> SearchTree<P> {
             let state_position = state_pos.map(NonZeroUsize::get).unwrap_or(0);
             let node = &mut self.nodes[state_position];
             let Some((action_position, action_data)) = node.next_action() else {
-                if transitions.is_empty() {
+                if path.is_empty() {
                     debug_assert_eq!(*state_pos, None);
                     return;
                 }
                 debug_assert!(self.positions.contains_key(path));
-                self.empty_transitions(
+                self.clear_path(
                     root,
                     state,
                     path,
-                    transitions,
+                    // transitions,
                     state_pos,
+                    decay,
                 );
                 return self.roll_out_episodes(
                     space,
@@ -101,17 +104,19 @@ impl<P> SearchTree<P> {
                     state,
                     cost,
                     path,
-                    transitions,
+                    // transitions,
                     state_pos,
+                    decay,
                 );
             };
-            transitions.push(Transition2 {
+            let transition = Transition {
                 state_position,
                 action_position,
-            });
-            let action = action_data.action();
-            unsafe { path.push_unchecked(action) };
-            let action = space.action(action);
+            };
+            // transitions.push(transition.clone());
+            let action_num = action_data.action();
+            unsafe { path.push_unchecked(action_num) };
+            let action = space.action(action_num);
             space.act(state, &action);
 
             let next_position = action_data.next_position_mut();
@@ -122,7 +127,10 @@ impl<P> SearchTree<P> {
                 },
                 None => match self.positions.get(path) {
                     Some(&pos) => {
-                        let inserted = self.in_neighborhoods[pos.get()].insert(state_position);
+                        let inserted = self.in_neighborhoods[pos.get()].insert(Transition {
+                            state_position,
+                            action_position,
+                        });
                         debug_assert!(inserted);
                         *next_position = Some(pos);
                         *state_pos = Some(pos);
@@ -132,19 +140,20 @@ impl<P> SearchTree<P> {
                         let next_pos = (1 + self.positions.len()).try_into().unwrap();
                         *next_position = Some(next_pos);
                         *state_pos = *next_position;
-                        self.in_neighborhoods.push(core::iter::once(state_position).collect());
+                        self.in_neighborhoods.push(core::iter::once(transition).collect());
                         self.positions.insert(path.clone(), next_pos);
                         *cost = space.cost(state);
                         if space.is_terminal(state) {
                             let c_star = space.evaluate(cost);
                             let node = StateNode::new_exhausted(c_star);
                             self.push_node(node);
-                            self.empty_transitions(
+                            self.clear_path(
                                 root,
                                 state,
                                 path,
-                                transitions,
+                                // transitions,
                                 state_pos,
+                                decay,
                             );
                             return self.roll_out_episodes(
                                 space,
@@ -152,8 +161,9 @@ impl<P> SearchTree<P> {
                                 state,
                                 cost,
                                 path,
-                                transitions,
+                                // transitions,
                                 state_pos,
+                                decay,
                             );
                         }
                         return;
@@ -168,38 +178,6 @@ impl<P> SearchTree<P> {
         P: Ord + ActionPath,
     {
         self.nodes.push(node);
-    }
-
-    pub(crate) fn empty_transitions<Space>(
-        &mut self,
-        root: &Space::State,
-        state: &mut Space::State,
-        path: &mut P,
-        transitions: &mut Vec<Transition2>,
-        state_pos: &mut Option<NonZeroUsize>,
-    )
-    where
-        Space: NablaStateActionSpace,
-        Space::State: Clone,
-        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
-    {
-        debug_assert!(!transitions.is_empty());
-        debug_assert!(self.positions.contains_key(path));
-        let pos = state_pos.map(NonZeroUsize::get).unwrap_or(0);
-        let mut c_star = self.nodes[pos].c_star;
-        let mut exhausting = true;
-        for transition in transitions.drain(..).rev() {
-            let node = &mut self.nodes[transition.state_position];
-            if exhausting {
-                node.exhaust_action(transition.action_position);
-                exhausting = node.is_exhausted();
-            } else {
-                node.update_c_stars(&mut c_star, transition.action_position);
-            }
-        }
-        path.clear();
-        state.clone_from(root);
-        *state_pos = None;
     }
 
     pub(crate) fn write_observations<Space: NablaStateActionSpace>(
