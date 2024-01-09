@@ -32,9 +32,9 @@ impl ActionData {
         &mut self.next_position
     }
 
-    pub(crate) fn decay(&mut self) {
+    pub(crate) fn decay(&mut self, decay: f32) {
         let g_sa = self.g_sa.as_mut().unwrap();
-        g_sa.sub_assign(0.05);
+        g_sa.sub_assign(decay);
     }
 
     pub(crate) fn exhaust(&mut self) {

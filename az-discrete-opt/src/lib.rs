@@ -2,6 +2,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(slice_group_by)]
+#![feature(btree_extract_if)]
 
 pub mod az_model;
 pub mod int_min_tree;
