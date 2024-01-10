@@ -1,11 +1,11 @@
 use core::num::NonZeroUsize;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::AddAssign};
 
 use crate::{nabla::space::NablaStateActionSpace, path::{ActionPath, ActionPathFor}};
 
 use super::{SearchTree, Transition};
 
-struct Decay(NonZeroUsize);
+struct Decay(f32);
 
 pub(crate) struct DecayTracker {
     current_nodes: BTreeMap<NonZeroUsize, Decay>,
@@ -29,7 +29,7 @@ impl DecayTracker {
 
     fn insert_or_update(&mut self, state_pos: NonZeroUsize, decay: Decay) {
         self.next_nodes.entry(state_pos).and_modify(|Decay(d)| {
-            d.checked_add(decay.0.get()).expect("Decay overflow");
+            d.add_assign(decay.0);
         }).or_insert(decay);
     }
 }
@@ -54,7 +54,7 @@ impl<P> SearchTree<P> {
 
         let mut reached_root = false;
         
-        let mut decay_tracker = DecayTracker::new(state_pos.unwrap(), Decay(unsafe { NonZeroUsize::new_unchecked(1) }));
+        let mut decay_tracker = DecayTracker::new(state_pos.unwrap(), Decay(decay));
         while let Some((parent_pos, parent_decay)) = decay_tracker.pop_front() {
             let parent_exhausted = self.nodes[parent_pos.get()].is_exhausted();
             let parent_c_star = self.nodes[parent_pos.get()].c_star;
@@ -73,12 +73,11 @@ impl<P> SearchTree<P> {
                         child_node.exhaust_action(*action_position);
                     },
                     false => {
-                        let decay = decay / parent_decay.0.get() as f32;
-                        child_node.update_c_star(parent_c_star, *action_position, decay);
+                        child_node.update_c_star(parent_c_star, *action_position, parent_decay.0);
                     }
                 }
                 if let Some(child_pos) = NonZeroUsize::new(*child_pos) {
-                    decay_tracker.insert_or_update(child_pos, Decay(parent_decay.0.checked_mul(num_children).expect("Decay overflow")));
+                    decay_tracker.insert_or_update(child_pos, Decay(parent_decay.0 / num_children.get() as f32));
                 } else {
                     reached_root = true;
                 }

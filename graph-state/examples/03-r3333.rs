@@ -4,21 +4,21 @@ use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::prohibit::WithPr
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
-use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
+use graph_state::{bitset::primitive::B64, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
 use rand::{seq::SliceRandom, rngs::ThreadRng, Rng};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 16;
+const N: usize = 40;
 const E: usize = N * (N - 1) / 2;
-const C: usize = 3;
-const SIZES: [usize; C] = [3, 3, 3];
+const C: usize = 4;
+const SIZES: [usize; C] = [3, 3, 3, 3];
 
-type RawState = RamseyCounts<N, E, C, B32>;
+type RawState = RamseyCounts<N, E, C, B64>;
 type S = WithProhibitions<RawState>;
 
 type P = ActionSet;
 
-type Space = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
+type Space = RamseySpaceNoEdgeRecolor<B64, N, E, C>;
 
 const ACTION: usize = E * C;
 const STATE: usize = 3 * C * E;
@@ -35,17 +35,10 @@ type ModelH = (
     (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 512;
-
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
+const BATCH: usize = 64;
 
 fn main() -> eyre::Result<()> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-
-    let out_dir = tf_path().join("01-r333-grad").join(Utc::now().to_rfc3339());
+    let out_dir = tf_path().join("03-r3333-grad").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
@@ -57,7 +50,7 @@ fn main() -> eyre::Result<()> {
     let edges: [usize; E] = core::array::from_fn(|i| i);
 
     let dev = AutoDevice::default();
-    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
+    let dist = rand::distributions::WeightedIndex::new([1., 1., 1., 1.])?;
     let new_state = |s: _, p: _| -> S {
         let s = WithProhibitions {
             state: s,
@@ -82,7 +75,7 @@ fn main() -> eyre::Result<()> {
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
-    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
+    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1., 1.]);
     
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE, 
@@ -99,7 +92,7 @@ fn main() -> eyre::Result<()> {
     writer.get_mut().flush()?;
     
     let epochs: usize = 250;
-    let episodes: usize = 800;
+    let episodes: usize = 8_000;
 
     let decay = 0.4;
 

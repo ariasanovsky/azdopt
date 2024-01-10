@@ -2,7 +2,7 @@ use core::num::NonZeroUsize;
 
 use crate::log::ArgminData;
 
-use super::{space::NablaStateActionSpace, tree::{SearchTree, Transition}, model::NablaModel};
+use super::{space::NablaStateActionSpace, tree::SearchTree, model::NablaModel};
 
 pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     space: Space,
@@ -22,8 +22,9 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
 }
 
 pub enum ArgminImprovement<'a, S, C> {
-    Improved(&'a ArgminData<S, C>),
     Unchanged,
+    Improved(&'a ArgminData<S, C>),
+    
 }
 
 impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P> {

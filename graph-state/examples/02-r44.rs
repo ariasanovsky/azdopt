@@ -37,15 +37,8 @@ type ModelH = (
 
 const BATCH: usize = 128;
 
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
-
 fn main() -> eyre::Result<()> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-
-    let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
+    let out_dir = tf_path().join("02-r44-grad").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
