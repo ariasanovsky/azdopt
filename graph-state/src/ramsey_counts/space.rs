@@ -121,7 +121,7 @@ where
         * 2/3: red/blue edge bools
         * 4/5: red/blue prohibited actions
         */
-        let (clique_edge_vec, prohib_vec) = vector.split_at_mut(4 * E);
+        let (clique_edge_vec, prohib_vec) = vector.split_at_mut(2 * C * E);
         let clique_counts = state.state.counts.iter().flat_map(|c| c.iter()).map(|c| *c as f32);
         let edge_bools = state.state.graph().graphs().iter().flat_map(|g| g.edge_bools()).map(|b| if b { 1.0f32 } else { 0. });
         let clique_edge = clique_counts.chain(edge_bools);
