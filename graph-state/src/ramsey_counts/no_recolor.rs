@@ -8,8 +8,8 @@ use super::RamseyCounts;
 
 #[derive(Clone, Debug)]
 pub struct RamseyCountsNoRecolor<const N: usize, const E: usize, const C: usize, B> {
-    pub counts: RamseyCounts<N, E, C, B>,
-    pub modifiable_edges: BTreeSet<usize>,
+    pub(crate) state: RamseyCounts<N, E, C, B>,
+    pub(crate) permitted_edges: BTreeSet<usize>,
 }
 
 impl<const N: usize, const E: usize, const C: usize, B> RamseyCountsNoRecolor<N, E, C, B> {
@@ -23,28 +23,29 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCountsNoRecolor<N,
         edges
     };
 
-    pub fn choose_edges(num_edges: usize, rng: &mut impl rand::Rng) -> impl Iterator<Item = usize> {
-        Self::EDGE_POSITIONS.choose_multiple(rng, num_edges).copied()
-    }
-
-    pub fn randomize_modifiable_edges(&mut self, num_edges: usize, rng: &mut impl rand::Rng) {
-        let edges = Self::EDGE_POSITIONS.choose_multiple(rng, num_edges);
-        self.modifiable_edges = edges.copied().collect();
+    pub fn randomize_permitted_edges(&mut self, num_permitted_edges: usize, rng: &mut impl rand::Rng) {
+        let prohibited_edges = Self::EDGE_POSITIONS.choose_multiple(rng, num_permitted_edges).copied();
+        self.permitted_edges = prohibited_edges.collect();
     }
 
     pub fn generate(
         rng: &mut impl rand::Rng,
-        w: &impl rand::distributions::Distribution<usize>,
-        sizes: &[usize; C],
-        num_edges: usize,
+        counts: RamseyCounts<N, E, C, B>,
+        num_permitted_edges: usize,
     ) -> Self
     where
         B: Bitset + Clone,
         B::Bits: Clone,
     {
-        let counts = RamseyCounts::generate(rng, w, sizes);
-        let modifiable_edges = Self::choose_edges(num_edges, rng).collect();
-        Self { counts, modifiable_edges }
+        let permitted_edges =
+            Self::EDGE_POSITIONS
+            .choose_multiple(rng, num_permitted_edges)
+            .copied()
+            .collect();
+        Self { state: counts, permitted_edges }
     }
 
+    pub fn num_permitted_edges(&self) -> usize {
+        self.permitted_edges.len()
+    }
 }
