@@ -2,7 +2,10 @@ use ringbuffer::RingBuffer;
 
 use crate::state::layers::Layers;
 
-use super::{StateActionSpace, axioms::{ActionOrderIndependent, ActionsNeverRepeat}};
+use super::{
+    axioms::{ActionOrderIndependent, ActionsNeverRepeat},
+    StateActionSpace,
+};
 
 pub struct Layered<const LAYERS: usize, Space> {
     pub space: Space,
@@ -48,7 +51,8 @@ where
     fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
         debug_assert_eq!(vector.len(), Self::DIM);
         vector.fill(0.0);
-        vector.chunks_mut(Space::DIM)
+        vector
+            .chunks_mut(Space::DIM)
             .zip(state.buffer().iter())
             .for_each(|(chunk, s)| self.space.write_vec(s, chunk));
     }
@@ -68,5 +72,11 @@ where
     }
 }
 
-unsafe impl<const LAYERS: usize, Space: ActionsNeverRepeat> ActionsNeverRepeat for Layered<LAYERS, Space> {}
-unsafe impl<const LAYERS: usize, Space: ActionOrderIndependent> ActionOrderIndependent for Layered<LAYERS, Space> {}
+unsafe impl<const LAYERS: usize, Space: ActionsNeverRepeat> ActionsNeverRepeat
+    for Layered<LAYERS, Space>
+{
+}
+unsafe impl<const LAYERS: usize, Space: ActionOrderIndependent> ActionOrderIndependent
+    for Layered<LAYERS, Space>
+{
+}

@@ -4,7 +4,7 @@ use crate::log::ShortForm;
 
 #[derive(Clone, Debug)]
 pub struct Layers<S, const L: usize> {
-    buffer: ConstGenericRingBuffer<S, L>
+    buffer: ConstGenericRingBuffer<S, L>,
 }
 
 impl<S, const L: usize> Layers<S, L> {
@@ -37,12 +37,11 @@ impl<S: ShortForm, const L: usize> ShortForm for Layers<S, L> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use ringbuffer::RingBuffer;
     use super::Layers;
-    
+    use ringbuffer::RingBuffer;
+
     #[test]
     fn layer_of_3_integers_only_keeps_the_last_3() {
         let mut layers: Layers<i32, 3> = Layers::new(0);
@@ -51,6 +50,9 @@ mod tests {
         layers.push(3);
         layers.push(4);
         layers.push(5);
-        assert_eq!(layers.buffer().iter().copied().collect::<Vec<_>>(), vec![3, 4, 5]);
+        assert_eq!(
+            layers.buffer().iter().copied().collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
     }
 }

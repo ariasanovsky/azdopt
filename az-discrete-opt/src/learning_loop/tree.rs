@@ -59,7 +59,10 @@ impl<'new_nodes, P> Ends<'new_nodes, P> {
         Space::State: Sync,
         P: ActionPathFor<Space> + Ord + Clone + Send + Sync,
     {
-        use rayon::{slice::ParallelSlice, iter::{IntoParallelIterator, ParallelIterator}};
+        use rayon::{
+            iter::{IntoParallelIterator, ParallelIterator},
+            slice::ParallelSlice,
+        };
 
         let Self {
             ends,
@@ -100,10 +103,12 @@ impl<P> TreeData<P> {
         Space: StateActionSpace + Sync,
         Space::State: Send + Sync + Clone,
     {
-        use rayon::{slice::ParallelSliceMut, iter::{IntoParallelIterator, IndexedParallelIterator, ParallelIterator}};
+        use rayon::{
+            iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
+            slice::ParallelSliceMut,
+        };
 
-        let trees =
-        (
+        let trees = (
             predictions.pi_mut().par_chunks_exact_mut(action),
             states.get_costs(),
             states.get_states(),
@@ -113,7 +118,8 @@ impl<P> TreeData<P> {
             .map(|(i, (pi_0_theta, c_0, s_0))| {
                 add_noise(i, pi_0_theta);
                 INTMinTree::new(space, pi_0_theta, c_0.evaluate(), s_0)
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         let paths = (0..batch).map(|_| P::new()).collect::<Vec<_>>();
         let nodes = (0..batch).map(|_| None).collect::<Vec<_>>();
         let transitions = (0..batch).map(|_| Vec::new()).collect::<Vec<_>>();
@@ -167,13 +173,13 @@ impl<P> TreeData<P> {
             nodes,
             transitions,
         } = self;
-        let ends =
-        (trees, transitions, s_t, paths)
+        let ends = (trees, transitions, s_t, paths)
             .into_par_iter()
             .map(|(t, trans, s_t, p_t)| {
                 p_t.clear();
                 t.simulate_once(space, s_t, p_t, reuse_as(trans), &upper_estimate)
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
         Ends {
             ends,
             paths: &self.paths,

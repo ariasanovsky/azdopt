@@ -1,4 +1,10 @@
-use dfdx::{tensor::{Cuda, Tensor, ZerosTensor}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, tensor_ops::SumTo, shapes::{Rank1, Rank0}};
+use dfdx::{
+    nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads},
+    prelude::{Gradients, Rank2},
+    shapes::{Rank0, Rank1},
+    tensor::{Cuda, Tensor, ZerosTensor},
+    tensor_ops::SumTo,
+};
 
 use dfdx::{
     nn::Module,
@@ -9,12 +15,8 @@ use dfdx::{
 
 use super::NablaModel;
 
-pub struct ActionModel<
-    M,
-    const BATCH: usize,
-    const STATE: usize,
-    const ACTION: usize,
-> where
+pub struct ActionModel<M, const BATCH: usize, const STATE: usize, const ACTION: usize>
+where
     M: BuildOnDevice<Cuda, f32>,
 {
     model: <M as BuildOnDevice<Cuda, f32>>::Built,
@@ -51,9 +53,8 @@ where
     }
 }
 
-
-impl<M, const BATCH: usize, const STATE: usize, const ACTION: usize>
-    NablaModel for ActionModel<M, BATCH, STATE, ACTION>
+impl<M, const BATCH: usize, const STATE: usize, const ACTION: usize> NablaModel
+    for ActionModel<M, BATCH, STATE, ACTION>
 where
     M: BuildOnDevice<Cuda, f32>,
     <M as dfdx::nn::BuildOnDevice<dfdx::tensor::Cuda, f32>>::Built: Module<
@@ -115,12 +116,11 @@ where
         let predictions = model.forward(states_traced);
 
         let error = (predictions - actions_dev.clone()).square();
-        let loss =
-            (
-                (error * action_weights_dev.clone()).sum::<Rank1<BATCH>, _>()
-                // * state_weights_dev.clone()
-            )
-            .sum::<Rank0, _>();
+        let loss = (
+            (error * action_weights_dev.clone()).sum::<Rank1<BATCH>, _>()
+            // * state_weights_dev.clone()
+        )
+        .sum::<Rank0, _>();
         let l = loss.array();
         dbg!(l);
         let mut grads = loss.backward();

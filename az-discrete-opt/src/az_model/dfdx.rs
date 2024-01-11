@@ -70,8 +70,8 @@ where
     }
 }
 
-impl<L, G, const BATCH: usize, const STATE: usize, const ACTION: usize, const GAIN: usize>
-    AzModel for TwoModels<L, G, BATCH, STATE, ACTION, GAIN>
+impl<L, G, const BATCH: usize, const STATE: usize, const ACTION: usize, const GAIN: usize> AzModel
+    for TwoModels<L, G, BATCH, STATE, ACTION, GAIN>
 where
     L: BuildOnDevice<Cuda, f32>,
     G: BuildOnDevice<Cuda, f32>,
@@ -113,7 +113,7 @@ where
         } = self;
         let (pi_t_theta, g_t_theta) = predictions.get_mut();
         x_t_dev.copy_from(x_t);
-        
+
         // *pi_t_dev = if let Some(mask) = logits_mask {
         //     let mask_dev = logits_mask_dev.get_or_insert_with(|| dev.zeros());
         //     mask_dev.copy_from(mask);
@@ -122,7 +122,7 @@ where
         //     pi_model.forward(x_t_dev.clone())
         // }.softmax::<Axis<1>>();
         *pi_t_dev = pi_model.forward(x_t_dev.clone()).softmax::<Axis<1>>();
-        
+
         pi_t_dev.copy_into(pi_t_theta);
         *g_t_dev = g_model.forward(x_t_dev.clone());
         g_t_dev.copy_into(g_t_theta);
@@ -156,7 +156,8 @@ where
         let mut some_pi_gradients = pi_gradients
             .take()
             .unwrap_or_else(|| pi_model.alloc_grads());
-        let mut predicted_logits_traced = pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
+        let mut predicted_logits_traced =
+            pi_model.forward(x_t_dev.clone().traced(some_pi_gradients));
         if let Some(mask) = logits_mask {
             let mask_dev = logits_mask_dev.get_or_insert_with(|| dev.zeros());
             mask_dev.copy_from(mask);

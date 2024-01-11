@@ -24,8 +24,13 @@ impl<P> INTMinTree<P> {
         self.data.iter().all(|level| level.is_empty())
     }
 
-    pub fn set_new_root<Space>(&mut self, space: &Space, pi_0_theta: &[f32], c_0: f32, s_0: &Space::State)
-    where
+    pub fn set_new_root<Space>(
+        &mut self,
+        space: &Space,
+        pi_0_theta: &[f32],
+        c_0: f32,
+        s_0: &Space::State,
+    ) where
         Space: StateActionSpace,
     {
         let Self { root_data, data } = self;

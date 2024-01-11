@@ -3,8 +3,7 @@ pub struct PredictionData<'a> {
     g: &'a mut [f32],
 }
 
-impl<'a> PredictionData<'a>
-{
+impl<'a> PredictionData<'a> {
     pub fn new(pi: &'a mut [f32], g: &'a mut [f32]) -> Self {
         Self { pi, g }
     }

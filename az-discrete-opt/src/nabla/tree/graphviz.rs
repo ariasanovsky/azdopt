@@ -1,14 +1,12 @@
 use dot_generator::*;
 use dot_structures::*;
-use graphviz_rust::{printer::PrinterContext, cmd::Format, exec};
+use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
 
 use super::SearchTree;
 
 impl<P> SearchTree<P> {
     pub fn graphviz(&self) -> Vec<u8> {
-        let mut g = graph!(
-            id!("search_tree")
-        );
+        let mut g = graph!(id!("search_tree"));
 
         for (u, n) in self.nodes.iter().enumerate() {
             let node = match n.is_exhausted() {
@@ -16,7 +14,7 @@ impl<P> SearchTree<P> {
                     u;
                     attr!("shape", "doublecircle")
                 ),
-                false => node!(u)
+                false => node!(u),
             };
             g.add_stmt(Stmt::Node(node));
             for e in n.actions.iter() {
@@ -35,12 +33,7 @@ impl<P> SearchTree<P> {
                 g.add_stmt(e);
             }
         }
-        let graph_svg = exec(
-            g,
-            &mut PrinterContext::default(),
-            vec![Format::Png.into()],
-        )
-        .unwrap();
-    graph_svg
+        let graph_svg = exec(g, &mut PrinterContext::default(), vec![Format::Png.into()]).unwrap();
+        graph_svg
     }
 }

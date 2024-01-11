@@ -1,7 +1,7 @@
 pub mod axioms;
-pub mod prohibited;
 #[cfg(feature = "layers")]
 pub mod layered;
+pub mod prohibited;
 #[cfg(test)]
 mod tests;
 

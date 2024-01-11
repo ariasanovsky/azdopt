@@ -154,14 +154,16 @@ mod tests {
             BTreeSet::from([]),
         ];
         // test the action set before taking actions
-        let actions = space.action_indices(&code)
+        let actions = space
+            .action_indices(&code)
             .map(|i| space.action(i))
             .collect::<BTreeSet<_>>();
         let (action_set_0, action_sets) = action_sets.split_first().unwrap();
         assert_eq!(actions, *action_set_0);
         for i in 0..2 {
             space.act(&mut code, &actions_to_take[i]);
-            let actions = space.action_indices(&code)
+            let actions = space
+                .action_indices(&code)
                 .map(|i| space.action(i))
                 .collect::<BTreeSet<_>>();
             assert_eq!(actions, action_sets[i]);

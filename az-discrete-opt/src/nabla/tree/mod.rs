@@ -8,11 +8,10 @@ use self::node::StateNode;
 
 use super::space::NablaStateActionSpace;
 
-pub mod node;
+pub mod empty_transitions;
 #[cfg(feature = "graphviz")]
 pub mod graphviz;
-pub mod empty_transitions;
-pub mod search;
+pub mod node;
 
 pub struct SearchTree<P> {
     positions: BTreeMap<P, NonZeroUsize>,
@@ -68,8 +67,7 @@ impl<P> SearchTree<P> {
         // transitions: &mut Vec<Transition>,
         state_pos: &mut Option<NonZeroUsize>,
         decay: f32,
-    )
-    where
+    ) where
         Space: NablaStateActionSpace,
         Space::State: Clone,
         P: Ord + ActionPath + ActionPathFor<Space> + Clone,
@@ -91,22 +89,12 @@ impl<P> SearchTree<P> {
                 }
                 debug_assert!(self.positions.contains_key(path));
                 self.clear_path(
-                    root,
-                    state,
-                    path,
-                    // transitions,
-                    state_pos,
-                    decay,
+                    root, state, path, // transitions,
+                    state_pos, decay,
                 );
                 return self.roll_out_episodes(
-                    space,
-                    root,
-                    state,
-                    cost,
-                    path,
-                    // transitions,
-                    state_pos,
-                    decay,
+                    space, root, state, cost, path, // transitions,
+                    state_pos, decay,
                 );
             };
             let transition = Transition {
@@ -124,7 +112,7 @@ impl<P> SearchTree<P> {
                 Some(_) => {
                     debug_assert_eq!(self.positions.get(path).copied(), *next_position);
                     *state_pos = *next_position
-                },
+                }
                 None => match self.positions.get(path) {
                     Some(&pos) => {
                         let inserted = self.in_neighborhoods[pos.get()].insert(Transition {
@@ -134,13 +122,14 @@ impl<P> SearchTree<P> {
                         debug_assert!(inserted);
                         *next_position = Some(pos);
                         *state_pos = Some(pos);
-                    },
+                    }
                     None => {
                         // we will insert a node at the end of the tree
                         let next_pos = (1 + self.positions.len()).try_into().unwrap();
                         *next_position = Some(next_pos);
                         *state_pos = *next_position;
-                        self.in_neighborhoods.push(core::iter::once(transition).collect());
+                        self.in_neighborhoods
+                            .push(core::iter::once(transition).collect());
                         self.positions.insert(path.clone(), next_pos);
                         *cost = space.cost(state);
                         if space.is_terminal(state) {
@@ -148,26 +137,16 @@ impl<P> SearchTree<P> {
                             let node = StateNode::new_exhausted(c_star);
                             self.push_node(node);
                             self.clear_path(
-                                root,
-                                state,
-                                path,
-                                // transitions,
-                                state_pos,
-                                decay,
+                                root, state, path, // transitions,
+                                state_pos, decay,
                             );
                             return self.roll_out_episodes(
-                                space,
-                                root,
-                                state,
-                                cost,
-                                path,
-                                // transitions,
-                                state_pos,
-                                decay,
+                                space, root, state, cost, path, // transitions,
+                                state_pos, decay,
                             );
                         }
                         return;
-                    },
+                    }
                 },
             }
         }
@@ -189,17 +168,21 @@ impl<P> SearchTree<P> {
         let root_node = &self.nodes[0];
         let c_s = root_node.c;
         // dbg!(c_s);
-        root_node.actions.iter().filter_map(|a| {
-            a.next_position().map(|node_as| {
-                let node_as = &self.nodes[node_as.get()];
-                (a.action(), node_as.c, node_as.c_star)
+        root_node
+            .actions
+            .iter()
+            .filter_map(|a| {
+                a.next_position().map(|node_as| {
+                    let node_as = &self.nodes[node_as.get()];
+                    (a.action(), node_as.c, node_as.c_star)
+                })
             })
-        }).for_each(|(a, c_as, c_as_star)| {
-            let h = space.h_sa(c_s, c_as, c_as_star);
-            // dbg!(h, a, c_as, c_as_star);
-            observations[a] = h;
-            weights[a] = 1.0;
-        });
+            .for_each(|(a, c_as, c_as_star)| {
+                let h = space.h_sa(c_s, c_as, c_as_star);
+                // dbg!(h, a, c_as, c_as_star);
+                observations[a] = h;
+                weights[a] = 1.0;
+            });
     }
 
     pub(crate) fn node_data(&self) -> Vec<(Option<&P>, f32, f32)> {

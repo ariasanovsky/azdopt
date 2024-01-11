@@ -1,8 +1,11 @@
-use az_discrete_opt::{nabla::space::NablaStateActionSpace, space::axioms::{ActionsNeverRepeat, ActionOrderIndependent}};
+use az_discrete_opt::{
+    nabla::space::NablaStateActionSpace,
+    space::axioms::{ActionOrderIndependent, ActionsNeverRepeat},
+};
 
 use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
-use super::{ReassignColor, CountChange, TotalCounts, no_recolor::RamseyCountsNoRecolor};
+use super::{no_recolor::RamseyCountsNoRecolor, CountChange, ReassignColor, TotalCounts};
 
 pub struct RamseySpaceNoEdgeRecolor<B, const N: usize, const E: usize, const C: usize> {
     sizes: [usize; C],
@@ -11,10 +14,7 @@ pub struct RamseySpaceNoEdgeRecolor<B, const N: usize, const E: usize, const C: 
 }
 
 impl<B, const N: usize, const E: usize, const C: usize> RamseySpaceNoEdgeRecolor<B, N, E, C> {
-    pub const fn new(
-        sizes: [usize; C],
-        weights: [f32; C],
-    ) -> Self {
+    pub const fn new(sizes: [usize; C], weights: [f32; C]) -> Self {
         Self {
             sizes,
             weights,
@@ -23,7 +23,8 @@ impl<B, const N: usize, const E: usize, const C: usize> RamseySpaceNoEdgeRecolor
     }
 }
 
-impl<B, const N: usize, const E: usize, const C: usize> NablaStateActionSpace for RamseySpaceNoEdgeRecolor<B, N, E, C>
+impl<B, const N: usize, const E: usize, const C: usize> NablaStateActionSpace
+    for RamseySpaceNoEdgeRecolor<B, N, E, C>
 where
     B: Bitset + Clone,
     B::Bits: Clone,
@@ -75,7 +76,7 @@ where
             state,
             permitted_edges,
         } = state;
-        
+
         let ReassignColor {
             edge_pos,
             new_color,
@@ -86,7 +87,10 @@ where
         debug_assert!(removed);
     }
 
-    fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
+    fn action_data<'a>(
+        &self,
+        state: &'a Self::State,
+    ) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
         let colors = (0..N).flat_map(move |v| (0..v).map(move |u| state.state.graph().color(v, u)));
         struct _ActionData {
             e_pos: usize,
@@ -94,7 +98,7 @@ where
             new_color: usize,
         }
         let candidate_actions = colors.enumerate().flat_map(move |(e_pos, old_color)| {
-            let new_colors = (0..old_color).chain(old_color+1..C);
+            let new_colors = (0..old_color).chain(old_color + 1..C);
             new_colors.map(move |new_color| _ActionData {
                 e_pos,
                 old_color,
@@ -110,7 +114,7 @@ where
                     new_color: a.new_color,
                     old_count: state.state.counts[a.old_color][a.e_pos],
                     new_count: state.state.counts[a.new_color][a.e_pos],
-                }
+                },
             )),
         })
     }
@@ -119,15 +123,29 @@ where
         debug_assert!(vector.len() == Self::STATE_DIM);
         vector.fill(0.);
         /* chunks are as follows:
-        * 0..(E * C): clique counts
-        * (E * C)..(2 * E * C): edge bools
-        * (2 * E * C)..(2 * E * C + E): permitted edges
-        */
+         * 0..(E * C): clique counts
+         * (E * C)..(2 * E * C): edge bools
+         * (2 * E * C)..(2 * E * C + E): permitted edges
+         */
         let (clique_edge_vec, permit_vec) = vector.split_at_mut(2 * C * E);
-        let clique_counts = state.state.counts.iter().flat_map(|c| c.iter()).map(|c| *c as f32);
-        let edge_bools = state.state.graph().graphs().iter().flat_map(|g| g.edge_bools()).map(|b| if b { 1.0f32 } else { 0. });
+        let clique_counts = state
+            .state
+            .counts
+            .iter()
+            .flat_map(|c| c.iter())
+            .map(|c| *c as f32);
+        let edge_bools = state
+            .state
+            .graph()
+            .graphs()
+            .iter()
+            .flat_map(|g| g.edge_bools())
+            .map(|b| if b { 1.0f32 } else { 0. });
         let clique_edge = clique_counts.chain(edge_bools);
-        clique_edge_vec.iter_mut().zip(clique_edge).for_each(|(v, c)| *v = c);
+        clique_edge_vec
+            .iter_mut()
+            .zip(clique_edge)
+            .for_each(|(v, c)| *v = c);
         for e_pos in state.permitted_edges.iter() {
             permit_vec[*e_pos] = 1.;
         }
@@ -138,14 +156,16 @@ where
     }
 
     fn evaluate(&self, cost: &Self::Cost) -> f32 {
-        cost.0.iter().zip(self.weights.iter()).map(|(c, w)| *c as f32 * w).sum()
+        cost.0
+            .iter()
+            .zip(self.weights.iter())
+            .map(|(c, w)| *c as f32 * w)
+            .sum()
     }
 
     fn g_theta_star_sa(&self, _c_s: &Self::Cost, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
-        let r_sa =
-            r_sa.old_count as f32 * self.weights[r_sa.old_color] -
-            r_sa.new_count as f32 * self.weights[r_sa.new_color]
-            ;
+        let r_sa = r_sa.old_count as f32 * self.weights[r_sa.old_color]
+            - r_sa.new_count as f32 * self.weights[r_sa.new_color];
         // r_sa + h_theta_s_a.powi(2)
         r_sa + h_theta_s_a
     }
@@ -156,5 +176,11 @@ where
     }
 }
 
-unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionsNeverRepeat for RamseySpaceNoEdgeRecolor<B, N, E, C> {}
-unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionOrderIndependent for RamseySpaceNoEdgeRecolor<B, N, E, C> {}
+unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionsNeverRepeat
+    for RamseySpaceNoEdgeRecolor<B, N, E, C>
+{
+}
+unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionOrderIndependent
+    for RamseySpaceNoEdgeRecolor<B, N, E, C>
+{
+}

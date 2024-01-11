@@ -69,7 +69,8 @@ mod tests {
         let space = ModifyAnyPrueferCodeEntry::<3>;
         // type Action = PrueferCodeEntry;
         for (code, correct_actions) in codes.iter().zip(correct_actions.iter()) {
-            let actions: Vec<PrueferCodeEntry> = space.action_indices(&code)
+            let actions: Vec<PrueferCodeEntry> = space
+                .action_indices(&code)
                 .map(|i| space.action(i))
                 .collect();
             assert_eq!(actions, correct_actions);

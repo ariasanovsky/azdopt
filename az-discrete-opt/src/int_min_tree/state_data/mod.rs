@@ -21,14 +21,16 @@ impl StateDataKind {
             return Self::Exhausted { c_t: c_0 };
         }
         let mut c = 0;
-        let p_sum = space.action_indices(s_0)
+        let p_sum = space
+            .action_indices(s_0)
             .map(|a| {
                 c += 1;
                 pi_0_theta[a]
             })
             .sum::<f32>();
         debug_assert_ne!(c, 0);
-        let mut unvisited_actions = space.action_indices(s_0)
+        let mut unvisited_actions = space
+            .action_indices(s_0)
             .map(|a| INTUnvisitedActionData::new(a, pi_0_theta[a] / p_sum))
             .collect::<Vec<_>>();
         unvisited_actions.sort_by(|a, b| a.p_sa().partial_cmp(&b.p_sa()).unwrap());

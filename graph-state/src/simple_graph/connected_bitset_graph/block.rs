@@ -1,7 +1,4 @@
-use crate::{
-    bitset::Bitset,
-    simple_graph::edge::Edge,
-};
+use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
 use super::ConnectedBitsetGraph;
 
@@ -145,7 +142,10 @@ impl<const N: usize, B> ConnectedBitsetGraph<N, B> {
 mod tests {
     // use std::mem::MaybeUninit;
 
-    use crate::{simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge}, bitset::primitive::B32};
+    use crate::{
+        bitset::primitive::B32,
+        simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge},
+    };
     type G<const N: usize> = ConnectedBitsetGraph<N, B32>;
 
     const S_4: [[usize; 4]; 24] = [
@@ -174,61 +174,7 @@ mod tests {
         [3, 2, 0, 1],
         [3, 2, 1, 0],
     ];
-
-    // #[derive(Debug, PartialEq, Eq)]
-    // struct PermutationAndInverse<const N: usize> {
-    //     permutation: [usize; N],
-    //     inverse: [usize; N],
-    // }
-
-    // impl<const N: usize> PermutationAndInverse<N> {
-    //     fn new(f: &[usize; N]) -> Result<Self, ()> {
-    //         let mut f_range_set: [bool; N] = [false; N];
-    //         let mut forward: [MaybeUninit<usize>; N] = MaybeUninit::uninit_array();
-    //         let mut backward: [MaybeUninit<usize>; N] = MaybeUninit::uninit_array();
-    //         for (i, &f_i) in f.into_iter().enumerate() {
-    //             if f_range_set[f_i] {
-    //                 return Err(())
-    //             }
-    //             f_range_set[f_i] = true;
-    //             forward[i].write(f_i);
-    //             backward[f_i].write(i);
-    //         }
-    //         let forward = unsafe { MaybeUninit::array_assume_init(forward) };
-    //         let backward = unsafe { MaybeUninit::array_assume_init(backward) };
-    //         Ok(Self {
-    //             permutation: forward,
-    //             inverse: backward,
-    //         })
-    //     }
-
-    //     fn apply(&self, i: usize) -> usize {
-    //         self.permutation[i]
-    //     }
-
-    //     fn apply_inverse(&self, i: usize) -> usize {
-    //         self.inverse[i]
-    //     }
-    // }
-
-    // #[test]
-    // fn constant_zero_function_is_not_a_permutation() {
-    //     let f: [usize; 4] = [0; 4];
-    //     assert!(PermutationAndInverse::new(&f).is_err())
-    // }
-
-    // #[test]
-    // fn identity_function_is_a_permutation() {
-    //     let f: [usize; 4] = [0, 1, 2, 3];
-    //     assert_eq!(
-    //         PermutationAndInverse::new(&f).unwrap(),
-    //         PermutationAndInverse {
-    //             permutation: [0, 1, 2, 3],
-    //             inverse: [0, 1, 2, 3],
-    //         }
-    //     )
-    // }
-
+    
     fn verify_cut_edges_after_permutation<const N: usize>(
         edges: &[(usize, usize)],
         cut_edges: &[(usize, usize)],
@@ -246,7 +192,9 @@ mod tests {
         assert_eq!(&graph.cut_edges().collect::<Vec<_>>(), &cut_edges)
     }
 
-    fn old_and_new_cut_edge_methods_are_identical<const N: usize>(graph: &ConnectedBitsetGraph<N, B32>) {
+    fn old_and_new_cut_edge_methods_are_identical<const N: usize>(
+        graph: &ConnectedBitsetGraph<N, B32>,
+    ) {
         let mut cut_edges = graph.cut_edges().collect::<Vec<_>>();
         let mut new_cut_edges = graph.fast_cut_edges().collect::<Vec<_>>();
         cut_edges.sort_by(|a, b| match a.max.cmp(&b.max) {

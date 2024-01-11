@@ -1,11 +1,34 @@
-use std::{io::{BufWriter, Write}, time::SystemTime};
+use std::{
+    io::{BufWriter, Write},
+    time::SystemTime,
+};
 
-use az_discrete_opt::{tensorboard::{tf_path, Summarize}, log::ArgminData, nabla::{optimizer::{NablaOptimizer, ArgminImprovement}, model::dfdx::ActionModel, space::NablaStateActionSpace}, path::{set::ActionSet, ActionPath}};
+use az_discrete_opt::{
+    log::ArgminData,
+    nabla::{
+        model::dfdx::ActionModel,
+        optimizer::{ArgminImprovement, NablaOptimizer},
+        space::NablaStateActionSpace,
+    },
+    path::{set::ActionSet, ActionPath},
+    tensorboard::{tf_path, Summarize},
+};
 use chrono::Utc;
-use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
+use dfdx::{
+    nn::{builders::Linear, modules::ReLU},
+    tensor::AutoDevice,
+    tensor_ops::{AdamConfig, WeightDecay},
+};
 use eyre::Context;
-use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor, no_recolor::RamseyCountsNoRecolor, TotalCounts}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
-use rand::{seq::SliceRandom, rngs::ThreadRng, Rng};
+use graph_state::{
+    bitset::primitive::B32,
+    ramsey_counts::{
+        no_recolor::RamseyCountsNoRecolor, space::RamseySpaceNoEdgeRecolor, RamseyCounts,
+        TotalCounts,
+    },
+    simple_graph::bitset_graph::ColoredCompleteBitsetGraph,
+};
+use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 use tensorboard_writer::TensorboardWriter;
 
 const N: usize = 16;
@@ -73,9 +96,9 @@ fn main() -> eyre::Result<()> {
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
     const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
-    
+
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
-        SPACE, 
+        SPACE,
         || {
             let mut rng = rand::thread_rng();
             let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
@@ -85,15 +108,13 @@ fn main() -> eyre::Result<()> {
         BATCH,
     );
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
-        let ArgminData { state, cost, eval} = argmin;
+        let ArgminData { state, cost, eval } = argmin;
         println!("{eval}\t{cost:?}");
         writer.write_summary(SystemTime::now(), step, cost.summary())?;
         writer.get_mut().flush()?;
-    
+
         if *eval == 0. {
-            Err(eyre::eyre!(format!(
-                "initial state is already optimal:\n{state}"
-            )))
+            Err(eyre::eyre!(format!("state is optimal:\n{state}")))
         } else {
             Ok(())
         }
@@ -113,28 +134,29 @@ fn main() -> eyre::Result<()> {
                 ArgminImprovement::Improved(argmin) => {
                     let step = (episodes * (epoch - 1) + episode) as i64;
                     let _ = process_argmin(&argmin, &mut writer, step)?;
-                },
-                ArgminImprovement::Unchanged => {},
+                }
+                ArgminImprovement::Unchanged => {}
             };
             if episode % episodes == 0 {
                 println!("==== EPISODE: {episode} ====");
-                let sizes = optimizer.get_trees().first().unwrap().sizes().collect::<Vec<_>>();
+                let sizes = optimizer
+                    .get_trees()
+                    .first()
+                    .unwrap()
+                    .sizes()
+                    .collect::<Vec<_>>();
                 println!("sizes: {sizes:?}");
 
                 let graph = optimizer.get_trees()[0].graphviz();
                 std::fs::write("tree.png", graph).unwrap();
-                let graph = optimizer.get_trees()[BATCH-1].graphviz();
+                let graph = optimizer.get_trees()[BATCH - 1].graphviz();
                 std::fs::write("tree2.png", graph).unwrap();
             }
         }
-        
+
         let loss = optimizer.par_update_model();
         let summary = loss.summary();
-        writer.write_summary(
-            SystemTime::now(),
-            (episodes * epoch) as i64,
-            summary,
-        )?;
+        writer.write_summary(SystemTime::now(), (episodes * epoch) as i64, summary)?;
         writer.write_summary(
             SystemTime::now(),
             (episodes * epoch) as i64,

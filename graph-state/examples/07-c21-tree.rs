@@ -2,7 +2,12 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 
-use rayon::{iter::{IntoParallelIterator, ParallelIterator, IntoParallelRefIterator, IndexedParallelIterator}, slice::ParallelSliceMut};
+use rayon::{
+    iter::{
+        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+    },
+    slice::ParallelSliceMut,
+};
 use tensorboard_writer::TensorboardWriter;
 
 use std::{
@@ -127,11 +132,20 @@ fn main() -> eyre::Result<()> {
         let cost = s.state.conjecture_2_1_cost();
         cost
     };
-    let mut roots = (0..BATCH).into_par_iter().map(random_state).collect::<Vec<_>>();
+    let mut roots = (0..BATCH)
+        .into_par_iter()
+        .map(random_state)
+        .collect::<Vec<_>>();
     let mut states = roots.clone();
     let mut costs = roots.par_iter().map(cost).collect::<Vec<_>>();
     let mut vectors = vec![0.0; BATCH * Space::DIM];
-    let mut state_data = StateData::new(&mut roots, &mut states, &mut costs, &mut vectors, Space::DIM);
+    let mut state_data = StateData::new(
+        &mut roots,
+        &mut states,
+        &mut costs,
+        &mut vectors,
+        Space::DIM,
+    );
     state_data.par_write_state_vecs(&space);
     let mut pi = vec![0.0; BATCH * ACTION];
     let mut g = vec![0.0; BATCH * GAIN];
@@ -153,9 +167,9 @@ fn main() -> eyre::Result<()> {
         LearningLoop::new(state_data, models, predictions, tree_data, ACTION, GAIN);
     todo!();
     // let mut global_argmin: ArgminData<C> = learning_loop
-        // .par_argmin()
-        // .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
-        // .unwrap();
+    // .par_argmin()
+    // .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
+    // .unwrap();
     let epochs: usize = 250;
     let episodes: usize = 800;
 
@@ -186,12 +200,12 @@ fn main() -> eyre::Result<()> {
         }
         let loss = if true {
             logits_mask.fill(f32::MIN);
-            logits_mask.par_chunks_exact_mut(ACTION)
-            .zip_eq(learning_loop.states.get_roots())
-            .for_each(|(mask, root)| {
-                space.action_indices(root)
-                    .for_each(|a| mask[a] = 0.0);
-            });
+            logits_mask
+                .par_chunks_exact_mut(ACTION)
+                .zip_eq(learning_loop.states.get_roots())
+                .for_each(|(mask, root)| {
+                    space.action_indices(root).for_each(|a| mask[a] = 0.0);
+                });
             learning_loop.par_update_model(&space, Some(&logits_mask))
         } else {
             learning_loop.par_update_model(&space, None)
@@ -210,12 +224,7 @@ fn main() -> eyre::Result<()> {
             let nodes = t.unstable_sorted_nodes();
             let node = nodes[0];
             let (action, _) = node;
-            space.follow(
-                s,
-                action
-                    .actions_taken()
-                    .map(|a| space.action(a)),
-            );
+            space.follow(s, action.actions_taken().map(|a| space.action(a)));
             if space.is_terminal(s) {
                 let prohibited_actions = default_prohibitions(&s.state);
                 s.prohibited_actions.clear();

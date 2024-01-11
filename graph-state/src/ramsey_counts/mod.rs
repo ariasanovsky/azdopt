@@ -1,11 +1,14 @@
 use az_discrete_opt::log::ShortForm;
 use itertools::Itertools;
 
-use crate::{simple_graph::{bitset_graph::ColoredCompleteBitsetGraph, edge::Edge}, bitset::Bitset};
+use crate::{
+    bitset::Bitset,
+    simple_graph::{bitset_graph::ColoredCompleteBitsetGraph, edge::Edge},
+};
 
-pub mod space;
-pub mod no_recolor;
 mod display;
+pub mod no_recolor;
+pub mod space;
 
 #[derive(Clone, Debug)]
 pub struct RamseyCounts<const N: usize, const E: usize, const C: usize, B> {
@@ -26,7 +29,12 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
             Adjacent(B),
             NotAdjacent(B),
         }
-        for (((&size, counts), g_i), total) in sizes.iter().zip(counts.iter_mut()).zip(graph.graphs().iter()).zip(total_counts.iter_mut()) {
+        for (((&size, counts), g_i), total) in sizes
+            .iter()
+            .zip(counts.iter_mut())
+            .zip(graph.graphs().iter())
+            .zip(total_counts.iter_mut())
+        {
             let common_neighbors = g_i.neighborhoods.iter().enumerate().flat_map(|(v, n_v)| {
                 (0..v).map(move |u| {
                     let intersection = n_v.intersection(&g_i.neighborhoods[u]);
@@ -43,17 +51,21 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
                         let count = g_i.count_cliques_inside(common_neighbors, size - 2);
                         *total += count;
                         count
-                    },
+                    }
                     Intersection::NotAdjacent(common_neighbors) => {
                         g_i.count_cliques_inside(common_neighbors, size - 2)
-                    },
+                    }
                 }
             }
         }
         for (size, total) in sizes.iter().zip(total_counts.iter_mut()) {
             *total /= (*size * (*size - 1) / 2) as i32;
         }
-        Self { graph, counts, total_counts: TotalCounts(total_counts) }
+        Self {
+            graph,
+            counts,
+            total_counts: TotalCounts(total_counts),
+        }
     }
 
     pub fn graph(&self) -> &ColoredCompleteBitsetGraph<N, C, B> {
@@ -91,13 +103,12 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
         v: usize,
         color: usize,
         size: usize,
-    )
-    where
+    ) where
         B: Bitset + Clone,
         B::Bits: Clone,
     {
         if size <= 2 {
-            return
+            return;
         }
         let counts = &mut self.counts[color];
         let graph = &self.graph.graphs()[color];
@@ -115,7 +126,6 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
                 } else {
                     counts[vw_pos] += count_change
                 }
-                
             }
         }
         // edge `{u, w}` (requires `w` in `n_v`)
@@ -132,7 +142,7 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
             }
         }
         if size == 3 {
-            return
+            return;
         }
         // edge `{w, x}` (requires `w, x` in `n_uv`)
         for (w, x) in n_uv.iter().tuple_combinations() {
@@ -169,9 +179,7 @@ pub struct ReassignColor {
     new_color: usize,
 }
 
-impl ReassignColor {
-    
-}
+impl ReassignColor {}
 
 pub struct CountChange {
     pub old_color: usize,
@@ -191,7 +199,10 @@ where
     fn short_form(&self) -> String {
         let graphs = self.graph.graphs();
         let counts = self.clique_counts().0;
-        graphs.iter().zip(counts.iter()).enumerate()
+        graphs
+            .iter()
+            .zip(counts.iter())
+            .enumerate()
             .map(|(i, (g, c))| format!("g_{i}:\n{g}k_{i}: {c}\n"))
             .join("\n")
     }

@@ -76,203 +76,16 @@ where
     }
 }
 
-// impl<const N: usize> az_discrete_opt::state::Action<ConnectedBitsetGraph<N>> for Action {
-//     const DIM: usize = N * (N - 1);
-
-//     fn index(&self) -> usize {
-//         match self {
-//             Action::Add(e) => e.colex_position(),
-//             Action::Delete(e) => e.colex_position() + N * (N - 1) / 2,
-//         }
-//     }
-
-//     fn from_index(index: usize) -> Self {
-//         let e = N * (N - 1) / 2;
-//         if index < e {
-//             Self::Add(Edge::from_colex_position(index))
-//         } else {
-//             Self::Delete(Edge::from_colex_position(index - e))
-//         }
-//     }
-
-//     fn act(&self, state: &mut ConnectedBitsetGraph<N>) {
-//         match self {
-//             Action::Add(e) => {
-//                 let (v, u) = e.vertices();
-//                 debug_assert!(state.neighborhoods[u].contains(v as _).unwrap());
-//                 debug_assert!(state.neighborhoods[v].contains(u as _).unwrap());
-//                 unsafe { state.neighborhoods[u].add_or_remove_unchecked(v as _) };
-//                 unsafe { state.neighborhoods[v].add_or_remove_unchecked(u as _) };
-//             },
-//             Action::Delete(e) => {
-//                 let (v, u) = e.vertices();
-//                 debug_assert!(!state.neighborhoods[u].contains(v as _).unwrap());
-//                 debug_assert!(!state.neighborhoods[v].contains(u as _).unwrap());
-//                 unsafe { state.neighborhoods[u].add_or_remove_unchecked(v as _) };
-//                 unsafe { state.neighborhoods[v].add_or_remove_unchecked(u as _) };
-//             }
-//         }
-//     }
-
-//     fn actions(state: &ConnectedBitsetGraph<N>) -> impl Iterator<Item = usize> {
-// //         let Self { neighborhoods } = self;
-// //         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
-// //             (0..v).filter_map(move |u| {
-// //                 let e = unsafe { Edge::new_unchecked(v, u) };
-// //                 if unsafe { n.contains_unchecked(u as _) } {
-// //                     if self.is_cut_edge(&e) {
-// //                         None
-// //                     } else {
-// //                         Some(Action::Delete(e))
-// //                     }
-// //                 } else {
-// //                     Some(Action::Add(e))
-// //                 }
-// //             })
-// //         })
-//         let ConnectedBitsetGraph { neighborhoods } = state;
-//         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
-//             (0..v).filter_map(move |u| {
-//                 let e = unsafe { Edge::new_unchecked(v, u) };
-//                 if unsafe { n.contains_unchecked(u as _) } {
-//                     if state.is_cut_edge(&e) {
-//                         None
-//                     } else {
-//                         Some(Action::Delete(e))
-//                     }
-//                 } else {
-//                     Some(Action::Add(e))
-//                 }
-//             })
-//         }).map(|a| az_discrete_opt::state::Action::<ConnectedBitsetGraph<N>>::index(&a))
-//     }
-
-//     fn is_terminal(state: &ConnectedBitsetGraph<N>) -> bool {
-//         Self::actions(state).next().is_none()
-//     }
-
-//     // fn index(&self) -> usize {
-//     //     <Self as az_discrete_opt::state::Action<
-//     //         crate::simple_graph::bitset_graph::BitsetGraph<N>,
-//     //     >>::index(self)
-//     // }
-
-//     // unsafe fn from_index(index: usize) -> Self {
-//     //     let e = N * (N - 1) / 2;
-//     //     if index < e {
-//     //         Self::Add(Edge::from_colex_position(index))
-//     //     } else {
-//     //         Self::Delete(Edge::from_colex_position(index - e))
-//     //     }
-//     // }
-// }
-
-// impl<const N: usize> State for ConnectedBitsetGraph<N> {
-//     type Actions = Action;
-
-//     fn actions(&self) -> impl Iterator<Item = Self::Actions> {
-//         let Self { neighborhoods } = self;
-//         neighborhoods.iter().enumerate().flat_map(move |(v, n)| {
-//             (0..v).filter_map(move |u| {
-//                 let e = unsafe { Edge::new_unchecked(v, u) };
-//                 if unsafe { n.contains_unchecked(u as _) } {
-//                     if self.is_cut_edge(&e) {
-//                         None
-//                     } else {
-//                         Some(Action::Delete(e))
-//                     }
-//                 } else {
-//                     Some(Action::Add(e))
-//                 }
-//             })
-//         })
-//     }
-
-//     unsafe fn act_unchecked(&mut self, action: &Self::Actions) {
-//         let Self { neighborhoods } = self;
-//         match action {
-//             Action::Add(e) | Action::Delete(e) => {
-//                 let (v, u) = e.vertices();
-//                 neighborhoods[u].add_or_remove_unchecked(v as _);
-//                 neighborhoods[v].add_or_remove_unchecked(u as _);
-//             }
-//         }
-//     }
-// }
-
-// impl<const N: usize> StateVec for ConnectedBitsetGraph<N> {
-//     const STATE_DIM: usize = N * (N - 1) / 2;
-
-//     const ACTION_DIM: usize = N * (N - 1);
-
-//     const WRITE_ACTION_DIMS: bool = false;
-
-//     fn write_vec_state_dims(&self, state_vec: &mut [f32]) {
-//         self.edge_bools().zip_eq(state_vec).for_each(|(b, f)| {
-//             if b {
-//                 *f = 1.;
-//             } else {
-//                 *f = 0.;
-//             }
-//         });
-//     }
-
-//     fn write_vec_actions_dims(&self, action_vec: &mut [f32]) {
-//         let (adds, deletes) = action_vec.split_at_mut(N * (N - 1) / 2);
-//         self.action_kinds()
-//             .zip_eq(adds)
-//             .zip_eq(deletes)
-//             .for_each(|((b, add), delete)| {
-//                 use crate::simple_graph::connected_bitset_graph::ActionKind;
-//                 (*add, *delete) = match b {
-//                     Some(ActionKind::Add) => (1., 0.),
-//                     Some(ActionKind::Delete) => (0., 1.),
-//                     None => (0., 0.),
-//                 }
-//             });
-//     }
-// }
-
-// impl<const N: usize> ProhibitsActions<Action> for ConnectedBitsetGraph<N> {
-//     unsafe fn update_prohibited_actions_unchecked(
-//         &self,
-//         prohibited_actions: &mut std::collections::BTreeSet<usize>,
-//         action: &Action,
-//     ) {
-//         match action {
-//             Action::Add(e) | Action::Delete(e) => {
-//                 prohibited_actions.insert(e.colex_position());
-//                 prohibited_actions.insert(e.colex_position() + N * (N - 1) / 2);
-//             },
-//         }
-//     }
-//     // unsafe fn update_prohibited_actions_unchecked(
-//     //     &self,
-//     //     prohibited_actions: &mut std::collections::BTreeSet<usize>,
-//     //     action: &impl az_discrete_opt::state::Action<Self>,
-//     // ) {
-//     //     todo!()
-//     // }
-//     // unsafe fn update_prohibited_actions_unchecked(
-//     //     &self,
-//     //     actions: &mut std::collections::BTreeSet<usize>,
-//     //     action: &Self::Action,
-//     // ) {
-//     //     match action {
-//     //         Action::Add(e) | Action::Delete(e) => {
-//     //             actions.insert(e.colex_position());
-//     //             actions.insert(e.colex_position() + N * (N - 1) / 2);
-//     //         }
-//     //     }
-//     // }
-// }
 
 #[cfg(test)]
 mod test {
     use az_discrete_opt::space::StateActionSpace;
 
     use super::*;
-    use crate::{simple_graph::{bitset_graph::BitsetGraph, edge::Edge}, bitset::primitive::B32};
+    use crate::{
+        bitset::primitive::B32,
+        simple_graph::{bitset_graph::BitsetGraph, edge::Edge},
+    };
 
     #[test]
     fn c4_is_connected_and_has_no_cut_edges() {
@@ -340,7 +153,8 @@ mod test {
             .try_into()
             .unwrap();
         let space = ConnectedAddOrDeleteEdge::<4, B32>(core::marker::PhantomData);
-        let actions = space.action_indices(&graph)
+        let actions = space
+            .action_indices(&graph)
             .map(|i| space.action(i))
             .collect::<Vec<_>>();
         assert_eq!(

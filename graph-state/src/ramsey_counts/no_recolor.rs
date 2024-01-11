@@ -23,8 +23,14 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCountsNoRecolor<N,
         edges
     };
 
-    pub fn randomize_permitted_edges(&mut self, num_permitted_edges: usize, rng: &mut impl rand::Rng) {
-        let prohibited_edges = Self::EDGE_POSITIONS.choose_multiple(rng, num_permitted_edges).copied();
+    pub fn randomize_permitted_edges(
+        &mut self,
+        num_permitted_edges: usize,
+        rng: &mut impl rand::Rng,
+    ) {
+        let prohibited_edges = Self::EDGE_POSITIONS
+            .choose_multiple(rng, num_permitted_edges)
+            .copied();
         self.permitted_edges = prohibited_edges.collect();
     }
 
@@ -37,12 +43,14 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCountsNoRecolor<N,
         B: Bitset + Clone,
         B::Bits: Clone,
     {
-        let permitted_edges =
-            Self::EDGE_POSITIONS
+        let permitted_edges = Self::EDGE_POSITIONS
             .choose_multiple(rng, num_permitted_edges)
             .copied()
             .collect();
-        Self { state: counts, permitted_edges }
+        Self {
+            state: counts,
+            permitted_edges,
+        }
     }
 
     pub fn num_permitted_edges(&self) -> usize {

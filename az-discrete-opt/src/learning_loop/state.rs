@@ -25,8 +25,7 @@ impl<'a, S, C> StateData<'a, S, C> {
         costs: &'a mut [C],
         vectors: &'a mut [f32],
         dim: usize,
-    ) -> Self
-    {
+    ) -> Self {
         let batch = roots.len();
         assert_eq!(batch, states.len());
         assert_eq!(batch, costs.len());
@@ -76,9 +75,15 @@ impl<'a, S, C> StateData<'a, S, C> {
         Space: StateActionSpace<State = S> + Sync,
         S: Sync,
     {
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
+        use rayon::{
+            iter::{IntoParallelIterator, ParallelIterator},
+            slice::ParallelSliceMut,
+        };
 
-        (self.states as &_, self.vectors.par_chunks_exact_mut(Space::DIM))
+        (
+            self.states as &_,
+            self.vectors.par_chunks_exact_mut(Space::DIM),
+        )
             .into_par_iter()
             .for_each(|(s, v)| space.write_vec(s, v));
     }
@@ -89,9 +94,14 @@ impl<'a, S, C> StateData<'a, S, C> {
         C: Send,
         S: Sync,
     {
-        use rayon::iter::{IntoParallelRefIterator, IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+        use rayon::iter::{
+            IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator,
+            ParallelIterator,
+        };
 
-        self.states.par_iter().zip_eq(self.costs.par_iter_mut())
+        self.states
+            .par_iter()
+            .zip_eq(self.costs.par_iter_mut())
             .for_each(|(s, c)| *c = cost(s));
     }
 }

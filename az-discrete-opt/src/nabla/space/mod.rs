@@ -20,7 +20,10 @@ pub trait NablaStateActionSpace {
     //         self.act(state, &action);
     //     }
     // }
-    fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a;
+    fn action_data<'a>(
+        &self,
+        state: &'a Self::State,
+    ) -> impl Iterator<Item = (usize, Self::Reward)> + 'a;
     fn is_terminal(&self, state: &Self::State) -> bool {
         self.action_data(state).next().is_none()
     }
@@ -67,7 +70,10 @@ where
         });
     }
 
-    fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
+    fn action_data<'a>(
+        &self,
+        state: &'a Self::State,
+    ) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
         self.space.action_data(state.back())
     }
 
@@ -78,9 +84,13 @@ where
             vector.len(),
             Self::STATE_DIM,
         );
-        state.buffer().iter().zip(vector.chunks_exact_mut(Space::STATE_DIM)).for_each(|(s, s_host)| {
-            self.space.write_vec(s, s_host);
-        });
+        state
+            .buffer()
+            .iter()
+            .zip(vector.chunks_exact_mut(Space::STATE_DIM))
+            .for_each(|(s, s_host)| {
+                self.space.write_vec(s, s_host);
+            });
     }
 
     fn cost(&self, state: &Self::State) -> Self::Cost {

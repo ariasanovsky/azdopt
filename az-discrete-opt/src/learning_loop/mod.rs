@@ -11,13 +11,7 @@ pub mod prediction;
 pub mod state;
 pub mod tree;
 
-pub struct LearningLoop<
-    'a,
-    Space: StateActionSpace,
-    C,
-    P,
-    M: AzModel,
-> {
+pub struct LearningLoop<'a, Space: StateActionSpace, C, P, M: AzModel> {
     pub states: StateData<'a, Space::State, C>,
     pub models: M,
     pub predictions: PredictionData<'a>,
@@ -25,14 +19,7 @@ pub struct LearningLoop<
     action: usize,
     gain: usize,
 }
-impl<
-        'a,
-        Space: StateActionSpace,
-        C,
-        P,
-        M: AzModel,
-    > LearningLoop<'a, Space, C, P, M>
-{
+impl<'a, Space: StateActionSpace, C, P, M: AzModel> LearningLoop<'a, Space, C, P, M> {
     pub fn new(
         states: StateData<'a, Space::State, C>,
         models: M,
@@ -127,10 +114,17 @@ impl<
             action,
             gain,
         } = self;
-        use rayon::{iter::{IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
+        use rayon::{
+            iter::{IntoParallelIterator, ParallelIterator},
+            slice::ParallelSliceMut,
+        };
 
         let (pi_t, g_t) = predictions.get_mut();
-        (trees.trees(), pi_t.par_chunks_exact_mut(*action), g_t.par_chunks_exact_mut(*gain))
+        (
+            trees.trees(),
+            pi_t.par_chunks_exact_mut(*action),
+            g_t.par_chunks_exact_mut(*gain),
+        )
             .into_par_iter()
             .for_each(|(t, pi_t, g_t)| t.write_observations(pi_t, g_t));
         states.reset_states();
@@ -159,7 +153,10 @@ impl<
             action,
             gain: _,
         } = self;
-        use rayon::{iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
+        use rayon::{
+            iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
+            slice::ParallelSliceMut,
+        };
 
         (states.get_roots_mut(), trees.trees_mut())
             .into_par_iter()
