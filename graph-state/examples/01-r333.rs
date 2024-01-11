@@ -20,7 +20,7 @@ type P = ActionSet;
 type Space = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
 
 const ACTION: usize = E * C;
-const STATE: usize = 3 * C * E;
+const STATE: usize = E * (2 * C + 1);
 
 const HIDDEN_1: usize = 512;
 const HIDDEN_2: usize = 1024;

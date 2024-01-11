@@ -1,8 +1,8 @@
-use az_discrete_opt::{nabla::space::NablaStateActionSpace, state::prohibit::WithProhibitions, space::axioms::{ActionsNeverRepeat, ActionOrderIndependent}};
+use az_discrete_opt::{nabla::space::NablaStateActionSpace, space::axioms::{ActionsNeverRepeat, ActionOrderIndependent}};
 
 use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
-use super::{RamseyCounts, ReassignColor, CountChange, TotalCounts, no_recolor::RamseyCountsNoRecolor};
+use super::{ReassignColor, CountChange, TotalCounts, no_recolor::RamseyCountsNoRecolor};
 
 pub struct RamseySpaceNoEdgeRecolor<B, const N: usize, const E: usize, const C: usize> {
     sizes: [usize; C],
@@ -36,7 +36,7 @@ where
 
     type Cost = TotalCounts<C>;
 
-    const STATE_DIM: usize = E * C * 3;
+    const STATE_DIM: usize = E * (2 * C + 1);
 
     const ACTION_DIM: usize = E * C;
 
@@ -54,7 +54,7 @@ where
 
     fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
         debug_assert!(index < Self::ACTION_DIM);
-        debug_assert!(!state.prohibited_edges.contains(&(index % E)));
+        debug_assert!(state.permitted_edges.contains(&(index % E)));
         let new_color = index / E;
         let index = index % E;
         let edge = Edge::from_colex_position(index);
@@ -73,7 +73,7 @@ where
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
         let RamseyCountsNoRecolor {
             state,
-            prohibited_edges,
+            permitted_edges,
         } = state;
         
         let ReassignColor {
@@ -82,8 +82,8 @@ where
         } = *action;
         let edge = Edge::from_colex_position(edge_pos);
         state.reassign_color(edge, new_color, &self.sizes);
-        let inserted = prohibited_edges.insert(edge_pos);
-        debug_assert!(inserted);
+        let removed = permitted_edges.remove(&edge_pos);
+        debug_assert!(removed);
     }
 
     fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
@@ -101,9 +101,9 @@ where
                 new_color,
             })
         });
-        candidate_actions.filter_map(move |a| match state.prohibited_edges.contains(&a.e_pos) {
-            true => None,
-            false => Some((
+        candidate_actions.filter_map(move |a| match state.permitted_edges.contains(&a.e_pos) {
+            false => None,
+            true => Some((
                 a.e_pos + a.new_color * E,
                 CountChange {
                     old_color: a.old_color,
@@ -121,18 +121,15 @@ where
         /* chunks are as follows:
         * 0..(E * C): clique counts
         * (E * C)..(2 * E * C): edge bools
-        * (2 * E * C)..(2 * E * C + E): prohibited edges
+        * (2 * E * C)..(2 * E * C + E): permitted edges
         */
         let (clique_edge_vec, prohib_vec) = vector.split_at_mut(2 * C * E);
         let clique_counts = state.state.counts.iter().flat_map(|c| c.iter()).map(|c| *c as f32);
         let edge_bools = state.state.graph().graphs().iter().flat_map(|g| g.edge_bools()).map(|b| if b { 1.0f32 } else { 0. });
         let clique_edge = clique_counts.chain(edge_bools);
         clique_edge_vec.iter_mut().zip(clique_edge).for_each(|(v, c)| *v = c);
-        for e_pos in state.prohibited_edges.iter() {
-            for c in 0..C {
-                let a = e_pos + c * E;
-                prohib_vec[a] = 1.;
-            }
+        for e_pos in state.permitted_edges.iter() {
+            prohib_vec[*e_pos] = 1.;
         }
     }
 
