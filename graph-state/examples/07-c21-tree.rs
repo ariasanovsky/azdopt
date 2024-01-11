@@ -1,247 +1,211 @@
-#![feature(slice_flatten)]
-#![feature(maybe_uninit_uninit_array)]
-#![feature(maybe_uninit_array_assume_init)]
-
-use rayon::{
-    iter::{
-        IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-    },
-    slice::ParallelSliceMut,
-};
-use tensorboard_writer::TensorboardWriter;
-
 use std::{
     io::{BufWriter, Write},
     time::SystemTime,
 };
 
 use az_discrete_opt::{
-    az_model::{add_dirichlet_noise, dfdx::TwoModels},
-    int_min_tree::{state_data::UpperEstimateData, INTMinTree},
-    learning_loop::{prediction::PredictionData, state::StateData, tree::TreeData, LearningLoop},
+    log::ArgminData,
+    nabla::{
+        model::dfdx::ActionModel,
+        optimizer::{ArgminImprovement, NablaOptimizer},
+        space::NablaStateActionSpace,
+    },
     path::{set::ActionSet, ActionPath},
-    space::StateActionSpace,
-    state::prohibit::WithProhibitions,
     tensorboard::{tf_path, Summarize},
 };
-use dfdx::prelude::*;
-use graph_state::{
-    rooted_tree::{prohibited_space::ProhibitedConstrainedRootedOrderedTree, RootedOrderedTree},
-    simple_graph::connected_bitset_graph::Conjecture2Dot1Cost,
+use chrono::Utc;
+use dfdx::{
+    nn::{builders::Linear, modules::ReLU},
+    tensor::AutoDevice,
+    tensor_ops::{AdamConfig, WeightDecay},
 };
+use eyre::Context;
+use graph_state::{
+    bitset::primitive::B32,
+    ramsey_counts::{
+        no_recolor::RamseyCountsNoRecolor, space::RamseySpaceNoEdgeRecolor, RamseyCounts,
+        TotalCounts,
+    },
+    simple_graph::bitset_graph::ColoredCompleteBitsetGraph,
+};
+use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
+use tensorboard_writer::TensorboardWriter;
 
-use chrono::prelude::*;
+const N: usize = 16;
+const E: usize = N * (N - 1) / 2;
+const C: usize = 3;
+const SIZES: [usize; C] = [3, 3, 3];
 
-use eyre::WrapErr;
-
-const N: usize = 20;
-type Space = ProhibitedConstrainedRootedOrderedTree<N>;
-
-type RawState = RootedOrderedTree<N>;
-type S = WithProhibitions<RawState>;
+type S = RamseyCountsNoRecolor<N, E, C, B32>;
+type Cost = TotalCounts<C>;
 type P = ActionSet;
 
-type Tree = INTMinTree<P>;
-type C = Conjecture2Dot1Cost;
+type Space = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
 
-const ACTION: usize = (N - 1) * (N - 2) / 2 - 1;
-const GAIN: usize = 1;
-const RAW_STATE: usize = (N - 1) * (N - 2) / 2 - 1;
-const STATE: usize = RAW_STATE + ACTION;
+const ACTION: usize = E * C;
+const STATE: usize = E * (2 * C + 1);
 
-const BATCH: usize = 256;
+const HIDDEN_1: usize = 512;
+const HIDDEN_2: usize = 1024;
+const HIDDEN_3: usize = 512;
 
-const HIDDEN_1: usize = 256;
-const HIDDEN_2: usize = 256;
-
-type Logits = (
+type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    Linear<HIDDEN_2, ACTION>,
+    (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
+    // (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-type Valuation = (
-    (Linear<STATE, HIDDEN_1>, ReLU),
-    (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
-    Linear<HIDDEN_2, 1>,
-);
+const BATCH: usize = 512;
+
+type W = TensorboardWriter<BufWriter<std::fs::File>>;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 fn main() -> eyre::Result<()> {
-    let out_dir = tf_path().join("07-c21-tree").join(Utc::now().to_rfc3339());
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
+    let out_dir = tf_path().join("01-r333-grad").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
     let writer = BufWriter::new(std::fs::File::create(out_file)?);
-    let mut writer = TensorboardWriter::new(writer);
+    let mut writer: W = TensorboardWriter::new(writer);
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let pi_config = AdamConfig {
-        lr: 2e-2,
+    let num_permitted_edges_range = 10..=E;
+    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
+    let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
+        let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
+        let s = RamseyCounts::new(g, &SIZES);
+        RamseyCountsNoRecolor::generate(rng, s, num_permitted_edges)
+    };
+
+    let cfg = AdamConfig {
+        lr: 3e-4,
         betas: [0.9, 0.999],
         eps: 1e-8,
-        weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
+        weight_decay: Some(WeightDecay::L2(1e-6)),
     };
-    let g_config = AdamConfig {
-        lr: 1e-2,
-        betas: [0.9, 0.999],
-        eps: 1e-8,
-        weight_decay: Some(WeightDecay::L2(1e-6)), // Some(WeightDecay::Decoupled(1e-6)),
-    };
-    let models: TwoModels<Logits, Valuation, BATCH, STATE, ACTION, GAIN> =
-        TwoModels::new(dev, pi_config, g_config);
-    let upper_estimate = |estimate: UpperEstimateData| {
-        let UpperEstimateData {
-            n_s,
-            n_sa,
-            g_sa_sum,
-            p_sa,
-            depth: _,
-        } = estimate;
-        debug_assert_ne!(n_sa, 0);
-        let n_s = n_s as f32;
-        let n_sa = n_sa as f32;
-        let c_puct = 1e1;
-        let g_sa = g_sa_sum / n_sa;
-        let u_sa = g_sa + c_puct * p_sa * (n_s.sqrt() / n_sa);
-        u_sa
-    };
-    let default_prohibitions = |s: &RawState| {
-        s.edge_indices_ignoring_0_1_and_last_vertex()
-            .collect::<Vec<_>>()
-    };
-    let space = ProhibitedConstrainedRootedOrderedTree::<N>;
-    let random_state = |_: usize| {
-        let mut rng = rand::thread_rng();
-        loop {
-            let state = RawState::generate_constrained(&mut rng);
-            let prohibited_actions = default_prohibitions(&state);
-            let state = WithProhibitions::new(state.clone(), prohibited_actions);
-            debug_assert!(
-                !state.prohibited_actions.contains(&170),
-                "state = {state:?}",
-            );
-            if !space.is_terminal(&state) {
-                break state;
-            }
+    let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
+    // let model = az_discrete_opt::nabla::model::TrivialModel;
+    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
+
+    let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
+        SPACE,
+        || {
+            let mut rng = rand::thread_rng();
+            let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+            init_state(&mut rng, num_permitted_edges)
+        },
+        model,
+        BATCH,
+    );
+    let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
+        let ArgminData { state, cost, eval } = argmin;
+        println!("{eval}\t{cost:?}");
+        writer.write_summary(SystemTime::now(), step, cost.summary())?;
+        writer.get_mut().flush()?;
+
+        if *eval == 0. {
+            Err(eyre::eyre!(format!("state is optimal:\n{state}")))
+        } else {
+            Ok(())
         }
     };
-    let cost = |s: &S| {
-        debug_assert!(!s.prohibited_actions.contains(&170), "s = {s:?}");
-        let cost = s.state.conjecture_2_1_cost();
-        cost
-    };
-    let mut roots = (0..BATCH)
-        .into_par_iter()
-        .map(random_state)
-        .collect::<Vec<_>>();
-    let mut states = roots.clone();
-    let mut costs = roots.par_iter().map(cost).collect::<Vec<_>>();
-    let mut vectors = vec![0.0; BATCH * Space::DIM];
-    let mut state_data = StateData::new(
-        &mut roots,
-        &mut states,
-        &mut costs,
-        &mut vectors,
-        Space::DIM,
-    );
-    state_data.par_write_state_vecs(&space);
-    let mut pi = vec![0.0; BATCH * ACTION];
-    let mut g = vec![0.0; BATCH * GAIN];
-    let mut predictions = PredictionData::new(&mut pi, &mut g);
-    let add_noise = |_: usize, pi: &mut [f32]| {
-        let mut rng = rand::thread_rng();
-        const ALPHA: [f32; ACTION] = [0.03; ACTION];
-        add_dirichlet_noise(&mut rng, pi, &ALPHA, 0.25);
-    };
-    let tree_data = TreeData::par_new(
-        &space,
-        add_noise,
-        &mut predictions,
-        &state_data,
-        BATCH,
-        ACTION,
-    );
-    let mut learning_loop: LearningLoop<Space, _, _, _> =
-        LearningLoop::new(state_data, models, predictions, tree_data, ACTION, GAIN);
-    todo!();
-    // let mut global_argmin: ArgminData<C> = learning_loop
-    // .par_argmin()
-    // .map(|(s, c)| ArgminData::new(s, c.clone(), 0, 0))
-    // .unwrap();
+    let argmin = optimizer.argmin_data();
+    process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
     let episodes: usize = 800;
 
-    let mut logits_mask = vec![0.0; ACTION * BATCH];
+    let decay = 0.3;
 
-    for epoch in 0..epochs {
+    for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            if episode % 100 == 0 {
-                println!("==== EPISODE: {episode} ====");
-            }
-            learning_loop.par_roll_out_episode(&space, cost, upper_estimate);
-            let episode_argmin = learning_loop.par_argmin().unwrap();
-            // update the global argmin
-            todo!();
-            // if episode_argmin.1.evaluate() < global_argmin.cost().evaluate() {
-            //     global_argmin =
-            //         ArgminData::new(episode_argmin.0, episode_argmin.1.clone(), episode, epoch);
-            //     println!("new min = {}", global_argmin.cost().evaluate());
-            //     println!("argmin  = {global_argmin:?}");
-            //     writer.write_summary(
-            //         SystemTime::now(),
-            //         (episodes * epoch + episode) as i64,
-            //         global_argmin.cost().summary(),
-            //     )?;
-            //     writer.get_mut().flush()?;
-            // }
-        }
-        let loss = if true {
-            logits_mask.fill(f32::MIN);
-            logits_mask
-                .par_chunks_exact_mut(ACTION)
-                .zip_eq(learning_loop.states.get_roots())
-                .for_each(|(mask, root)| {
-                    space.action_indices(root).for_each(|a| mask[a] = 0.0);
-                });
-            learning_loop.par_update_model(&space, Some(&logits_mask))
-        } else {
-            learning_loop.par_update_model(&space, None)
-        };
-        // Write summaries to file.
-        writer.write_summary(SystemTime::now(), epoch as i64, loss.summary())?;
-        writer.get_mut().flush()?;
-        todo!();
-        // writer.write_summary(
-        //     SystemTime::now(),
-        //     (episodes * epoch + episodes) as i64,
-        //     global_argmin.cost().summary(),
-        // )?;
-        writer.get_mut().flush()?;
-        let modify_root = |i, t: &Tree, s: &mut S| {
-            let nodes = t.unstable_sorted_nodes();
-            let node = nodes[0];
-            let (action, _) = node;
-            space.follow(s, action.actions_taken().map(|a| space.action(a)));
-            if space.is_terminal(s) {
-                let prohibited_actions = default_prohibitions(&s.state);
-                s.prohibited_actions.clear();
-                s.prohibited_actions.extend(prohibited_actions);
-                if space.is_terminal(s) {
-                    *s = random_state(i);
+            let new_argmin = optimizer.par_roll_out_episodes(decay);
+            match new_argmin {
+                ArgminImprovement::Improved(argmin) => {
+                    let step = (episodes * (epoch - 1) + episode) as i64;
+                    let _ = process_argmin(&argmin, &mut writer, step)?;
                 }
+                ArgminImprovement::Unchanged => {}
+            };
+            if episode % episodes == 0 {
+                println!("==== EPISODE: {episode} ====");
+                let sizes = optimizer
+                    .get_trees()
+                    .first()
+                    .unwrap()
+                    .sizes()
+                    .collect::<Vec<_>>();
+                println!("sizes: {sizes:?}");
+
+                let graph = optimizer.get_trees()[0].graphviz();
+                std::fs::write("tree.png", graph).unwrap();
+                let graph = optimizer.get_trees()[BATCH - 1].graphviz();
+                std::fs::write("tree2.png", graph).unwrap();
+            }
+        }
+
+        let loss = optimizer.par_update_model();
+        let summary = loss.summary();
+        writer.write_summary(SystemTime::now(), (episodes * epoch) as i64, summary)?;
+        writer.write_summary(
+            SystemTime::now(),
+            (episodes * epoch) as i64,
+            optimizer.argmin_data().cost.summary(),
+        )?;
+        writer.get_mut().flush()?;
+        let modify_root = |space: &Space, state: &mut S, mut n: Vec<(Option<&P>, f32, f32)>| {
+            let mut rng = rand::thread_rng();
+            let (_, c_root, c_root_star) = n[0];
+            if c_root == c_root_star {
+                let num_permitted_edges = state.num_permitted_edges();
+                if !num_permitted_edges_range.contains(&num_permitted_edges) {
+                    unreachable!();
+                    // let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    // *state = init_state(&mut rng, num_permitted_edges);
+                } else if num_permitted_edges == *num_permitted_edges_range.end() {
+                    // let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    // state.randomize_permitted_edges(num_permitted_edges, &mut rng);
+                    let num_prohibitions = rng.gen_range(num_permitted_edges_range.clone());
+                    *state = init_state(&mut rng, num_prohibitions);
+                } else {
+                    n.retain(|(_, c, _)| *c == c_root);
+                    let (p, _, _) = n.choose(&mut rng).unwrap();
+                    if let Some(p) = p {
+                        p.actions_taken().for_each(|a| {
+                            let a = space.action(a);
+                            space.act(state, &a);
+                        })
+                    }
+                    let range = num_permitted_edges..=*num_permitted_edges_range.end();
+                    let num_permitted_edges = rng.gen_range(range);
+                    state.randomize_permitted_edges(num_permitted_edges, &mut rng);
+                    // let num_prohibitions = rng.gen_range(num_permitted_edges_range.clone());
+                    // *state = init_state(&mut rng, num_prohibitions);
+                }
+            } else {
+                n.retain(|(_, c, _)| *c == c_root_star);
+                let (p, _, _) = n.choose(&mut rng).unwrap();
+                if let Some(p) = p {
+                    p.actions_taken().for_each(|a| {
+                        let a = space.action(a);
+                        space.act(state, &a);
+                    })
+                }
+                let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                state.randomize_permitted_edges(num_permitted_edges, &mut rng);
             }
         };
-        let reset_root = |i, _: &Tree, r: &mut S| {
-            *r = random_state(i);
-        };
-        match epoch % 4 {
-            3 => learning_loop.par_reset_with_next_root(&space, reset_root, cost, add_noise),
-            _ => learning_loop.par_reset_with_next_root(&space, modify_root, cost, add_noise),
-        };
+        optimizer.par_reset_trees(modify_root);
     }
-    dbg!(&out_dir);
     Ok(())
 }

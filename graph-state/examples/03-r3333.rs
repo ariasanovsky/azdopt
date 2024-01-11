@@ -21,7 +21,7 @@ use dfdx::{
 };
 use eyre::Context;
 use graph_state::{
-    bitset::primitive::{B32, B64},
+    bitset::primitive::B64,
     ramsey_counts::{
         no_recolor::RamseyCountsNoRecolor, space::RamseySpaceNoEdgeRecolor, RamseyCounts,
         TotalCounts,

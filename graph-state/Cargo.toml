@@ -37,16 +37,20 @@ eyre = "0.6.8"
 tensorboard-writer = { git = "https://github.com/wchargin/rust-tensorboard-writer" }
 
 [[example]]
-name = "07-c21-tree"
-required-features = ["dfdx-model", "tensorboard"]
-
-[[example]]
 name = "01-r333"
 required-features = ["dfdx-model", "tensorboard", "graphviz"]
 
 [[example]]
 name = "02-r44"
 required-features = ["dfdx-model", "tensorboard", "graphviz"]
+
+[[example]]
+name = "06-c21-tree"
+required-features = ["dfdx-model", "tensorboard", "graphviz"]
+
+[[example]]
+name = "07-c21-tree"
+required-features = ["dfdx-model", "tensorboard"]
 
 [[bench]]
 name = "r44_17_search_tree_with_trivial_predictions"
