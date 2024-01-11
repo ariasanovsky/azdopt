@@ -3,8 +3,9 @@ use std::io::BufWriter;
 use dfdx::nn::{modules::ReLU, builders::Linear};
 use tensorboard_writer::TensorboardWriter;
 
-const STATE: usize = 1;
-const ACTION: usize = 1;
+const N: usize = 20;
+const STATE: usize = (N - 1) * (N - 2) / 2 - 1 + N - 3;
+const ACTION: usize = (N - 1) * (N - 2) / 2 - 1;
 
 const HIDDEN_1: usize = 512;
 const HIDDEN_2: usize = 1024;

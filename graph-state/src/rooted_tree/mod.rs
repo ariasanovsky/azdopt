@@ -3,6 +3,7 @@ pub mod prohibited_space;
 mod short_form;
 pub mod space;
 mod try_from;
+pub mod modify_parent_once;
 
 /// A rooted ordered tree. For all `i` in `0..N`, the parent of the `i`-th node is in `0..i`.
 #[derive(Debug, Clone)]
