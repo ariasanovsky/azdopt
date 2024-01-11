@@ -54,7 +54,7 @@ where
 
     fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
         debug_assert!(index < Self::ACTION_DIM);
-        debug_assert!(!state.prohibited_actions.contains(&index));
+        debug_assert!(!state.prohibited_edges.contains(&(index % E)));
         let new_color = index / E;
         let index = index % E;
         let edge = Edge::from_colex_position(index);
@@ -73,7 +73,7 @@ where
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
         let RamseyCountsNoRecolor {
             state,
-            prohibited_actions,
+            prohibited_edges,
         } = state;
         
         let ReassignColor {
@@ -82,34 +82,36 @@ where
         } = *action;
         let edge = Edge::from_colex_position(edge_pos);
         state.reassign_color(edge, new_color, &self.sizes);
-        prohibited_actions.extend((0..C).map(|c| edge_pos + E * c));
+        let inserted = prohibited_edges.insert(edge_pos);
+        debug_assert!(inserted);
     }
 
     fn action_data<'a>(&self, state: &'a Self::State) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
         let colors = (0..N).flat_map(move |v| (0..v).map(move |u| state.state.graph().color(v, u)));
         struct _ActionData {
-            i: usize,
-            a: usize,
+            e_pos: usize,
             old_color: usize,
             new_color: usize,
         }
-        let candidate_actions = colors.enumerate().flat_map(move |(i, old_color)| {
+        let candidate_actions = colors.enumerate().flat_map(move |(e_pos, old_color)| {
             let new_colors = (0..old_color).chain(old_color+1..C);
             new_colors.map(move |new_color| _ActionData {
-                i,
-                a: i + E * new_color,
+                e_pos,
                 old_color,
                 new_color,
             })
         });
-        candidate_actions.filter_map(move |a| match state.prohibited_actions.contains(&a.a) {
+        candidate_actions.filter_map(move |a| match state.prohibited_edges.contains(&a.e_pos) {
             true => None,
-            false => Some((a.a, CountChange {
-                old_color: a.old_color,
-                new_color: a.new_color,
-                old_count: state.state.counts[a.old_color][a.i],
-                new_count: state.state.counts[a.new_color][a.i],
-            })),
+            false => Some((
+                a.e_pos + a.new_color * E,
+                CountChange {
+                    old_color: a.old_color,
+                    new_color: a.new_color,
+                    old_count: state.state.counts[a.old_color][a.e_pos],
+                    new_count: state.state.counts[a.new_color][a.e_pos],
+                }
+            )),
         })
     }
 
@@ -117,17 +119,20 @@ where
         debug_assert!(vector.len() == Self::STATE_DIM);
         vector.fill(0.);
         /* chunks are as follows:
-        * 0/1: red/blue clique counts
-        * 2/3: red/blue edge bools
-        * 4/5: red/blue prohibited actions
+        * 0..(E * C): clique counts
+        * (E * C)..(2 * E * C): edge bools
+        * (2 * E * C)..(2 * E * C + E): prohibited edges
         */
         let (clique_edge_vec, prohib_vec) = vector.split_at_mut(2 * C * E);
         let clique_counts = state.state.counts.iter().flat_map(|c| c.iter()).map(|c| *c as f32);
         let edge_bools = state.state.graph().graphs().iter().flat_map(|g| g.edge_bools()).map(|b| if b { 1.0f32 } else { 0. });
         let clique_edge = clique_counts.chain(edge_bools);
         clique_edge_vec.iter_mut().zip(clique_edge).for_each(|(v, c)| *v = c);
-        for a in state.prohibited_actions.iter() {
-            prohib_vec[*a] = 1.;
+        for e_pos in state.prohibited_edges.iter() {
+            for c in 0..C {
+                let a = e_pos + c * E;
+                prohib_vec[a] = 1.;
+            }
         }
     }
 
