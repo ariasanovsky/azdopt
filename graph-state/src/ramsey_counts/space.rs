@@ -123,13 +123,13 @@ where
         * (E * C)..(2 * E * C): edge bools
         * (2 * E * C)..(2 * E * C + E): permitted edges
         */
-        let (clique_edge_vec, prohib_vec) = vector.split_at_mut(2 * C * E);
+        let (clique_edge_vec, permit_vec) = vector.split_at_mut(2 * C * E);
         let clique_counts = state.state.counts.iter().flat_map(|c| c.iter()).map(|c| *c as f32);
         let edge_bools = state.state.graph().graphs().iter().flat_map(|g| g.edge_bools()).map(|b| if b { 1.0f32 } else { 0. });
         let clique_edge = clique_counts.chain(edge_bools);
         clique_edge_vec.iter_mut().zip(clique_edge).for_each(|(v, c)| *v = c);
         for e_pos in state.permitted_edges.iter() {
-            prohib_vec[*e_pos] = 1.;
+            permit_vec[*e_pos] = 1.;
         }
     }
 
