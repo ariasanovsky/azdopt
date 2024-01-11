@@ -5,6 +5,7 @@ use crate::{simple_graph::{bitset_graph::ColoredCompleteBitsetGraph, edge::Edge}
 
 pub mod space;
 pub mod no_recolor;
+mod display;
 
 #[derive(Clone, Debug)]
 pub struct RamseyCounts<const N: usize, const E: usize, const C: usize, B> {

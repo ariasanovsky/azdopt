@@ -2,7 +2,7 @@ use az_discrete_opt::{nabla::space::NablaStateActionSpace, state::prohibit::With
 
 use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
-use super::{RamseyCounts, ReassignColor, CountChange, TotalCounts};
+use super::{RamseyCounts, ReassignColor, CountChange, TotalCounts, no_recolor::RamseyCountsNoRecolor};
 
 pub struct RamseySpaceNoEdgeRecolor<B, const N: usize, const E: usize, const C: usize> {
     sizes: [usize; C],
@@ -28,7 +28,7 @@ where
     B: Bitset + Clone,
     B::Bits: Clone,
 {
-    type State = WithProhibitions<RamseyCounts<N, E, C, B>>;
+    type State = RamseyCountsNoRecolor<N, E, C, B>;
 
     type Action = ReassignColor;
 
@@ -71,7 +71,7 @@ where
     }
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
-        let WithProhibitions {
+        let RamseyCountsNoRecolor {
             state,
             prohibited_actions,
         } = state;

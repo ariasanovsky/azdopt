@@ -1,10 +1,10 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{tensorboard::{tf_path, Summarize}, state::prohibit::WithProhibitions, log::ArgminData, nabla::{optimizer::{NablaOptimizer, ArgminImprovement}, model::dfdx::ActionModel, space::NablaStateActionSpace}, path::{set::ActionSet, ActionPath}};
+use az_discrete_opt::{tensorboard::{tf_path, Summarize}, log::ArgminData, nabla::{optimizer::{NablaOptimizer, ArgminImprovement}, model::dfdx::ActionModel, space::NablaStateActionSpace}, path::{set::ActionSet, ActionPath}};
 use chrono::Utc;
 use dfdx::{tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}, nn::{modules::ReLU, builders::Linear}};
 use eyre::Context;
-use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
+use graph_state::{bitset::primitive::B32, ramsey_counts::{RamseyCounts, space::RamseySpaceNoEdgeRecolor, no_recolor::RamseyCountsNoRecolor, TotalCounts}, simple_graph::bitset_graph::ColoredCompleteBitsetGraph};
 use rand::{seq::SliceRandom, rngs::ThreadRng, Rng};
 use tensorboard_writer::TensorboardWriter;
 
@@ -13,9 +13,8 @@ const E: usize = N * (N - 1) / 2;
 const C: usize = 3;
 const SIZES: [usize; C] = [3, 3, 3];
 
-type RawState = RamseyCounts<N, E, C, B32>;
-type S = WithProhibitions<RawState>;
-
+type S = RamseyCountsNoRecolor<N, E, C, B32>;
+type Cost = TotalCounts<C>;
 type P = ActionSet;
 
 type Space = RamseySpaceNoEdgeRecolor<B32, N, E, C>;
@@ -37,6 +36,8 @@ type ModelH = (
 
 const BATCH: usize = 512;
 
+type W = TensorboardWriter<BufWriter<std::fs::File>>;
+
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
@@ -51,27 +52,16 @@ fn main() -> eyre::Result<()> {
     // create the directory if it doesn't exist
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
     let writer = BufWriter::new(std::fs::File::create(out_file)?);
-    let mut writer = TensorboardWriter::new(writer);
+    let mut writer: W = TensorboardWriter::new(writer);
     writer.write_file_version()?;
 
-    let edges: [usize; E] = core::array::from_fn(|i| i);
-
     let dev = AutoDevice::default();
+    let num_permitted_edges_range = 1..=E;
     let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
-    let new_state = |s: _, p: _| -> S {
-        let s = WithProhibitions {
-            state: s,
-            prohibited_actions: p,
-        };
-        s
-    };
-    let init_state = |rng: &mut ThreadRng, num_prohibitions: usize| -> S {
+    let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
         let s = RamseyCounts::new(g, &SIZES);
-        let p = (edges).choose_multiple(rng, num_prohibitions).flat_map(|i| {
-            (0..C).map(|c| c * E + *i)
-        }).collect();
-        new_state(s, p)
+        RamseyCountsNoRecolor::generate(rng, s, num_permitted_edges)
     };
 
     let cfg = AdamConfig {
@@ -88,34 +78,41 @@ fn main() -> eyre::Result<()> {
         SPACE, 
         || {
             let mut rng = rand::thread_rng();
-            let num_prohibitions = rng.gen_range(0..E);
-            init_state(&mut rng, num_prohibitions)
+            let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+            init_state(&mut rng, num_permitted_edges)
         },
         model,
         BATCH,
     );
-    let ArgminData { state, cost, eval} = optimizer.argmin_data();
-    writer.write_summary(SystemTime::now(), 0, cost.summary())?;
-    writer.get_mut().flush()?;
+    let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
+        let ArgminData { state, cost, eval} = argmin;
+        println!("{eval}\t{cost:?}");
+        writer.write_summary(SystemTime::now(), step, cost.summary())?;
+        writer.get_mut().flush()?;
     
+        if *eval == 0. {
+            Err(eyre::eyre!(format!(
+                "initial state is already optimal:\n{state}"
+            )))
+        } else {
+            Ok(())
+        }
+    };
+    let argmin = optimizer.argmin_data();
+    process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
     let episodes: usize = 800;
 
-    let decay = 0.4;
+    let decay = 0.3;
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
             let new_argmin = optimizer.par_roll_out_episodes(decay);
             match new_argmin {
-                ArgminImprovement::Improved(ArgminData { state, cost, eval }) => {
-                    println!("{eval}\t{cost:?}");
-                    writer.write_summary(
-                        SystemTime::now(),
-                        (episodes * epoch + episode - 1) as i64,
-                        cost.summary(),
-                    )?;
-                    writer.get_mut().flush()?;
+                ArgminImprovement::Improved(argmin) => {
+                    let step = (episodes * (epoch - 1) + episode) as i64;
+                    let _ = process_argmin(&argmin, &mut writer, step)?;
                 },
                 ArgminImprovement::Unchanged => {},
             };
@@ -148,17 +145,18 @@ fn main() -> eyre::Result<()> {
             let mut rng = rand::thread_rng();
             let (_, c_root, c_root_star) = n[0];
             if c_root == c_root_star {
-                let num_prohibitions = state.prohibited_actions.len() / C;
-                if num_prohibitions == 0 {
-                    let num_prohibitions = rng.gen_range(0..E);
-                    *state = init_state(&mut rng, num_prohibitions);
+                let num_permitted_edges = state.num_permitted_edges();
+                if num_permitted_edges < *num_permitted_edges_range.start() {
+                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    *state = init_state(&mut rng, num_permitted_edges);
+                } else if num_permitted_edges > *num_permitted_edges_range.end() {
+                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    state.randomize_permitted_edges(num_permitted_edges, &mut rng);
                 } else {
-                    let num_prohibitions = rng.gen_range(0..num_prohibitions);
-                    let s = state.state.clone();
-                    let p = edges.choose_multiple(&mut rng, num_prohibitions).flat_map(|i| {
-                        (0..C).map(|c| c * E + *i)
-                    }).collect();
-                    *state = new_state(s, p);
+                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    state.randomize_permitted_edges(num_permitted_edges, &mut rng);
+                    // let num_prohibitions = rng.gen_range(num_permitted_edges_range.clone());
+                    // *state = init_state(&mut rng, num_prohibitions);
                 }
             } else {
                 n.retain(|(_, c, _)| *c == c_root_star);
