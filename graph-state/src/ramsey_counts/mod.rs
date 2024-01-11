@@ -4,6 +4,7 @@ use itertools::Itertools;
 use crate::{simple_graph::{bitset_graph::ColoredCompleteBitsetGraph, edge::Edge}, bitset::Bitset};
 
 pub mod space;
+pub mod no_recolor;
 
 #[derive(Clone, Debug)]
 pub struct RamseyCounts<const N: usize, const E: usize, const C: usize, B> {
@@ -146,6 +147,19 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
                 }
             }
         }
+    }
+
+    pub fn generate(
+        rng: &mut impl rand::Rng,
+        w: impl rand::distributions::Distribution<usize>,
+        sizes: &[usize; C],
+    ) -> Self
+    where
+        B: Bitset + Clone,
+        B::Bits: Clone,
+    {
+        let graph = ColoredCompleteBitsetGraph::generate(w, rng);
+        Self::new(graph, sizes)
     }
 }
 

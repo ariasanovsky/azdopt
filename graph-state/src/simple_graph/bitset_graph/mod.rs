@@ -19,7 +19,7 @@ pub struct ColoredCompleteBitsetGraph<const N: usize, const C: usize, B> {
 
 impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {
     pub fn generate(
-        w: &impl rand::distributions::Distribution<usize>,
+        w: impl rand::distributions::Distribution<usize>,
         rng: &mut impl rand::Rng,
     ) -> ColoredCompleteBitsetGraph<N, C, B>
     where
