@@ -56,7 +56,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let num_permitted_edges_range = 1..=E;
+    let num_permitted_edges_range = 10..=E;
     let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
@@ -146,21 +146,32 @@ fn main() -> eyre::Result<()> {
             let (_, c_root, c_root_star) = n[0];
             if c_root == c_root_star {
                 let num_permitted_edges = state.num_permitted_edges();
-                if num_permitted_edges < *num_permitted_edges_range.start() {
-                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
-                    *state = init_state(&mut rng, num_permitted_edges);
-                } else if num_permitted_edges > *num_permitted_edges_range.end() {
-                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
-                    state.randomize_permitted_edges(num_permitted_edges, &mut rng);
+                if !num_permitted_edges_range.contains(&num_permitted_edges) {
+                    unreachable!();
+                    // let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    // *state = init_state(&mut rng, num_permitted_edges);
+                } else if num_permitted_edges == *num_permitted_edges_range.end() {
+                    // let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    // state.randomize_permitted_edges(num_permitted_edges, &mut rng);
+                    let num_prohibitions = rng.gen_range(num_permitted_edges_range.clone());
+                    *state = init_state(&mut rng, num_prohibitions);
                 } else {
-                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    n.retain(|(_, c, _)| *c == c_root);
+                    let (p, _, _) = n.choose(&mut rng).unwrap();
+                    if let Some(p) = p {
+                        p.actions_taken().for_each(|a| {
+                            let a = space.action(a);
+                            space.act(state, &a);
+                        })
+                    }
+                    let range = num_permitted_edges..=*num_permitted_edges_range.end();
+                    let num_permitted_edges = rng.gen_range(range);
                     state.randomize_permitted_edges(num_permitted_edges, &mut rng);
                     // let num_prohibitions = rng.gen_range(num_permitted_edges_range.clone());
                     // *state = init_state(&mut rng, num_prohibitions);
                 }
             } else {
                 n.retain(|(_, c, _)| *c == c_root_star);
-                // dbg!(n.len());
                 let (p, _, _) = n.choose(&mut rng).unwrap();
                 if let Some(p) = p {
                     p.actions_taken().for_each(|a| {
@@ -168,6 +179,8 @@ fn main() -> eyre::Result<()> {
                         space.act(state, &a);
                     })
                 }
+                let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                state.randomize_permitted_edges(num_permitted_edges, &mut rng);
             }
         };
         optimizer.par_reset_trees(modify_root);
