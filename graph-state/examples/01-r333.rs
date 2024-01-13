@@ -29,6 +29,7 @@ use graph_state::{
     simple_graph::bitset_graph::ColoredCompleteBitsetGraph,
 };
 use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
+use rand_distr::WeightedIndex;
 use tensorboard_writer::TensorboardWriter;
 
 const N: usize = 16;
@@ -80,7 +81,7 @@ fn main() -> eyre::Result<()> {
 
     let dev = AutoDevice::default();
     let num_permitted_edges_range = 10..=E;
-    let dist = rand::distributions::WeightedIndex::new([1., 1., 1.])?;
+    let dist = WeightedIndex::new([1., 1., 1.])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
         let s = RamseyCounts::new(g, &SIZES);

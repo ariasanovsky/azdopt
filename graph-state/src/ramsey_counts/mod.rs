@@ -174,6 +174,7 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
     }
 }
 
+#[derive(Debug)]
 pub struct ReassignColor {
     edge_pos: usize,
     new_color: usize,
@@ -181,6 +182,7 @@ pub struct ReassignColor {
 
 impl ReassignColor {}
 
+#[derive(Clone, Debug)]
 pub struct CountChange {
     pub old_color: usize,
     pub new_color: usize,

@@ -184,3 +184,137 @@ unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionOrderIndepe
     for RamseySpaceNoEdgeRecolor<B, N, E, C>
 {
 }
+
+#[cfg(test)]
+mod tests {
+    use az_discrete_opt::nabla::space::NablaStateActionSpace;
+    use rand::seq::SliceRandom;
+    use rand_distr::WeightedIndex;
+
+    use crate::{bitset::primitive::B32, ramsey_counts::{space::RamseySpaceNoEdgeRecolor, no_recolor::RamseyCountsNoRecolor, RamseyCounts}, simple_graph::{edge::Edge, bitset_graph::{BitsetGraph, ColoredCompleteBitsetGraph}}};
+
+    #[test]
+    fn correct_triangle_counts_after_modifying_a_random_3_edge_colored_graph_on_30_vertices() {
+        const N: usize = 30;
+        const E: usize = N * (N - 1) / 2;
+        const C: usize = 3;
+        type B = B32;
+        type Space = RamseySpaceNoEdgeRecolor<B, N, E, C>;
+        type State = RamseyCountsNoRecolor<N, E, C, B>;
+        type Counts = RamseyCounts<N, E, C, B>;
+        const SIZES: [usize; C] = [3, 3, 3];
+        const WEIGHTS: [f32; C] = [1., 1., 1.];
+        let space = Space::new(SIZES, WEIGHTS);
+        let dist = WeightedIndex::new([1., 1., 1.]).unwrap();
+        let mut rng = rand::thread_rng();
+        let counts = Counts::generate(&mut rng, &dist, &SIZES);
+        let mut state = State::generate(&mut rng, counts, E);
+        while !space.is_terminal(&state) {
+            let actions = space.action_data(&state).collect::<Vec<_>>();
+            let (action_pos, count_change) = actions.choose(&mut rng).unwrap().clone();
+            let action = space.action(action_pos);
+            let mut next_state = state.clone();
+            space.act(&mut next_state, &action);
+            let next_graph = next_state.state.graph().clone();
+            let next_counts_recalculated = Counts::new(next_graph, &SIZES);
+            for c in 0..C {
+                let edges = Edge::edges::<N>();
+                for (i, e) in edges.enumerate() {
+                    assert_eq!(
+                        next_counts_recalculated.counts[c][i],
+                        next_state.state.counts[c][i],
+"
+action: {action_pos}, {action:?}
+edge: {e:?}
+graph:\n{}
+",
+                        &state.state,
+                    );
+                }
+            }
+            space.act(&mut state, &action);
+        }
+    }
+
+    #[test]
+    fn correct_k4_counts_after_modifying_a_random_2_edge_colored_graph_on_15_vertices() {
+        const N: usize = 5;
+        const E: usize = N * (N - 1) / 2;
+        const C: usize = 2;
+        type B = B32;
+        type Space = RamseySpaceNoEdgeRecolor<B, N, E, C>;
+        type State = RamseyCountsNoRecolor<N, E, C, B>;
+        type Counts = RamseyCounts<N, E, C, B>;
+        const SIZES: [usize; C] = [4, 4];
+        const WEIGHTS: [f32; C] = [1., 1.];
+        let space = Space::new(SIZES, WEIGHTS);
+        let dist = WeightedIndex::new([1., 1.,]).unwrap();
+        let mut rng = rand::thread_rng();
+        let counts = Counts::generate(&mut rng, &dist, &SIZES);
+        let mut state = State::generate(&mut rng, counts, E);
+        while !space.is_terminal(&state) {
+            let actions = space.action_data(&state).collect::<Vec<_>>();
+            let (action_pos, count_change) = actions.choose(&mut rng).unwrap().clone();
+            let action = space.action(action_pos);
+            let mut next_state = state.clone();
+            space.act(&mut next_state, &action);
+            let next_graph = next_state.state.graph().clone();
+            let next_counts_recalculated = Counts::new(next_graph, &SIZES);
+            for c in 0..C {
+                let edges = Edge::edges::<N>();
+                for (i, e) in edges.enumerate() {
+                    assert_eq!(
+                        next_counts_recalculated.counts[c][i],
+                        next_state.state.counts[c][i],
+"
+action: {action_pos}, {action:?}
+edge: {e:?}
+graph:\n{}
+counts:\n{:?}
+",
+                        &state.state,
+                        &next_state.state.counts
+                    );
+                }
+            }
+            space.act(&mut state, &action);
+        }
+    }
+
+    #[test]
+    fn making_edge_0_1_red_in_a_specific_2_edge_colored_k5_produces_the_correct_clique_counts() {
+        let red_edges = vec![
+            (0, 2),
+            (0, 3),
+            (1, 2),
+            (1, 3),
+            (2, 3),
+        ];
+        let blue_edges = vec![
+            (0, 1),
+            (0, 4),
+            (1, 4),
+            (2, 4),
+            (3, 4),  
+        ];
+        type B = B32;
+        const N: usize = 5;
+        let red_graph = BitsetGraph::<N, B>::try_from(&red_edges[..]).unwrap();
+        let blue_graph = BitsetGraph::<N, B>::try_from(&blue_edges[..]).unwrap();
+        let colored_graph = ColoredCompleteBitsetGraph {
+            graphs: [red_graph, blue_graph],
+        };
+        const C: usize = 2;
+        const SIZES: [usize; C] = [4, 4];
+        const E: usize = N * (N - 1) / 2;
+        let counts = RamseyCounts::<N, E, C, _>::new(colored_graph, &SIZES);
+        assert_eq!(
+            &counts.counts,
+            &[
+                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            ]
+        );
+        // todo!()
+    }
+}

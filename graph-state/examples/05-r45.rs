@@ -32,10 +32,10 @@ use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 use rand_distr::WeightedIndex;
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 17;
+const N: usize = 24;
 const E: usize = N * (N - 1) / 2;
 const C: usize = 2;
-const SIZES: [usize; C] = [4, 4];
+const SIZES: [usize; C] = [4, 5];
 
 type S = RamseyCountsNoRecolor<N, E, C, B32>;
 type Cost = TotalCounts<C>;
@@ -81,7 +81,9 @@ fn main() -> eyre::Result<()> {
 
     let dev = AutoDevice::default();
     let num_permitted_edges_range = 10..=E;
-    let dist = WeightedIndex::new([1., 1.])?;
+    const P_RED: f64 = 0.4685;
+    const P_BLUE: f64 = 1.0f64 - P_RED;
+    let dist = WeightedIndex::new(&[P_RED, P_BLUE])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
         let s = RamseyCounts::new(g, &SIZES);
@@ -96,7 +98,9 @@ fn main() -> eyre::Result<()> {
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
-    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1.]);
+    const W_RED: f32 = 1.0;
+    const W_BLUE: f32 = (P_RED / P_BLUE) as f32;
+    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [W_RED, W_BLUE]);
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE,
