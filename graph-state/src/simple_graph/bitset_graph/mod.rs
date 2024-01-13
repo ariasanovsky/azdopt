@@ -25,7 +25,7 @@ impl<const N: usize, const C: usize, B> ColoredCompleteBitsetGraph<N, C, B> {
     where
         B: Bitset,
     {
-        debug_assert!(N < 32);
+        // debug_assert!(N < 32);
         let mut graphs: [BitsetGraph<N, B>; C] = core::array::from_fn(|_| BitsetGraph::empty());
         let edges = (0..N).flat_map(|v| (0..v).map(move |u| unsafe { Edge::new_unchecked(v, u) }));
         for e in edges {
@@ -160,7 +160,7 @@ impl<const N: usize, B> BitsetGraph<N, B> {
             .enumerate()
             .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u as _).unwrap()))
     }
-
+    
     pub fn count_cliques_inside(&self, common_neighbors: B, size: usize) -> i32
     where
         B: Bitset + Clone,
@@ -172,10 +172,16 @@ impl<const N: usize, B> BitsetGraph<N, B> {
             _ => common_neighbors
                 .iter()
                 .map(|u| {
-                    let common_neighbors = common_neighbors.intersection(&self.neighborhoods[u]);
-                    self.count_cliques_inside(common_neighbors, size - 1)
+                    let mut common_neighbors = common_neighbors.intersection(&self.neighborhoods[u]);
+                    let up_to_u = unsafe { B::range_to_unchecked(u as _) };
+                    common_neighbors.intersection_assign(&up_to_u);
+                    common_neighbors
                 })
-                .sum::<i32>() / size as i32,
+                .filter(|n_u| 1 + n_u.cardinality() >= size as u32)
+                .map(|n_u| {
+                    self.count_cliques_inside(n_u, size - 1)
+                })
+                .sum(),
         }
     }
 }

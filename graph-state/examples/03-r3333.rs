@@ -31,7 +31,7 @@ use graph_state::{
 use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 40;
+const N: usize = 34;
 const E: usize = N * (N - 1) / 2;
 const C: usize = 4;
 const SIZES: [usize; C] = [3, 3, 3, 3];
