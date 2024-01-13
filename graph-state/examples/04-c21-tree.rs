@@ -34,7 +34,7 @@ const BATCH: usize = 1024;
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
 fn main() -> eyre::Result<()> {
-    let out_dir = tf_path().join("06-c21-tree").join(Utc::now().to_rfc3339());
+    let out_dir = tf_path().join("04-c21-tree").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
     std::fs::create_dir_all(&out_dir).wrap_err("failed to create output directory")?;
@@ -44,7 +44,7 @@ fn main() -> eyre::Result<()> {
 
     let num_permitted_actions_range = 10..=ACTION;
     let cfg = AdamConfig {
-        lr: 3e-4,
+        lr: 5e-3,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)),
@@ -73,7 +73,7 @@ fn main() -> eyre::Result<()> {
 
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
         let ArgminData { state, cost, eval } = argmin;
-        println!("{eval:10}\t{cost:?}");
+        println!("{eval:12}\t{cost:?}");
         writer.write_summary(SystemTime::now(), step, cost.summary())?;
         writer.get_mut().flush()?;
 
@@ -88,7 +88,7 @@ fn main() -> eyre::Result<()> {
     let epochs: usize = 250;
     let episodes: usize = 800;
 
-    let decay = 0.01;
+    let decay = 0.2;
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");

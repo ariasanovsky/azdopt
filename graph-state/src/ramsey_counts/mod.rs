@@ -1,4 +1,3 @@
-use az_discrete_opt::log::ShortForm;
 use itertools::Itertools;
 
 use crate::{
@@ -192,23 +191,6 @@ pub struct CountChange {
 
 #[derive(Clone, Debug)]
 pub struct TotalCounts<const C: usize>(pub [i32; C]);
-
-impl<const N: usize, const E: usize, const C: usize, B> ShortForm for RamseyCounts<N, E, C, B>
-where
-    B: Bitset,
-    B::Bits: Clone,
-{
-    fn short_form(&self) -> String {
-        let graphs = self.graph.graphs();
-        let counts = self.clique_counts().0;
-        graphs
-            .iter()
-            .zip(counts.iter())
-            .enumerate()
-            .map(|(i, (g, c))| format!("g_{i}:\n{g}k_{i}: {c}\n"))
-            .join("\n")
-    }
-}
 
 #[cfg(feature = "tensorboard")]
 impl<const C: usize> az_discrete_opt::tensorboard::Summarize for TotalCounts<C> {

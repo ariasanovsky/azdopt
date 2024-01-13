@@ -33,7 +33,7 @@ where
 
     type Action = ReassignColor;
 
-    type Reward = CountChange;
+    type RewardHint = CountChange;
 
     type Cost = TotalCounts<C>;
 
@@ -53,7 +53,7 @@ where
         }
     }
 
-    fn reward(&self, state: &Self::State, index: usize) -> Self::Reward {
+    fn reward(&self, state: &Self::State, index: usize) -> Self::RewardHint {
         debug_assert!(index < Self::ACTION_DIM);
         debug_assert!(state.permitted_edges.contains(&(index % E)));
         let new_color = index / E;
@@ -90,7 +90,7 @@ where
     fn action_data<'a>(
         &self,
         state: &'a Self::State,
-    ) -> impl Iterator<Item = (usize, Self::Reward)> + 'a {
+    ) -> impl Iterator<Item = (usize, Self::RewardHint)> + 'a {
         let colors = (0..N).flat_map(move |v| (0..v).map(move |u| state.state.graph().color(v, u)));
         struct _ActionData {
             e_pos: usize,
@@ -163,7 +163,7 @@ where
             .sum()
     }
 
-    fn g_theta_star_sa(&self, _c_s: &Self::Cost, r_sa: Self::Reward, h_theta_s_a: f32) -> f32 {
+    fn g_theta_star_sa(&self, _c_s: &Self::Cost, r_sa: Self::RewardHint, h_theta_s_a: f32) -> f32 {
         let r_sa = r_sa.old_count as f32 * self.weights[r_sa.old_color]
             - r_sa.new_count as f32 * self.weights[r_sa.new_color];
         // r_sa + h_theta_s_a.powi(2)
@@ -211,7 +211,7 @@ mod tests {
         let mut state = State::generate(&mut rng, counts, E);
         while !space.is_terminal(&state) {
             let actions = space.action_data(&state).collect::<Vec<_>>();
-            let (action_pos, count_change) = actions.choose(&mut rng).unwrap().clone();
+            let (action_pos, _count_change) = actions.choose(&mut rng).unwrap().clone();
             let action = space.action(action_pos);
             let mut next_state = state.clone();
             space.act(&mut next_state, &action);
@@ -254,7 +254,7 @@ graph:\n{}
         let mut state = State::generate(&mut rng, counts, E);
         while !space.is_terminal(&state) {
             let actions = space.action_data(&state).collect::<Vec<_>>();
-            let (action_pos, count_change) = actions.choose(&mut rng).unwrap().clone();
+            let (action_pos, _count_change) = actions.choose(&mut rng).unwrap().clone();
             let action = space.action(action_pos);
             let mut next_state = state.clone();
             space.act(&mut next_state, &action);

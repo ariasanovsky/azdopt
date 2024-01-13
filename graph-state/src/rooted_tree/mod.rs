@@ -1,6 +1,4 @@
 pub mod ordered_edge;
-pub mod prohibited_space;
-mod short_form;
 pub mod space;
 mod try_from;
 pub mod modify_parent_once;

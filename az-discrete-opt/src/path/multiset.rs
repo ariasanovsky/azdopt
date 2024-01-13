@@ -33,15 +33,6 @@ impl ActionPath for ActionMultiset {
         self.actions.clear();
     }
 
-    fn push<Space>(&mut self, space: &Space, action: &Space::Action)
-    where
-        Space: crate::space::StateActionSpace,
-        Self: super::ActionPathFor<Space>,
-    {
-        let index = space.index(action);
-        unsafe { self.push_unchecked(index) }
-    }
-
     fn actions_taken(&self) -> impl Iterator<Item = usize> + '_ {
         self.actions
             .iter()

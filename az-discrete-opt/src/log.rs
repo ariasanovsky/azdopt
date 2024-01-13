@@ -1,7 +1,3 @@
-pub trait ShortForm {
-    fn short_form(&self) -> String;
-}
-
 pub struct ArgminData<S, C> {
     pub state: S,
     pub cost: C,
