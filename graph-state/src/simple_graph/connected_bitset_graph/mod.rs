@@ -13,7 +13,6 @@ use super::{bitset_graph::BitsetGraph, edge::Edge};
 mod block;
 mod display;
 mod graph6;
-mod state;
 mod try_from;
 
 #[derive(Clone, Debug)]
@@ -344,15 +343,6 @@ pub struct Conjecture2Dot1Cost {
     pub lambda_1: f64,
 }
 
-impl az_discrete_opt::state::cost::Cost<f32> for Conjecture2Dot1Cost {
-    fn evaluate(&self) -> f32 {
-        let Self { matching, lambda_1 } = self;
-        let matching_number = matching.len() as f64;
-        let cost = matching_number + lambda_1;
-        cost as f32
-    }
-}
-
 impl core::fmt::Debug for Conjecture2Dot1Cost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map()
@@ -365,9 +355,9 @@ impl core::fmt::Debug for Conjecture2Dot1Cost {
 #[cfg(feature = "tensorboard")]
 impl Summarize for Conjecture2Dot1Cost {
     fn summary(&self) -> Summary {
-        use az_discrete_opt::state::cost::Cost;
+        let cost = self.lambda_1 + self.matching.len() as f64;
         tensorboard_writer::SummaryBuilder::new()
-            .scalar("cost/cost", self.evaluate())
+            .scalar("cost/cost", cost as _)
             .scalar("cost/lambda_1", self.lambda_1 as _)
             .scalar("cost/mu", self.matching.len() as _)
             .build()

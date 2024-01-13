@@ -1,5 +1,3 @@
-use crate::space::StateActionSpace;
-
 use super::{ActionPath, ActionPathFor};
 
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -28,15 +26,6 @@ impl ActionPath for ActionSequence {
 
     fn clear(&mut self) {
         self.actions.clear();
-    }
-
-    fn push<Space>(&mut self, space: &Space, action: &Space::Action)
-    where
-        Space: StateActionSpace,
-        Self: ActionPathFor<Space>,
-    {
-        let index = space.index(action);
-        unsafe { self.push_unchecked(index) }
     }
 
     fn actions_taken(&self) -> impl Iterator<Item = usize> + '_ {

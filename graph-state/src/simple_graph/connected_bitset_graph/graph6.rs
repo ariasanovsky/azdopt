@@ -1,18 +1,6 @@
-use az_discrete_opt::log::ShortForm;
-
 use crate::bitset::Bitset;
 
 use super::ConnectedBitsetGraph;
-
-impl<const N: usize, B> ShortForm for ConnectedBitsetGraph<N, B>
-where
-    B: Bitset,
-{
-    fn short_form(&self) -> String {
-        let graph6 = self.graph6();
-        String::from_utf8(graph6).unwrap()
-    }
-}
 
 impl<const N: usize, B> ConnectedBitsetGraph<N, B>
 where

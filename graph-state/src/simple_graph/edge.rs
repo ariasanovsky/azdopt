@@ -63,6 +63,10 @@ impl Edge {
             v += 1;
         }
     }
+
+    pub fn edges<const N: usize>() -> impl Iterator<Item = Self> {
+        (0..N).flat_map(|v| (0..v).map(move |u| unsafe { Self::new_unchecked(v, u) }))
+    }
 }
 
 #[cfg(test)]

@@ -175,7 +175,7 @@ impl<const N: usize, B> BitsetGraph<N, B> {
                     let common_neighbors = common_neighbors.intersection(&self.neighborhoods[u]);
                     self.count_cliques_inside(common_neighbors, size - 1)
                 })
-                .sum(),
+                .sum::<i32>() / size as i32,
         }
     }
 }

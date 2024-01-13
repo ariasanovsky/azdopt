@@ -57,6 +57,7 @@ impl<P> SearchTree<P> {
         sizes.into_iter()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn roll_out_episodes<Space>(
         &mut self,
         space: &Space,
