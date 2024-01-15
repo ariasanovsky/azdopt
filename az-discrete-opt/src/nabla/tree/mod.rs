@@ -102,6 +102,7 @@ impl<P> SearchTree<P> {
                 state_position,
                 action_position,
             };
+            // dbg!(&transition);
             // transitions.push(transition.clone());
             let action_num = action_data.action();
             unsafe { path.push_unchecked(action_num) };

@@ -1,5 +1,5 @@
 use core::num::NonZeroUsize;
-use std::{collections::BTreeMap, ops::AddAssign};
+use std::collections::BTreeSet;
 
 use crate::{
     nabla::space::NablaStateActionSpace,
@@ -8,35 +8,31 @@ use crate::{
 
 use super::{SearchTree, Transition};
 
-struct Decay(f32);
+// struct Decay(f32);
 
 pub(crate) struct DecayTracker {
-    current_nodes: BTreeMap<NonZeroUsize, Decay>,
-    next_nodes: BTreeMap<NonZeroUsize, Decay>,
+    current_nodes: BTreeSet<NonZeroUsize>,
+    next_nodes: BTreeSet<NonZeroUsize>,
 }
 
 impl DecayTracker {
-    fn new(state_pos: NonZeroUsize, decay: Decay) -> Self {
+    fn new(state_pos: NonZeroUsize) -> Self {
         Self {
-            current_nodes: core::iter::once((state_pos, decay)).collect(),
-            next_nodes: BTreeMap::new(),
+            current_nodes: core::iter::once(state_pos).collect(),
+            next_nodes: BTreeSet::new(),
         }
     }
 
-    fn pop_front(&mut self) -> Option<(NonZeroUsize, Decay)> {
+    fn pop_front(&mut self) -> Option<NonZeroUsize> {
         self.current_nodes.pop_first().or_else(|| {
             core::mem::swap(&mut self.current_nodes, &mut self.next_nodes);
             self.current_nodes.pop_first()
         })
     }
 
-    fn insert_or_update(&mut self, state_pos: NonZeroUsize, decay: Decay) {
+    fn insert(&mut self, state_pos: NonZeroUsize) -> bool {
         self.next_nodes
-            .entry(state_pos)
-            .and_modify(|Decay(d)| {
-                d.add_assign(decay.0);
-            })
-            .or_insert(decay);
+            .insert(state_pos)
     }
 }
 
@@ -59,46 +55,79 @@ impl<P> SearchTree<P> {
 
         let mut reached_root = false;
 
-        let mut decay_tracker = DecayTracker::new(state_pos.unwrap(), Decay(decay));
-        while let Some((parent_pos, parent_decay)) = decay_tracker.pop_front() {
-            let parent_exhausted = self.nodes[parent_pos.get()].is_exhausted();
-            let parent_c_star = self.nodes[parent_pos.get()].c_star;
-            let children = self.in_neighborhoods.get_mut(parent_pos.get()).unwrap();
-            children.retain(
-                |Transition {
-                     state_position,
-                     action_position,
-                 }| {
-                    let child_node = &self.nodes[*state_position];
-                    let action_data = &child_node.actions[*action_position];
-                    action_data.g_sa().is_some()
+        let mut decay_tracker = DecayTracker::new(state_pos.unwrap());
+        while let Some(child_pos) = decay_tracker.pop_front() {
+            // dbg!(child_pos);
+            let child_c_star = self.nodes[child_pos.get()].c_star;
+            let child_exhausted = self.nodes[child_pos.get()].is_exhausted();
+            let parents = self.in_neighborhoods.get(child_pos.get()).unwrap();
+            match child_exhausted {
+                true => for Transition {
+                    state_position: parent_pos,
+                    action_position,
+                } in parents {
+                    // dbg!(parent_pos);
+                    let parent_node = &mut self.nodes[*parent_pos];
+                    parent_node.update_c_star_and_exhaust(*action_position, child_c_star);
+                    if let Some(parent_pos) = NonZeroUsize::new(*parent_pos) {
+                        decay_tracker.insert(parent_pos);
+                    } else {
+                        reached_root = true;
+                    }
                 },
-            );
-            let num_children = children.len();
-            let num_children = NonZeroUsize::new(num_children).expect("No children");
-            for Transition {
-                state_position: child_pos,
-                action_position,
-            } in self.in_neighborhoods.get(parent_pos.get()).unwrap()
-            {
-                let child_node = &mut self.nodes[*child_pos];
-                match parent_exhausted {
-                    true => {
-                        child_node.exhaust_action(*action_position);
+                false => for Transition {
+                    state_position: parent_pos,
+                    action_position,
+                } in parents {
+                    // dbg!(parent_pos);
+                    let parent_node = &mut self.nodes[*parent_pos];
+                    parent_node.update_c_star_and_decay(*action_position, child_c_star, decay);
+                    if let Some(parent_pos) = NonZeroUsize::new(*parent_pos) {
+                        decay_tracker.insert(parent_pos);
+                    } else {
+                        reached_root = true;
                     }
-                    false => {
-                        child_node.update_c_star(parent_c_star, *action_position, parent_decay.0);
-                    }
-                }
-                if let Some(child_pos) = NonZeroUsize::new(*child_pos) {
-                    decay_tracker.insert_or_update(
-                        child_pos,
-                        Decay(parent_decay.0 / num_children.get() as f32),
-                    );
-                } else {
-                    reached_root = true;
-                }
+                },
             }
+            // let children = self.in_neighborhoods.get_mut(parent_pos.get()).unwrap();
+            // children.retain(
+            //     |Transition {
+            //          state_position,
+            //          action_position,
+            //      }| {
+            //         let child_node = &self.nodes[*state_position];
+            //         let action_data = &child_node.actions[*action_position];
+            //         action_data.g_sa().is_some()
+            //     },
+            // );
+            // let num_children = children.len();
+            // let num_children = NonZeroUsize::new(num_children).expect("No children");
+            // for Transition {
+            //     state_position: child_pos,
+            //     action_position,
+            // } in children
+            // {
+            //     let child_node = &mut self.nodes[*child_pos];
+            //     child_node.update_with_parent_c_star(*action_position, parent_c_star, decay);
+            //     match parent_exhausted {
+            //         true => {
+            //             child_node.exhaust_action(*action_position);
+            //         }
+            //         false => {
+            //             child_node.update_c_star(parent_c_star, *action_position, parent_decay.0);
+            //         }
+            //     }
+            //     if let Some(child_pos) = NonZeroUsize::new(*child_pos) {
+            //         decay_tracker.insert_or_update(
+            //             child_pos,
+            //             Decay(parent_decay.0 / num_children.get() as f32),
+            //         );
+            //     } else {
+            //         reached_root = true;
+            //     }
+            //     todo!();
+            // }
+            // todo!();
         }
 
         debug_assert!(reached_root);

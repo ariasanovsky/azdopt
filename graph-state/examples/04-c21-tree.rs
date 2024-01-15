@@ -29,7 +29,7 @@ type ModelH = (
     // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 1024;
+const BATCH: usize = 128;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
@@ -86,9 +86,9 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 800;
+    let episodes: usize = 3_200;
 
-    let decay = 0.2;
+    let decay = 1.1;
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");

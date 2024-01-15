@@ -25,7 +25,7 @@ impl StateNode {
                 .action_data(state)
                 .map(|(a, r)| {
                     let g_sa = space.g_theta_star_sa(cost, r, h_theta[a]);
-                    ActionData::new(a, g_sa)
+                    ActionData::new_predicted(a, g_sa)
                 })
                 .collect(),
         }
@@ -52,20 +52,46 @@ impl StateNode {
         }
     }
 
-    pub(crate) fn update_c_star(&mut self, c_star: f32, action_position: usize, decay: f32) {
-        debug_assert!(self.actions[action_position].g_sa().is_some());
-        if self.c_star > c_star {
-            // println!("improve node c_star!");
-            self.c_star = c_star;
-            let g = self.c - c_star;
-            debug_assert!(g > 0.0);
-            self.actions[action_position].update_g_sa(g);
+    // pub(crate) fn update_c_star(&mut self, c_star: f32, action_position: usize, decay: f32) {
+    //     debug_assert!(self.actions[action_position].g_sa().is_some());
+    //     if self.c_star > c_star {
+    //         // println!("improve node c_star!");
+    //         self.c_star = c_star;
+    //         let g = self.c - c_star;
+    //         debug_assert!(g > 0.0);
+    //         self.actions[action_position].update_g_sa(g);
+    //     } else {
+    //         self.actions[action_position].decay(decay);
+    //     }
+    // }
+
+    pub(crate) fn update_c_star_and_decay(
+        &mut self,
+        action_position: usize,
+        parent_c_star: f32,
+        decay: f32,
+    ) {
+        let action_data = &mut self.actions[action_position];
+        let g_sa = self.c - parent_c_star;
+        if self.c_star > parent_c_star {
+            self.c_star = parent_c_star;
+            action_data.update_g_sa(g_sa);
         } else {
-            self.actions[action_position].decay(decay);
+            action_data.decay(decay, g_sa);
         }
     }
 
-    pub(crate) fn exhaust_action(&mut self, action_position: usize) {
-        self.actions[action_position].exhaust();
+    pub(crate) fn update_c_star_and_exhaust(
+        &mut self,
+        action_position: usize,
+        parent_c_star: f32,
+    ) {
+        self.c_star = self.c_star.min(parent_c_star);
+        let action_data = &mut self.actions[action_position];
+        action_data.exhaust();
     }
+
+    // pub(crate) fn exhaust_action(&mut self, action_position: usize) {
+    //     self.actions[action_position].exhaust();
+    // }
 }
