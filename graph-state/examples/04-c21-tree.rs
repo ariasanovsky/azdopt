@@ -29,7 +29,7 @@ type ModelH = (
     // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 128;
+const BATCH: usize = 1;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
@@ -42,7 +42,7 @@ fn main() -> eyre::Result<()> {
     let mut writer: W = TensorboardWriter::new(writer);
     writer.write_file_version()?;
 
-    let num_permitted_actions_range = 10..=ACTION;
+    let num_permitted_actions_range = 3..=3;
     let cfg = AdamConfig {
         lr: 5e-3,
         betas: [0.9, 0.999],
@@ -73,7 +73,7 @@ fn main() -> eyre::Result<()> {
 
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
         let ArgminData { state, cost, eval } = argmin;
-        println!("{eval:12}\t{cost:?}");
+        // println!("{eval:12}\t{cost:?}");
         writer.write_summary(SystemTime::now(), step, cost.summary())?;
         writer.get_mut().flush()?;
 

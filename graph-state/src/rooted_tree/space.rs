@@ -44,12 +44,15 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
         debug_assert!(permitted_actions.contains(&action.index_ignoring_edge_0_1()));
         tree.set_parent(action);
         let child = action.child();
+        let size_before = permitted_actions.len();
         for u in 0..child {
             let edge = Edge::new(u, child);
             let edge = OrderedEdge::new(edge);
             let index = edge.index_ignoring_edge_0_1();
             permitted_actions.remove(&index);
         }
+        let size_after = permitted_actions.len();
+        debug_assert!(size_after < size_before);
     }
 
     fn action_data<'a>(
@@ -85,8 +88,8 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
         (self.eval)(cost)
     }
 
-    fn g_theta_star_sa(&self, c_s: &Self::Cost, _r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
-        h_theta_sa * self.evaluate(c_s)
+    fn g_theta_star_sa(&self, c_s: f32, _r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
+        h_theta_sa * c_s
     }
 
     fn h_sa(&self, c_s: f32, _c_as: f32, c_as_star: f32) -> f32 {

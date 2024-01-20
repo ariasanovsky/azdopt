@@ -1,60 +1,97 @@
-use std::collections::{BTreeMap, BTreeSet};
-
-use core::num::NonZeroUsize;
+use std::collections::BTreeMap;
 
 use crate::path::{ActionPath, ActionPathFor};
 
-use self::node::StateNode;
+use self::{state_weight::StateWeight, arc_weight::{ActionWeight, ActionPrediction}};
 
 use super::space::NablaStateActionSpace;
+
+use petgraph::{graph::DiGraph, visit::{IntoNodeReferences, EdgeRef}};
+
+pub(crate) use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
 pub mod empty_transitions;
 #[cfg(feature = "graphviz")]
 pub mod graphviz;
+pub mod next_action;
 pub mod node;
+pub mod graph_operations;
+pub mod state_weight;
+pub mod arc_weight;
 
 pub struct SearchTree<P> {
-    positions: BTreeMap<P, NonZeroUsize>,
-    nodes: Vec<StateNode>,
-    in_neighborhoods: Vec<BTreeSet<Transition>>,
+    positions: BTreeMap<P, NodeIndex>,
+    tree: DiGraph<StateWeight, ActionWeight>,
+    predictions: Vec<ActionPrediction>,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Transition {
-    pub(crate) state_position: usize,
-    pub(crate) action_position: usize,
+impl<P> Default for SearchTree<P> {
+    fn default() -> Self {
+        Self { positions: Default::default(), tree: Default::default(), predictions: Default::default() }
+    }
 }
 
 impl<P> SearchTree<P> {
-    pub fn new<Space: NablaStateActionSpace>(
-        space: &Space,
-        root: &Space::State,
-        cost: &Space::Cost,
-        h_theta: &[f32],
-    ) -> Self {
-        Self {
-            positions: Default::default(),
-            nodes: vec![StateNode::new(space, root, cost, h_theta)],
-            in_neighborhoods: vec![BTreeSet::new()],
-        }
+    pub fn clear(&mut self) {
+        self.positions.clear();
+        self.tree.clear();
+        self.predictions.clear();
     }
 
     pub fn sizes(&self) -> impl Iterator<Item = (usize, usize)> + '_
     where
         P: ActionPath,
     {
-        let mut sizes = vec![(1, 0)];
+        let mut sizes = vec![(0, 0)];
+        println!("{}", self.positions.len());
         for (p, i) in self.positions.iter() {
             let len = p.len();
             if len >= sizes.len() {
                 sizes.resize(len + 1, (0, 0));
             }
             sizes[len].0 += 1;
-            if self.nodes[i.get()].is_exhausted() {
+            if self.tree[*i].n_t.is_none() {
                 sizes[len].1 += 1;
             }
         }
         sizes.into_iter()
+    }
+
+    pub(crate) fn _exhausted_nodes(&self) -> Vec<usize> {
+        self.tree.node_weights().enumerate().filter_map(|(i, w)| {
+            if w.n_t.is_none() {
+                Some(i)
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    pub(crate) fn _print_neighborhoods(&self) {
+        for (node, weight) in self.tree.node_references() {
+            print!(
+                "{node:?}\t({})\t({:?})  \t{{",
+                weight.n_t.map_or(0, std::num::NonZeroU32::get),
+                weight.actions,
+            );
+            for e in self.tree.neighbors_directed(node, petgraph::Direction::Outgoing) {
+                print!("{e:?}, ");
+            }
+            println!("}}")
+        }
+        for edge in self.tree.edge_references() {
+            let weight = edge.weight();
+            let prediction = &self.predictions[weight.prediction_pos];
+            let id = edge.id();
+            let source = edge.source();
+            let target = edge.target();
+            println!("{id:?}\t{source:?}\t->\t{target:?}\t{weight:?}\t{prediction:?}");
+        }
+    }
+
+    pub(crate) fn _permitted_actions(&self, node: NodeIndex) -> Vec<usize> {
+        let action_range = self.tree[node].actions.clone();
+        self.predictions[action_range].iter().map(|p| p.a_id).collect()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -65,101 +102,130 @@ impl<P> SearchTree<P> {
         state: &mut Space::State,
         cost: &mut Space::Cost,
         path: &mut P,
-        // transitions: &mut Vec<Transition>,
-        state_pos: &mut Option<NonZeroUsize>,
-        decay: f32,
+        state_pos: &mut NodeIndex,
     ) where
         Space: NablaStateActionSpace,
         Space::State: Clone,
-        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
+        P: Ord + ActionPath + ActionPathFor<Space> + Clone + core::fmt::Debug,
     {
         loop {
-            // debug_assert_eq!(path.len(), transitions.len());
-            debug_assert_eq!(self.positions.len() + 1, self.nodes.len());
-            // for (p, pos) in self.positions.iter() {
-            //     let p = p.actions_taken().collect::<Vec<_>>();
-            //     println!("({pos}): {p:?}");
-            // }
-            // println!();
-            let state_position = state_pos.map(NonZeroUsize::get).unwrap_or(0);
-            let node = &mut self.nodes[state_position];
-            let Some((action_position, action_data)) = node.next_action() else {
-                if path.is_empty() {
-                    debug_assert_eq!(*state_pos, None);
-                    return;
-                }
-                debug_assert!(self.positions.contains_key(path));
-                self.clear_path(
-                    root, state, path, // transitions,
-                    state_pos, decay,
-                );
-                return self.roll_out_episodes(
-                    space, root, state, cost, path, // transitions,
-                    state_pos, decay,
-                );
-            };
-            let transition = Transition {
-                state_position,
-                action_position,
-            };
-            // dbg!(&transition);
-            // transitions.push(transition.clone());
-            let action_num = action_data.action();
-            unsafe { path.push_unchecked(action_num) };
-            let action = space.action(action_num);
-            space.act(state, &action);
+            println!("path: {path:?}");
+            let possible_actions = space.action_data(state).map(|(a, _)| a).collect::<Vec<_>>();
+            println!("{state_pos:?}");
+            println!("possible_actions: {possible_actions:?}");
+            println!("permited_actions: {:?}", self._permitted_actions(*state_pos));
+            println!("exhausted_nodes: {:?}", self._exhausted_nodes());
+            self._print_neighborhoods();
 
-            let next_position = action_data.next_position_mut();
-            match next_position {
-                Some(_) => {
-                    debug_assert_eq!(self.positions.get(path).copied(), *next_position);
-                    *state_pos = *next_position
-                }
-                None => match self.positions.get(path) {
-                    Some(&pos) => {
-                        let inserted = self.in_neighborhoods[pos.get()].insert(Transition {
-                            state_position,
-                            action_position,
-                        });
-                        debug_assert!(inserted);
-                        *next_position = Some(pos);
-                        *state_pos = Some(pos);
+
+            use next_action::NextAction;
+            let next_action = self.next_action(space, *state_pos);
+            match next_action {
+                Some(NextAction::Visited(arc_index)) => {
+                    println!(
+                        "\trevisiting arc {arc_index:?} (from {:?} to {:?})",
+                        self.tree.edge_endpoints(arc_index).unwrap().0,
+                        self.tree.edge_endpoints(arc_index).unwrap().1,
+                    );
+
+
+                    let prediction_pos = self.tree[arc_index].prediction_pos;
+                    let action_id = self.predictions[prediction_pos].a_id;
+                    unsafe { path.push_unchecked(action_id) };
+                    let action = space.action(action_id);
+                    space.act(state, &action);
+                    *state_pos = self.tree.edge_endpoints(arc_index).unwrap().1;
+                    if self.tree[*state_pos].n_t.is_none() {
+                        println!("\tterminal");
+                        // todo!();
+                    } else {
+                        println!("\tnot terminal");
+                        // todo!();
                     }
-                    None => {
-                        // we will insert a node at the end of the tree
-                        let next_pos = (1 + self.positions.len()).try_into().unwrap();
-                        *next_position = Some(next_pos);
-                        *state_pos = *next_position;
-                        self.in_neighborhoods
-                            .push(core::iter::once(transition).collect());
-                        self.positions.insert(path.clone(), next_pos);
-                        *cost = space.cost(state);
-                        if space.is_terminal(state) {
-                            let c_star = space.evaluate(cost);
-                            let node = StateNode::new_exhausted(c_star);
-                            self.push_node(node);
-                            self.clear_path(
-                                root, state, path, // transitions,
-                                state_pos, decay,
-                            );
-                            return self.roll_out_episodes(
-                                space, root, state, cost, path, // transitions,
-                                state_pos, decay,
-                            );
-                        }
-                        return;
+                },
+                Some(NextAction::Unvisited(prediction_pos)) => {
+                    let range = self.tree[*state_pos].actions.clone();
+                    debug_assert!(range.contains(&prediction_pos));
+                    let prediction = &self.predictions[prediction_pos];
+                    let action_id = prediction.a_id;
+                    println!(
+                        "\tfirst visit to {action_id} (pos = {prediction_pos}) from {state_pos:?}",
+                    );
+                    unsafe { path.push_unchecked(action_id) };
+                    let next_pos = self.positions.get(path);
+                    match next_pos {
+                        Some(next_pos) => {
+                            let arc_index = self.add_arc(*state_pos, *next_pos, prediction_pos);
+                            println!("\trediscovered node, resetting!\n");
+                            self.cascade_updates(arc_index);
+                            state.clone_from(root);
+                            path.clear();
+                            *state_pos = Default::default();
+                        },
+                        None => {
+                            let action = space.action(action_id);
+                            space.act(state, &action);
+                            *cost = space.cost(state);
+                            let c_as = space.evaluate(cost);
+                            let c_as_star = c_as;
+                            let weight = StateWeight::new(c_as);
+                            print!("\tnew node_weight {weight:?}");
+                            let next_pos = self.add_node(path.clone(), weight);
+                            println!(" on {next_pos:?}");
+                            let c_s = self.tree.node_weight(*state_pos).unwrap().c;
+                            let g_t_sa = c_s - c_as_star;
+                            let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
+                            // let arc_weight = ActionWeight {
+                            //     // g_t_sa,
+                            //     // h_t_sa: FiniteOrExhausted(h_t_sa),
+                            //     prediction_pos,
+                            // };
+                            let arc_index = self.add_arc(*state_pos, next_pos, prediction_pos);
+                            match space.is_terminal(state) {
+                                true => {
+                                    self.tree[next_pos].assert_exhausted();
+                                    println!("\texhausted_nodes: {:?}", self._exhausted_nodes());
+                                    self.cascade_updates(arc_index);
+                                    println!("\t->               {:?}", self._exhausted_nodes());
+                                    // todo!("terminal, so cascade updates and start over!");
+                                    state.clone_from(root);
+                                    path.clear();
+                                    *state_pos = Default::default();
+                                    println!("\treset!\n");
+                                },
+                                false => {
+                                    println!("\trequires prediction!");
+                                    *state_pos = next_pos;
+                                    return;
+                                },
+                            }
+                        },
+                    }
+                },
+                None => {
+                    match path.is_empty() {
+                        true => {
+                            debug_assert_eq!(state_pos.index(), 0);
+                            return;
+                        },
+                        false => {
+                            todo!();
+                            debug_assert!(self.positions.contains_key(path));
+                            todo!();
+                        },
                     }
                 },
             }
         }
     }
 
-    pub(crate) fn push_node(&mut self, node: StateNode)
-    where
-        P: Ord + ActionPath,
-    {
-        self.nodes.push(node);
-    }
+    // pub(crate) fn push_node(&mut self, node: StateNode)
+    // where
+    //     P: Ord + ActionPath,
+    // {
+    //     todo!();
+    //     // self.nodes.push(node);
+    // }
 
     pub(crate) fn write_observations<Space: NablaStateActionSpace>(
         &self,
@@ -167,40 +233,42 @@ impl<P> SearchTree<P> {
         observations: &mut [f32],
         weights: &mut [f32],
     ) {
-        let root_node = &self.nodes[0];
-        let c_s = root_node.c;
+        todo!();
+        // let root_node = &self.nodes[0];
+        // let c_s = root_node.c;
         // dbg!(c_s);
-        root_node
-            .actions
-            .iter()
-            .filter_map(|a| {
-                a.next_position().map(|node_as| {
-                    let node_as = &self.nodes[node_as.get()];
-                    (a.action(), node_as.c, node_as.c_star)
-                })
-            })
-            .for_each(|(a, c_as, c_as_star)| {
-                let h = space.h_sa(c_s, c_as, c_as_star);
-                // dbg!(h, a, c_as, c_as_star);
-                observations[a] = h;
-                weights[a] = 1.0;
-            });
+        // root_node
+        //     .actions
+        //     .iter()
+        //     .filter_map(|a| {
+        //         a.next_position().map(|node_as| {
+        //             let node_as = &self.nodes[node_as.get()];
+        //             (a.action(), node_as.c, node_as.c_star)
+        //         })
+        //     })
+        //     .for_each(|(a, c_as, c_as_star)| {
+        //         let h = space.h_sa(c_s, c_as, c_as_star);
+        //         // dbg!(h, a, c_as, c_as_star);
+        //         observations[a] = h;
+        //         weights[a] = 1.0;
+        //     });
     }
 
     pub(crate) fn node_data(&self) -> Vec<(Option<&P>, f32, f32)> {
-        core::iter::once((None, self.nodes[0].c, self.nodes[0].c_star))
-            .chain(self.positions.iter().map(|(p, pos)| {
-                let node = &self.nodes[pos.get()];
-                (Some(p), node.c, node.c_star)
-            }))
-            .collect()
+        todo!();
+        // core::iter::once((None, self.nodes[0].c, self.nodes[0].c_star))
+        //     .chain(self.positions.iter().map(|(p, pos)| {
+        //         let node = &self.nodes[pos.get()];
+        //         (Some(p), node.c, node.c_star)
+        //     }))
+        //     .collect()
     }
 
-    pub(crate) fn positions(&self) -> &BTreeMap<P, NonZeroUsize> {
+    pub(crate) fn positions(&self) -> &BTreeMap<P, NodeIndex> {
         &self.positions
     }
 
-    pub(crate) fn nodes(&self) -> &[StateNode] {
-        &self.nodes
+    pub(crate) fn nodes(&self) -> &[petgraph::graph::Node<StateWeight>] {
+        self.tree.raw_nodes()
     }
 }

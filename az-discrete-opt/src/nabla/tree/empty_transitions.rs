@@ -1,50 +1,88 @@
-use core::num::NonZeroUsize;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::{
-    nabla::space::NablaStateActionSpace,
+    nabla::{space::NablaStateActionSpace, tree::NodeIndex},
     path::{ActionPath, ActionPathFor},
 };
 
-use super::{SearchTree, Transition};
+use super::{EdgeIndex, SearchTree};
 
-// struct Decay(f32);
-
-pub(crate) struct DecayTracker {
-    current_nodes: BTreeSet<NonZeroUsize>,
-    next_nodes: BTreeSet<NonZeroUsize>,
+pub(crate) struct CascadeTracker {
+    current_nodes: BTreeMap<NodeIndex, bool>,
+    next_nodes: BTreeMap<NodeIndex, bool>,
 }
 
-impl DecayTracker {
-    fn new(state_pos: NonZeroUsize) -> Self {
+impl CascadeTracker {
+    fn new(state_pos: NodeIndex, child_active: bool) -> Self {
         Self {
-            current_nodes: core::iter::once(state_pos).collect(),
-            next_nodes: BTreeSet::new(),
+            current_nodes: core::iter::once((state_pos, child_active)).collect(),
+            next_nodes: BTreeMap::new(),
         }
     }
 
-    fn pop_front(&mut self) -> Option<NonZeroUsize> {
+    fn pop_front(&mut self) -> Option<(NodeIndex, bool)> {
         self.current_nodes.pop_first().or_else(|| {
             core::mem::swap(&mut self.current_nodes, &mut self.next_nodes);
             self.current_nodes.pop_first()
         })
     }
 
-    fn insert(&mut self, state_pos: NonZeroUsize) -> bool {
-        self.next_nodes
-            .insert(state_pos)
+    fn upsert(&mut self, state_pos: NodeIndex, child_active: bool) -> bool {
+        let foo = self.next_nodes.entry(state_pos);
+        let foo = foo.and_modify(|active_child_seen| {
+            *active_child_seen = *active_child_seen || child_active;
+        }).or_insert(child_active);
+        *foo
     }
 }
 
 impl<P> SearchTree<P> {
-    pub(crate) fn clear_path<Space>(
+    pub(crate) fn cascade_updates(&mut self, edge_id: EdgeIndex) {
+        let edge = &self.tree.raw_edges()[edge_id.index()];
+        let child_pos = edge.target();
+        let parent_pos = edge.source();
+        let child_weight = &mut self.tree[child_pos];
+        let s_t_active = match &mut child_weight.n_t {
+            Some(n_t) => {
+                *n_t = n_t.checked_add(1).unwrap();
+                true
+            },
+            None => false,
+        };
+        let child_c_star = child_weight.c_t_star;
+        let aparent_c_star = &mut self.tree[parent_pos].c_t_star;
+        *aparent_c_star = aparent_c_star.min(child_c_star);
+        let mut cascade_tracker = CascadeTracker::new(parent_pos, s_t_active);
+        while let Some((child_pos, seen_active_child)) = cascade_tracker.pop_front() {
+            let n_t = match seen_active_child {
+                true => Some(self.tree[child_pos].n_t.as_mut().expect("cannot visit an exhausted node")),
+                false => {self.update_exhaustion(child_pos)},
+            };
+            let child_is_active = match n_t {
+                Some(n_t) => {
+                    *n_t = n_t.checked_add(1).unwrap();
+                    true
+                },
+                None => false,
+            };
+            let mut neigh = self.tree.neighbors_directed(child_pos, petgraph::Direction::Incoming).detach();
+            while let Some(parent_pos) = neigh.next_node(&self.tree) {
+                let parent_weight = &mut self.tree[parent_pos];
+                let parent_c_star = &mut parent_weight.c_t_star;
+                *parent_c_star = parent_c_star.min(child_c_star);
+                cascade_tracker.upsert(parent_pos, child_is_active);
+            }
+            // todo!();
+        }
+    }
+
+    pub(crate) fn _clear_path<Space>(
         &mut self,
+        space: &Space,
         root: &Space::State,
         state: &mut Space::State,
         path: &mut P,
-        // transitions: &mut Vec<Transition>,
-        state_pos: &mut Option<NonZeroUsize>,
-        decay: f32,
+        state_pos: &mut NodeIndex,
     ) where
         Space: NablaStateActionSpace,
         Space::State: Clone,
@@ -54,41 +92,45 @@ impl<P> SearchTree<P> {
         debug_assert!(self.positions.contains_key(path));
 
         let mut reached_root = false;
-
-        let mut decay_tracker = DecayTracker::new(state_pos.unwrap());
+        todo!();
+        let mut decay_tracker: CascadeTracker = todo!(); //DecayTracker::new(state_pos.unwrap());
         while let Some(child_pos) = decay_tracker.pop_front() {
             // dbg!(child_pos);
-            let child_c_star = self.nodes[child_pos.get()].c_star;
-            let child_exhausted = self.nodes[child_pos.get()].is_exhausted();
-            let parents = self.in_neighborhoods.get(child_pos.get()).unwrap();
-            match child_exhausted {
-                true => for Transition {
-                    state_position: parent_pos,
-                    action_position,
-                } in parents {
-                    // dbg!(parent_pos);
-                    let parent_node = &mut self.nodes[*parent_pos];
-                    parent_node.update_c_star_and_exhaust(*action_position, child_c_star);
-                    if let Some(parent_pos) = NonZeroUsize::new(*parent_pos) {
-                        decay_tracker.insert(parent_pos);
-                    } else {
-                        reached_root = true;
-                    }
-                },
-                false => for Transition {
-                    state_position: parent_pos,
-                    action_position,
-                } in parents {
-                    // dbg!(parent_pos);
-                    let parent_node = &mut self.nodes[*parent_pos];
-                    parent_node.update_c_star_and_decay(*action_position, child_c_star, decay);
-                    if let Some(parent_pos) = NonZeroUsize::new(*parent_pos) {
-                        decay_tracker.insert(parent_pos);
-                    } else {
-                        reached_root = true;
-                    }
-                },
-            }
+            todo!();
+            // let c_as = self.nodes[child_pos.get()].c_star;
+            // let c_as_star = self.nodes[child_pos.get()].c_star;
+            // let child_exhausted = self.nodes[child_pos.get()].is_exhausted();
+            // let parents = self.in_neighborhoods.get(child_pos.get()).unwrap();
+            // match child_exhausted {
+            //     true => for Transition {
+            //         state_position: parent_pos,
+            //         action_position,
+            //     } in parents {
+            //         // dbg!(parent_pos);
+            //         let parent_node = &mut self.nodes[*parent_pos];
+            //         parent_node.exhaust(*action_position, c_as_star);
+            //         if let Some(parent_pos) = NonZeroUsize::new(*parent_pos) {
+            //             decay_tracker.insert(parent_pos);
+            //         } else {
+            //             reached_root = true;
+            //         }
+            //     },
+            //     false => for Transition {
+            //         state_position: parent_pos,
+            //         action_position,
+            //     } in parents {
+            //         // dbg!(parent_pos);
+            //         let parent_node = &mut self.nodes[*parent_pos];
+            //         let c_s = parent_node.c;
+            //         let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
+            //         parent_node.update_h_t_sa(*action_position, c_as_star, h_t_sa);
+            //         if let Some(parent_pos) = NonZeroUsize::new(*parent_pos) {
+            //             decay_tracker.insert(parent_pos);
+            //         } else {
+            //             reached_root = true;
+            //         }
+            //     },
+            // }
             // let children = self.in_neighborhoods.get_mut(parent_pos.get()).unwrap();
             // children.retain(
             //     |Transition {
@@ -133,8 +175,9 @@ impl<P> SearchTree<P> {
         debug_assert!(reached_root);
         // transitions.clear();
         // debug_assert_ne!(transitions.capacity(), 0);
-        path.clear();
-        state.clone_from(root);
-        *state_pos = None;
+        todo!();
+        // path.clear();
+        // state.clone_from(root);
+        // *state_pos = None;
     }
 }
