@@ -19,10 +19,10 @@ impl<P> SearchTree<P> {
 
     pub(crate) fn add_arc(&mut self, parent: NodeIndex, child: NodeIndex, prediction_pos: usize) -> EdgeIndex {
         let arc_weight = ActionWeight { prediction_pos };
-        print!("\tnew arc_weight: {arc_weight:?}");
+        // print!("\tnew arc_weight: {arc_weight:?}");
         let arc_index = self.tree.add_edge(parent, child, arc_weight);
         self.predictions[prediction_pos].edge_id = Some(arc_index);
-        println!(" on {arc_index:?}");
+        // println!(" on {arc_index:?}");
         arc_index
     }
 
@@ -43,7 +43,7 @@ impl<P> SearchTree<P> {
                 let g_theta_sa = space.g_theta_star_sa(c, r_sa, h_theta_sa);
                 ActionPrediction {
                     a_id,
-                    h_theta_sa,
+                    // h_theta_sa,
                     g_theta_sa,
                     edge_id: None,
                 }
@@ -55,24 +55,35 @@ impl<P> SearchTree<P> {
     }
 
     pub(crate) fn update_exhaustion(&mut self, id: NodeIndex) -> Option<&mut NonZeroU32> {
-        println!("\t\tupdating exhaustion for {id:?}");
+        // println!("tupdating exhaustion for {id:?}");
         let action_range = &self.tree[id].actions;
         let actions = &self.predictions[action_range.clone()];
+        // println!("actions: {actions:?}");
         let active = actions.iter().any(|a| {
             match a.edge_id {
                 Some(edge_id) => {
+                    // println!("\tedge_id: {edge_id:?}");
                     let e = &self.tree.raw_edges()[edge_id.index()];
                     let child = e.target();
+                    // println!("child weight: {:?}", self.tree[child]);
                     match self.tree[child].n_t {
-                        Some(_) => true,
-                        None => false,
+                        Some(_a) => {
+                            // println!("\t\tactive");
+                            true
+                        },
+                        None => {
+                            // println!("\t\tinactive");
+                            false
+                        },
                     }
                 },
                 None => {
+                    // println!("\tactive");
                     true
                 },
             }
         });
+        // println!("active: {active}");
         let n_t = &mut self.tree[id].n_t;
         if !active {
             debug_assert!(n_t.is_some());

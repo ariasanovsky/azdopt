@@ -1,6 +1,6 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{path::{set::ActionSet, ActionPath}, tensorboard::{tf_path, Summarize}, nabla::{model::dfdx::ActionModel, optimizer::{NablaOptimizer, ArgminImprovement}, space::NablaStateActionSpace}, log::ArgminData};
+use az_discrete_opt::{path::{set::ActionSet, ActionPath}, tensorboard::{tf_path, Summarize}, nabla::{model::dfdx::ActionModel, optimizer::{NablaOptimizer, ArgminImprovement}, space::NablaStateActionSpace, tree::state_weight::{StateWeight}}, log::ArgminData};
 use chrono::Utc;
 use dfdx::{nn::{modules::ReLU, builders::Linear}, tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}};
 use eyre::Context;
@@ -25,11 +25,11 @@ type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
-    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
-    // (Linear<HIDDEN_3, ACTION>, ReLU),
+    // (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 1;
+const BATCH: usize = 256;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
@@ -42,9 +42,9 @@ fn main() -> eyre::Result<()> {
     let mut writer: W = TensorboardWriter::new(writer);
     writer.write_file_version()?;
 
-    let num_permitted_actions_range = 3..=3;
+    let num_permitted_actions_range = 9..=ACTION;
     let cfg = AdamConfig {
-        lr: 5e-3,
+        lr: 1e-4,
         betas: [0.9, 0.999],
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)),
@@ -73,7 +73,7 @@ fn main() -> eyre::Result<()> {
 
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
         let ArgminData { state, cost, eval } = argmin;
-        // println!("{eval:12}\t{cost:?}");
+        println!("{eval:12}\t{cost:?}");
         writer.write_summary(SystemTime::now(), step, cost.summary())?;
         writer.get_mut().flush()?;
 
@@ -86,14 +86,12 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 3_200;
-
-    let decay = 1.1;
+    let episodes: usize = 1_600;
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            let new_argmin = optimizer.par_roll_out_episodes(decay);
+            let new_argmin = optimizer.par_roll_out_episodes();
             match new_argmin {
                 ArgminImprovement::Improved(argmin) => {
                     let step = (episodes * (epoch - 1) + episode) as i64;
@@ -110,11 +108,11 @@ fn main() -> eyre::Result<()> {
                     .sizes()
                     .collect::<Vec<_>>();
                 println!("sizes: {sizes:?}");
-
                 let graph = optimizer.get_trees()[0].graphviz();
                 std::fs::write("tree.png", graph).unwrap();
                 let graph = optimizer.get_trees()[BATCH - 1].graphviz();
                 std::fs::write("tree2.png", graph).unwrap();
+                // panic!();
             }
         }
 
@@ -127,9 +125,11 @@ fn main() -> eyre::Result<()> {
             optimizer.argmin_data().cost.summary(),
         )?;
         writer.get_mut().flush()?;
-        let modify_root = |space: &Space, state: &mut S, mut n: Vec<(Option<&P>, f32, f32)>| {
+        let modify_root = |space: &Space, state: &mut S, mut n: Vec<(&P, &StateWeight)>| {
             let mut rng = rand::thread_rng();
-            let (_, c_root, c_root_star) = n[0];
+            let (_, state_weight) = n[0];
+            let c_root = state_weight.c();
+            let c_root_star = state_weight.c_star();
             if c_root == c_root_star {
                 let num_permitted_actions = state.permitted_actions.len();
                 if !num_permitted_actions_range.contains(&num_permitted_actions) {
@@ -138,27 +138,23 @@ fn main() -> eyre::Result<()> {
                     let num_prohibitions = rng.gen_range(num_permitted_actions_range.clone());
                     *state = ROTWithActionPermissions::generate(&mut rng, num_prohibitions);
                 } else {
-                    n.retain(|(_, c, _)| *c == c_root);
-                    let (p, _, _) = n.choose(&mut rng).unwrap();
-                    if let Some(p) = p {
-                        p.actions_taken().for_each(|a| {
-                            let a = space.action(a);
-                            space.act(state, &a);
-                        })
-                    }
+                    n.retain(|(_, w)| w.c() == c_root);
+                    let (p, _) = n.choose(&mut rng).unwrap();
+                    p.actions_taken().for_each(|a| {
+                        let a = space.action(a);
+                        space.act(state, &a);
+                    });
                     let range = num_permitted_actions..=*num_permitted_actions_range.end();
                     let num_permitted_edges = rng.gen_range(range);
                     state.randomize_permitted_actions(&mut rng, num_permitted_edges);
                 }
             } else {
-                n.retain(|(_, c, _)| *c == c_root_star);
-                let (p, _, _) = n.choose(&mut rng).unwrap();
-                if let Some(p) = p {
-                    p.actions_taken().for_each(|a| {
-                        let a = space.action(a);
-                        space.act(state, &a);
-                    })
-                }
+                n.retain(|(_, w)| w.c() < c_root);
+                let (p, _) = n.choose(&mut rng).unwrap();
+                p.actions_taken().for_each(|a| {
+                    let a = space.action(a);
+                    space.act(state, &a);
+                });
                 let num_permitted_actions = rng.gen_range(num_permitted_actions_range.clone());
                 state.randomize_permitted_actions(&mut rng, num_permitted_actions);
             }

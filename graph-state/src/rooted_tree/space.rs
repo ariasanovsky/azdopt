@@ -89,11 +89,13 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
     }
 
     fn g_theta_star_sa(&self, c_s: f32, _r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
-        h_theta_sa * c_s
+        // h_theta_sa * c_s
+        h_theta_sa.min(c_s)
     }
 
     fn h_sa(&self, c_s: f32, _c_as: f32, c_as_star: f32) -> f32 {
-        c_as_star / c_s
+        // 1. - c_as_star / c_s
+        c_s - c_as_star
     }
 }
 

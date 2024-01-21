@@ -115,10 +115,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_roll_out_episodes(
-        &mut self,
-        decay: f32,
-    ) -> ArgminImprovement<Space::State, Space::Cost>
+    pub fn par_roll_out_episodes(&mut self) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
@@ -130,13 +127,10 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             slice::{ParallelSlice, ParallelSliceMut},
         };
 
-        use crate::nabla::tree::node::StateNode;
-
         let trees = &mut self.trees;
         let roots = &self.roots;
         let states = &mut self.states;
         let paths = &mut self.paths;
-        // let transitions = &mut self.transitions;
         let costs = &mut self.costs;
         let last_positions = &mut self.last_positions;
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
@@ -144,7 +138,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots.len(),
             states.len(),
             paths.len(),
-            // transitions.len(),
             costs.len(),
             last_positions.len(),
             state_vecs.len(),
@@ -156,7 +149,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots,
             states,
             paths,
-            // transitions,
             costs,
             last_positions,
             state_vecs,
@@ -168,7 +160,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                     r,
                     s,
                     p,
-                    // trans,
                     c,
                     pos,
                     v,
@@ -179,7 +170,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                         s,
                         c,
                         p,
-                        // trans,
                         pos,
                     );
                     if !p.is_empty() {
@@ -300,7 +290,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     #[cfg(feature = "rayon")]
     pub fn par_reset_trees(
         &mut self,
-        modify_root: impl Fn(&Space, &mut Space::State, Vec<(Option<&P>, f32, f32)>) + Sync,
+        modify_root: impl Fn(&Space, &mut Space::State, Vec<(&P, &super::tree::state_weight::StateWeight)>) + Sync,
     ) where
         Space: Sync,
         P: Ord + Send + Sync + crate::path::ActionPathFor<Space>,

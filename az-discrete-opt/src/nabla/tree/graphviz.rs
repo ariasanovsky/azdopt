@@ -1,13 +1,41 @@
 use dot_generator::*;
 use dot_structures::*;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
+use petgraph::visit::IntoNodeReferences;
 
-use super::{SearchTree, node::action::NextPositionData};
+use super::SearchTree;
 
 impl<P> SearchTree<P> {
     pub fn graphviz(&self) -> Vec<u8> {
         let mut g = graph!(id!("search_tree"));
-
+        for (u, n) in self.tree.node_references() {
+            let u_id = u.index();
+            let node = match n.n_t.is_some() {
+                false => node!(
+                    u_id;
+                    attr!("shape", "doublecircle")
+                ),
+                true => node!(u_id),
+            };
+            g.add_stmt(Stmt::Node(node));
+        }
+        for u in self.tree.node_indices() {
+            let u_id = u.index();
+            for v in self.tree.neighbors_directed(u, petgraph::Direction::Outgoing) {
+                let v_id = v.index();
+                let edge = match self.tree[v].n_t.is_some() {
+                    false => edge!(
+                        node_id!(u_id) => node_id!(v_id)
+                    ),
+                    true => edge!(
+                        node_id!(u_id) => node_id!(v_id);
+                        attr!("dir", "forward")
+                    ),
+                };
+                let e = Stmt::Edge(edge);
+                g.add_stmt(e);
+            }
+        }
         // for (u, n) in self.nodes.iter().enumerate() {
         //     let node = match n.is_exhausted() {
         //         true => node!(

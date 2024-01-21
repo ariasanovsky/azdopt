@@ -19,6 +19,15 @@ impl StateWeight {
     }
 
     pub(crate) fn assert_exhausted(&mut self) {
+        debug_assert!(self.n_t.is_some());
         self.n_t = None;
+    }
+
+    pub fn c(&self) -> f32 {
+        self.c
+    }
+
+    pub fn c_star(&self) -> f32 {
+        self.c_t_star
     }
 }
