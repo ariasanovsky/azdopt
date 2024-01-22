@@ -1,8 +1,8 @@
-use petgraph::stable_graph::{NodeIndex, EdgeIndex};
+use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
 use crate::nabla::{space::NablaStateActionSpace, tree::arc_weight::ActionPrediction};
 
-use super::{SearchTree, state_weight::{StateWeight, NumLeafDescendants}, arc_weight::ActionWeight};
+use super::{arc_weight::ActionWeight, state_weight::StateWeight, SearchTree};
 
 impl<P> SearchTree<P> {
     pub(crate) fn add_node(&mut self, p: P, weight: StateWeight) -> NodeIndex
@@ -15,7 +15,12 @@ impl<P> SearchTree<P> {
         index
     }
 
-    pub(crate) fn add_arc(&mut self, parent: NodeIndex, child: NodeIndex, prediction_pos: usize) -> EdgeIndex {
+    pub(crate) fn add_arc(
+        &mut self,
+        parent: NodeIndex,
+        child: NodeIndex,
+        prediction_pos: usize,
+    ) -> EdgeIndex {
         let arc_weight = ActionWeight { prediction_pos };
         // print!("\tnew arc_weight: {arc_weight:?}");
         let arc_index = self.tree.add_edge(parent, child, arc_weight);
@@ -34,19 +39,17 @@ impl<P> SearchTree<P> {
         let node_weight = self.tree.node_weight_mut(id).unwrap();
         let c = node_weight.c;
         let start = self.predictions.len();
-        let foo =
-            space.action_data(state)
-            .map(|(a_id, r_sa)| {
-                let h_theta_sa = h_theta[a_id];
-                let g_theta_sa = space.g_theta_star_sa(c, r_sa, h_theta_sa);
-                ActionPrediction {
-                    a_id,
-                    // h_theta_sa,
-                    g_theta_sa,
-                    edge_id: None,
-                }
-            });
-        self.predictions.extend(foo);
+        let predictions = space.action_data(state).map(|(a_id, r_sa)| {
+            let h_theta_sa = h_theta[a_id];
+            let g_theta_sa = space.g_theta_star_sa(c, r_sa, h_theta_sa);
+            ActionPrediction {
+                a_id,
+                // h_theta_sa,
+                g_theta_sa,
+                edge_id: None,
+            }
+        });
+        self.predictions.extend(predictions);
         let end = self.predictions.len();
         debug_assert_ne!(start, end);
         node_weight.actions = (start as u32)..(end as u32);
@@ -69,17 +72,17 @@ impl<P> SearchTree<P> {
                         Some(_a) => {
                             // println!("\t\tactive");
                             true
-                        },
+                        }
                         None => {
                             // println!("\t\tinactive");
                             false
-                        },
+                        }
                     }
-                },
+                }
                 None => {
                     // println!("\tactive");
                     true
-                },
+                }
             }
         });
         // println!("active: {active}");

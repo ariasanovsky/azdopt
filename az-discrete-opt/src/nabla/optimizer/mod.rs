@@ -89,7 +89,10 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         // let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
         let last_positions = vec![Default::default(); batch];
         let action_weights = vec![0.; batch * Space::ACTION_DIM];
-        let argmin_data: ArgminData<<Space as NablaStateActionSpace>::State, <Space as NablaStateActionSpace>::Cost> = states
+        let argmin_data: ArgminData<
+            <Space as NablaStateActionSpace>::State,
+            <Space as NablaStateActionSpace>::Cost,
+        > = states
             .par_iter()
             .zip(costs.par_iter())
             .map(|(s, c)| (s, c, space.evaluate(c)))
@@ -123,7 +126,13 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space: Sync,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
-        P: Ord + Clone + Send + Sync + crate::path::ActionPath + crate::path::ActionPathFor<Space> + core::fmt::Debug,
+        P: Ord
+            + Clone
+            + Send
+            + Sync
+            + crate::path::ActionPath
+            + crate::path::ActionPathFor<Space>
+            + core::fmt::Debug,
     {
         use rayon::{
             iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
@@ -157,30 +166,12 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             state_vecs,
         )
             .into_par_iter()
-            .for_each(
-                |(
-                    t,
-                    r,
-                    s,
-                    p,
-                    c,
-                    pos,
-                    v,
-                )| {
-                    t.roll_out_episodes(
-                        &self.space,
-                        r,
-                        s,
-                        c,
-                        p,
-                        pos,
-                        &n_as_tol,
-                    );
-                    if !p.is_empty() {
-                        self.space.write_vec(s, v);
-                    }
-                },
-            );
+            .for_each(|(t, r, s, p, c, pos, v)| {
+                t.roll_out_episodes(&self.space, r, s, c, p, pos, &n_as_tol);
+                if !p.is_empty() {
+                    self.space.write_vec(s, v);
+                }
+            });
         self.model
             .write_predictions(&self.state_vecs, &mut self.h_theta_host);
         (
@@ -282,9 +273,9 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
         (&self.trees, h_theta_vecs, weight_vecs)
             .into_par_iter()
-            .for_each(|(t, h_theta, weights)|
+            .for_each(|(t, h_theta, weights)| {
                 t.write_observations(&self.space, h_theta, weights, n_as_tol)
-            );
+            });
         self.model
             .update_model(&self.state_vecs, &self.h_theta_host, &self.action_weights)
     }
@@ -292,7 +283,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     #[cfg(feature = "rayon")]
     pub fn par_reset_trees(
         &mut self,
-        modify_root: impl Fn(&Space, &mut Space::State, Vec<(&P, &super::tree::state_weight::StateWeight)>) + Sync,
+        modify_root: impl Fn(&Space, &mut Space::State, Vec<(&P, &super::tree::state_weight::StateWeight)>)
+            + Sync,
     ) where
         Space: Sync,
         P: Ord + Send + Sync + crate::path::ActionPathFor<Space>,

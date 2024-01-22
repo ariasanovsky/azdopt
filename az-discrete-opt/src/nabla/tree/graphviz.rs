@@ -21,7 +21,10 @@ impl<P> SearchTree<P> {
         }
         for u in self.tree.node_indices() {
             let u_id = u.index();
-            for v in self.tree.neighbors_directed(u, petgraph::Direction::Outgoing) {
+            for v in self
+                .tree
+                .neighbors_directed(u, petgraph::Direction::Outgoing)
+            {
                 let v_id = v.index();
                 let edge = match self.tree[v].n_t.try_active().is_some() {
                     false => edge!(

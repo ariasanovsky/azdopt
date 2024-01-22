@@ -14,13 +14,26 @@ impl<const N: usize> ROTWithActionPermissions<N> {
     pub fn generate(rng: &mut impl rand::Rng, num_permitted_actions: usize) -> Self {
         let tree = RootedOrderedTree::generate(rng);
         let a = (N - 1) * (N - 2) / 2 - 1;
-        let permitted_actions = (0..a).choose_multiple(rng, num_permitted_actions).into_iter().collect();
-        Self { tree, permitted_actions }
+        let permitted_actions = (0..a)
+            .choose_multiple(rng, num_permitted_actions)
+            .into_iter()
+            .collect();
+        Self {
+            tree,
+            permitted_actions,
+        }
     }
 
-    pub fn randomize_permitted_actions(&mut self, rng: &mut impl rand::Rng, num_permitted_actions: usize) {
+    pub fn randomize_permitted_actions(
+        &mut self,
+        rng: &mut impl rand::Rng,
+        num_permitted_actions: usize,
+    ) {
         let a = (N - 1) * (N - 2) / 2 - 1;
-        self.permitted_actions = (0..a).choose_multiple(rng, num_permitted_actions).into_iter().collect();
+        self.permitted_actions = (0..a)
+            .choose_multiple(rng, num_permitted_actions)
+            .into_iter()
+            .collect();
     }
 }
 

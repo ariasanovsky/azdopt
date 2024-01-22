@@ -191,7 +191,16 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand_distr::WeightedIndex;
 
-    use crate::{bitset::primitive::B32, ramsey_counts::{space::RamseySpaceNoEdgeRecolor, no_recolor::RamseyCountsNoRecolor, RamseyCounts}, simple_graph::{edge::Edge, bitset_graph::{BitsetGraph, ColoredCompleteBitsetGraph}}};
+    use crate::{
+        bitset::primitive::B32,
+        ramsey_counts::{
+            no_recolor::RamseyCountsNoRecolor, space::RamseySpaceNoEdgeRecolor, RamseyCounts,
+        },
+        simple_graph::{
+            bitset_graph::{BitsetGraph, ColoredCompleteBitsetGraph},
+            edge::Edge,
+        },
+    };
 
     #[test]
     fn correct_triangle_counts_after_modifying_a_random_3_edge_colored_graph_on_30_vertices() {
@@ -221,9 +230,8 @@ mod tests {
                 let edges = Edge::edges::<N>();
                 for (i, e) in edges.enumerate() {
                     assert_eq!(
-                        next_counts_recalculated.counts[c][i],
-                        next_state.state.counts[c][i],
-"
+                        next_counts_recalculated.counts[c][i], next_state.state.counts[c][i],
+                        "
 action: {action_pos}, {action:?}
 edge: {e:?}
 graph:\n{}
@@ -248,7 +256,7 @@ graph:\n{}
         const SIZES: [usize; C] = [4, 4];
         const WEIGHTS: [f32; C] = [1., 1.];
         let space = Space::new(SIZES, WEIGHTS);
-        let dist = WeightedIndex::new([1., 1.,]).unwrap();
+        let dist = WeightedIndex::new([1., 1.]).unwrap();
         let mut rng = rand::thread_rng();
         let counts = Counts::generate(&mut rng, &dist, &SIZES);
         let mut state = State::generate(&mut rng, counts, E);
@@ -264,16 +272,14 @@ graph:\n{}
                 let edges = Edge::edges::<N>();
                 for (i, e) in edges.enumerate() {
                     assert_eq!(
-                        next_counts_recalculated.counts[c][i],
-                        next_state.state.counts[c][i],
-"
+                        next_counts_recalculated.counts[c][i], next_state.state.counts[c][i],
+                        "
 action: {action_pos}, {action:?}
 edge: {e:?}
 graph:\n{}
 counts:\n{:?}
 ",
-                        &state.state,
-                        &next_state.state.counts
+                        &state.state, &next_state.state.counts
                     );
                 }
             }
@@ -283,20 +289,8 @@ counts:\n{:?}
 
     #[test]
     fn making_edge_0_1_red_in_a_specific_2_edge_colored_k5_produces_the_correct_clique_counts() {
-        let red_edges = vec![
-            (0, 2),
-            (0, 3),
-            (1, 2),
-            (1, 3),
-            (2, 3),
-        ];
-        let blue_edges = vec![
-            (0, 1),
-            (0, 4),
-            (1, 4),
-            (2, 4),
-            (3, 4),  
-        ];
+        let red_edges = vec![(0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+        let blue_edges = vec![(0, 1), (0, 4), (1, 4), (2, 4), (3, 4)];
         type B = B32;
         const N: usize = 5;
         let red_graph = BitsetGraph::<N, B>::try_from(&red_edges[..]).unwrap();

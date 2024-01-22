@@ -1,8 +1,13 @@
-use az_discrete_opt::{space::axioms::{ActionOrderIndependent, ActionsNeverRepeat}, nabla::space::NablaStateActionSpace};
+use az_discrete_opt::{
+    nabla::space::NablaStateActionSpace,
+    space::axioms::{ActionOrderIndependent, ActionsNeverRepeat},
+};
 
 use crate::simple_graph::edge::Edge;
 
-use super::{ordered_edge::OrderedEdge, RootedOrderedTree, modify_parent_once::ROTWithActionPermissions};
+use super::{
+    modify_parent_once::ROTWithActionPermissions, ordered_edge::OrderedEdge, RootedOrderedTree,
+};
 
 pub struct ConstrainedRootedOrderedTree<const N: usize>;
 
@@ -20,7 +25,12 @@ impl<const N: usize, C> ROTModifyParentsOnce<N, C> {
         g_theta_star_sa: fn(c_s: f32, h_theta_sa: f32) -> f32,
         h_sa: fn(c_s: f32, c_as_star: f32) -> f32,
     ) -> Self {
-        Self { cost, eval, g_theta_star_sa, h_sa }
+        Self {
+            cost,
+            eval,
+            g_theta_star_sa,
+            h_sa,
+        }
     }
 }
 
@@ -44,7 +54,10 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
     fn reward(&self, _state: &Self::State, _index: usize) -> Self::RewardHint {}
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
-        let ROTWithActionPermissions { tree, permitted_actions } = state;
+        let ROTWithActionPermissions {
+            tree,
+            permitted_actions,
+        } = state;
         debug_assert!(permitted_actions.contains(&action.index_ignoring_edge_0_1()));
         tree.set_parent(action);
         let child = action.child();
@@ -63,11 +76,14 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
         &self,
         state: &'a Self::State,
     ) -> impl Iterator<Item = (usize, Self::RewardHint)> + 'a {
-        let current_edge_positions = state.tree.edge_indices_ignoring_0_1_and_last_vertex().collect::<Vec<_>>();
+        let current_edge_positions = state
+            .tree
+            .edge_indices_ignoring_0_1_and_last_vertex()
+            .collect::<Vec<_>>();
         state.permitted_actions.iter().filter_map(move |action| {
             match current_edge_positions.contains(action) {
                 true => None,
-                false => Some((*action, ()))
+                false => Some((*action, ())),
             }
         })
     }

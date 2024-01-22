@@ -1,13 +1,33 @@
 #![feature(isqrt)]
 
-use std::{io::{BufWriter, Write}, time::SystemTime};
+use std::{
+    io::{BufWriter, Write},
+    time::SystemTime,
+};
 
-use az_discrete_opt::{path::{set::ActionSet, ActionPath}, tensorboard::{tf_path, Summarize}, nabla::{model::dfdx::ActionModel, optimizer::{NablaOptimizer, ArgminImprovement}, space::NablaStateActionSpace, tree::state_weight::StateWeight}, log::ArgminData};
+use az_discrete_opt::{
+    log::ArgminData,
+    nabla::{
+        model::dfdx::ActionModel,
+        optimizer::{ArgminImprovement, NablaOptimizer},
+        space::NablaStateActionSpace,
+        tree::state_weight::StateWeight,
+    },
+    path::{set::ActionSet, ActionPath},
+    tensorboard::{tf_path, Summarize},
+};
 use chrono::Utc;
-use dfdx::{nn::{modules::ReLU, builders::Linear}, tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}};
+use dfdx::{
+    nn::{builders::Linear, modules::ReLU},
+    tensor::AutoDevice,
+    tensor_ops::{AdamConfig, WeightDecay},
+};
 use eyre::Context;
-use graph_state::{rooted_tree::{modify_parent_once::ROTWithActionPermissions, space::ROTModifyParentsOnce}, simple_graph::connected_bitset_graph::Conjecture2Dot1Cost};
-use rand::{Rng, seq::SliceRandom};
+use graph_state::{
+    rooted_tree::{modify_parent_once::ROTWithActionPermissions, space::ROTModifyParentsOnce},
+    simple_graph::connected_bitset_graph::Conjecture2Dot1Cost,
+};
+use rand::{seq::SliceRandom, Rng};
 use tensorboard_writer::TensorboardWriter;
 
 const N: usize = 19;
@@ -70,23 +90,18 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)),
     };
-    let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(AutoDevice::default(), cfg);
+    let model: ActionModel<ModelH, BATCH, STATE, ACTION> =
+        ActionModel::new(AutoDevice::default(), cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
     const SPACE: Space = Space::new(
-        |t| {
-            t.conjecture_2_1_cost()
-        },
+        |t| t.conjecture_2_1_cost(),
         |c| {
             let Conjecture2Dot1Cost { matching, lambda_1 } = c;
             let c = matching.len() as f32 + *lambda_1 as f32;
             squish(c)
         },
-        |c_s, h_theta_sa| {
-            c_s - h_theta_sa
-        },
-        |_c_s, c_as_star| {
-            c_as_star
-        }
+        |c_s, h_theta_sa| c_s - h_theta_sa,
+        |_c_s, c_as_star| c_as_star,
     );
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE,
@@ -136,11 +151,7 @@ fn main() -> eyre::Result<()> {
             };
             if episode % episodes == 0 {
                 println!("==== EPISODE: {episode} ====");
-                let sizes = optimizer
-                    .get_trees()
-                    .first()
-                    .unwrap()
-                    .sizes();
+                let sizes = optimizer.get_trees().first().unwrap().sizes();
                 println!("sizes: {sizes:?}");
                 let graph = optimizer.get_trees()[0].graphviz();
                 std::fs::write("tree.png", graph).unwrap();
@@ -196,6 +207,6 @@ fn main() -> eyre::Result<()> {
         };
         optimizer.par_reset_trees(modify_root);
     }
-    
+
     Ok(())
 }

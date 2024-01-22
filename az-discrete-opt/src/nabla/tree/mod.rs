@@ -1,23 +1,29 @@
 use std::collections::BTreeMap;
 
-use crate::{path::{ActionPath, ActionPathFor}, nabla::tree::state_weight::ActiveNumLeafDescendents};
+use crate::path::{ActionPath, ActionPathFor};
 
-use self::{state_weight::StateWeight, arc_weight::{ActionWeight, ActionPrediction}};
+use self::{
+    arc_weight::{ActionPrediction, ActionWeight},
+    state_weight::StateWeight,
+};
 
 use super::space::NablaStateActionSpace;
 
-use petgraph::{graph::DiGraph, visit::{IntoNodeReferences, EdgeRef}};
+use petgraph::{
+    graph::DiGraph,
+    visit::{EdgeRef, IntoNodeReferences},
+};
 
 pub(crate) use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
+pub mod arc_weight;
 pub mod empty_transitions;
+pub mod graph_operations;
 #[cfg(feature = "graphviz")]
 pub mod graphviz;
 pub mod next_action;
 pub mod node;
-pub mod graph_operations;
 pub mod state_weight;
-pub mod arc_weight;
 
 pub struct SearchTree<P> {
     positions: BTreeMap<P, NodeIndex>,
@@ -27,7 +33,11 @@ pub struct SearchTree<P> {
 
 impl<P> Default for SearchTree<P> {
     fn default() -> Self {
-        Self { positions: Default::default(), tree: Default::default(), predictions: Default::default() }
+        Self {
+            positions: Default::default(),
+            tree: Default::default(),
+            predictions: Default::default(),
+        }
     }
 }
 
@@ -58,13 +68,11 @@ impl<P> SearchTree<P> {
     }
 
     pub(crate) fn _exhausted_nodes(&self) -> Vec<usize> {
-        self.tree.node_weights().enumerate().filter_map(|(i, w)| {
-            if !w.n_t.is_active() {
-                Some(i)
-            } else {
-                None
-            }
-        }).collect()
+        self.tree
+            .node_weights()
+            .enumerate()
+            .filter_map(|(i, w)| if !w.n_t.is_active() { Some(i) } else { None })
+            .collect()
     }
 
     pub(crate) fn _print_neighborhoods(&self) {
@@ -74,7 +82,10 @@ impl<P> SearchTree<P> {
                 weight.n_t.try_active().map_or(0, |n_t| n_t.value()),
                 weight.actions,
             );
-            for e in self.tree.neighbors_directed(node, petgraph::Direction::Outgoing) {
+            for e in self
+                .tree
+                .neighbors_directed(node, petgraph::Direction::Outgoing)
+            {
                 print!("{e:?}, ");
             }
             println!("}}")
@@ -92,10 +103,13 @@ impl<P> SearchTree<P> {
     pub(crate) fn _permitted_actions(&self, node: NodeIndex) -> Vec<usize> {
         let action_range = &self.tree[node].actions;
         let action_range = (action_range.start as usize)..(action_range.end as usize);
-        self.predictions[action_range].iter().map(|p| p.a_id).collect()
+        self.predictions[action_range]
+            .iter()
+            .map(|p| p.a_id)
+            .collect()
     }
 
-    // #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn roll_out_episodes<Space>(
         &mut self,
         space: &Space,
@@ -108,7 +122,7 @@ impl<P> SearchTree<P> {
     ) where
         Space: NablaStateActionSpace,
         Space::State: Clone,
-        P: Ord + ActionPath + ActionPathFor<Space> + Clone,// + core::fmt::Debug,
+        P: Ord + ActionPath + ActionPathFor<Space> + Clone, // + core::fmt::Debug,
     {
         loop {
             // println!("path: {path:?}");
@@ -119,7 +133,6 @@ impl<P> SearchTree<P> {
             // eprintln!("exhausted_nodes: {:?}", self._exhausted_nodes());
             // self._print_neighborhoods();
 
-
             use next_action::NextAction;
             let next_action = self.next_action(*state_pos, n_as_tol(path.len()));
             match next_action {
@@ -129,7 +142,6 @@ impl<P> SearchTree<P> {
                     //     self.tree.edge_endpoints(arc_index).unwrap().0,
                     //     self.tree.edge_endpoints(arc_index).unwrap().1,
                     // );
-
 
                     let prediction_pos = self.tree[arc_index].prediction_pos;
                     let action_id = self.predictions[prediction_pos].a_id;
@@ -144,7 +156,7 @@ impl<P> SearchTree<P> {
                     //     eprintln!("\tnot terminal");
                     //     // todo!();
                     // }
-                },
+                }
                 Some(NextAction::Unvisited(prediction_pos)) => {
                     let range = &self.tree[*state_pos].actions.clone();
                     let range = (range.start as usize)..(range.end as usize);
@@ -164,7 +176,7 @@ impl<P> SearchTree<P> {
                             state.clone_from(root);
                             path.clear();
                             *state_pos = Default::default();
-                        },
+                        }
                         None => {
                             let action = space.action(action_id);
                             space.act(state, &action);
@@ -195,26 +207,24 @@ impl<P> SearchTree<P> {
                                     path.clear();
                                     *state_pos = Default::default();
                                     // eprintln!("\treset!\n");
-                                },
+                                }
                                 false => {
                                     // eprintln!("\trequires prediction!");
                                     *state_pos = next_pos;
                                     return;
-                                },
+                                }
                             }
-                        },
+                        }
                     }
-                },
-                None => {
-                    match path.is_empty() {
-                        true => {
-                            debug_assert_eq!(state_pos.index(), 0);
-                            return;
-                        },
-                        false => {
-                            debug_assert!(self.positions.contains_key(path));
-                            unreachable!("asdkfnasd;fkna");
-                        },
+                }
+                None => match path.is_empty() {
+                    true => {
+                        debug_assert_eq!(state_pos.index(), 0);
+                        return;
+                    }
+                    false => {
+                        debug_assert!(self.positions.contains_key(path));
+                        unreachable!("asdkfnasd;fkna");
                     }
                 },
             }
@@ -237,34 +247,38 @@ impl<P> SearchTree<P> {
         n_t_as_tol: u32,
     ) {
         let c_s = self.tree[NodeIndex::default()].c;
-        for e in self.tree.edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing) {
-                let child_weight = self.tree.node_weight(e.target()).unwrap();
-                if !child_weight.n_t.try_active().is_some_and(|n_t| {
-                    n_t.value() < n_t_as_tol
-                }) {
-                    let c_as = child_weight.c;
-                    let c_as_star = child_weight.c_t_star;
-                    let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
-                    let prediction_pos = e.weight().prediction_pos;
-                    let action_id = self.predictions[prediction_pos].a_id;
-                    observations[action_id] = h_t_sa;
-                    weights[action_id] = 1.0;
-                }
+        for e in self
+            .tree
+            .edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing)
+        {
+            let child_weight = self.tree.node_weight(e.target()).unwrap();
+            if !child_weight
+                .n_t
+                .try_active()
+                .is_some_and(|n_t| n_t.value() < n_t_as_tol)
+            {
+                let c_as = child_weight.c;
+                let c_as_star = child_weight.c_t_star;
+                let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
+                let prediction_pos = e.weight().prediction_pos;
+                let action_id = self.predictions[prediction_pos].a_id;
+                observations[action_id] = h_t_sa;
+                weights[action_id] = 1.0;
             }
-            // .filter_map(|e| {
-            //     let child_weight = self.tree.node_weight(e.target()).unwrap();
-            //     child_weight.n_t.map(|n_as| {
-            //         let arc_weight = self.tree.edge_weight(e.id()).unwrap();
-            //         let prediction = &self.predictions[arc_weight.prediction_pos];
-            //         let h_theta_sa = prediction.h_theta_sa;
-            //         let n_as = n_as.get() - 1;
-            //         debug_assert_ne!(n_as, 0);
-            //         let concern = (h_t_sa - h_theta_sa).powi(2) / n_as as f32;
-            //         (e.id(), concern)
-            //     })
-            // });
-        
-        
+        }
+        // .filter_map(|e| {
+        //     let child_weight = self.tree.node_weight(e.target()).unwrap();
+        //     child_weight.n_t.map(|n_as| {
+        //         let arc_weight = self.tree.edge_weight(e.id()).unwrap();
+        //         let prediction = &self.predictions[arc_weight.prediction_pos];
+        //         let h_theta_sa = prediction.h_theta_sa;
+        //         let n_as = n_as.get() - 1;
+        //         debug_assert_ne!(n_as, 0);
+        //         let concern = (h_t_sa - h_theta_sa).powi(2) / n_as as f32;
+        //         (e.id(), concern)
+        //     })
+        // });
+
         // for e in self.tree.edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing) {
         //     todo!()
         // }

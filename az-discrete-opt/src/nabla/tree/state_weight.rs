@@ -10,12 +10,12 @@ pub struct StateWeight {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NumLeafDescendants {
-    num_leaves: u32
+    num_leaves: u32,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub(crate) struct ActiveNumLeafDescendents {
-    num_leaves: NonZeroU32
+    num_leaves: NonZeroU32,
 }
 
 impl NumLeafDescendants {
@@ -23,7 +23,7 @@ impl NumLeafDescendants {
 
     pub(crate) fn mark_exhausted(&mut self) {
         debug_assert!(self.is_active());
-        self.num_leaves = self.num_leaves ^ Self::ACTIVE_BIT;
+        self.num_leaves ^= Self::ACTIVE_BIT;
     }
 
     pub(crate) fn is_active(&self) -> bool {
