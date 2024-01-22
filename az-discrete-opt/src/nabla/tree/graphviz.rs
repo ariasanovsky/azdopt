@@ -10,7 +10,7 @@ impl<P> SearchTree<P> {
         let mut g = graph!(id!("search_tree"));
         for (u, n) in self.tree.node_references() {
             let u_id = u.index();
-            let node = match n.n_t.is_some() {
+            let node = match n.n_t.try_active().is_some() {
                 false => node!(
                     u_id;
                     attr!("shape", "doublecircle")
@@ -23,7 +23,7 @@ impl<P> SearchTree<P> {
             let u_id = u.index();
             for v in self.tree.neighbors_directed(u, petgraph::Direction::Outgoing) {
                 let v_id = v.index();
-                let edge = match self.tree[v].n_t.is_some() {
+                let edge = match self.tree[v].n_t.try_active().is_some() {
                     false => edge!(
                         node_id!(u_id) => node_id!(v_id)
                     ),

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::path::{ActionPath, ActionPathFor};
+use crate::{path::{ActionPath, ActionPathFor}, nabla::tree::state_weight::ActiveNumLeafDescendents};
 
 use self::{state_weight::StateWeight, arc_weight::{ActionWeight, ActionPrediction}};
 
@@ -38,7 +38,7 @@ impl<P> SearchTree<P> {
         self.predictions.clear();
     }
 
-    pub fn sizes(&self) -> impl Iterator<Item = (usize, usize)> + '_
+    pub fn sizes(&self) -> Vec<(usize, usize)>
     where
         P: ActionPath,
     {
@@ -50,16 +50,16 @@ impl<P> SearchTree<P> {
                 sizes.resize(len + 1, (0, 0));
             }
             sizes[len].0 += 1;
-            if self.tree[*i].n_t.is_none() {
+            if self.tree[*i].n_t.is_active() {
                 sizes[len].1 += 1;
             }
         }
-        sizes.into_iter()
+        sizes
     }
 
     pub(crate) fn _exhausted_nodes(&self) -> Vec<usize> {
         self.tree.node_weights().enumerate().filter_map(|(i, w)| {
-            if w.n_t.is_none() {
+            if !w.n_t.is_active() {
                 Some(i)
             } else {
                 None
@@ -71,7 +71,7 @@ impl<P> SearchTree<P> {
         for (node, weight) in self.tree.node_references() {
             print!(
                 "{node:?}\t({})\t({:?})  \t{{",
-                weight.n_t.map_or(0, std::num::NonZeroU32::get),
+                weight.n_t.try_active().map_or(0, |n_t| n_t.value()),
                 weight.actions,
             );
             for e in self.tree.neighbors_directed(node, petgraph::Direction::Outgoing) {
@@ -90,7 +90,8 @@ impl<P> SearchTree<P> {
     }
 
     pub(crate) fn _permitted_actions(&self, node: NodeIndex) -> Vec<usize> {
-        let action_range = self.tree[node].actions.clone();
+        let action_range = &self.tree[node].actions;
+        let action_range = (action_range.start as usize)..(action_range.end as usize);
         self.predictions[action_range].iter().map(|p| p.a_id).collect()
     }
 
@@ -112,10 +113,10 @@ impl<P> SearchTree<P> {
         loop {
             // println!("path: {path:?}");
             // let possible_actions = space.action_data(state).map(|(a, _)| a).collect::<Vec<_>>();
-            // println!("{state_pos:?}");
-            // println!("possible_actions: {possible_actions:?}");
-            // println!("permited_actions: {:?}", self._permitted_actions(*state_pos));
-            // println!("exhausted_nodes: {:?}", self._exhausted_nodes());
+            // eprintln!("{state_pos:?}");
+            // eprintln!("possible_actions: {possible_actions:?}");
+            // eprintln!("permited_actions: {:?}", self._permitted_actions(*state_pos));
+            // eprintln!("exhausted_nodes: {:?}", self._exhausted_nodes());
             // self._print_neighborhoods();
 
 
@@ -123,7 +124,7 @@ impl<P> SearchTree<P> {
             let next_action = self.next_action(*state_pos, n_as_tol(path.len()));
             match next_action {
                 Some(NextAction::Visited(arc_index)) => {
-                    // println!(
+                    // eprintln!(
                     //     "\trevisiting arc {arc_index:?} (from {:?} to {:?})",
                     //     self.tree.edge_endpoints(arc_index).unwrap().0,
                     //     self.tree.edge_endpoints(arc_index).unwrap().1,
@@ -136,20 +137,21 @@ impl<P> SearchTree<P> {
                     let action = space.action(action_id);
                     space.act(state, &action);
                     *state_pos = self.tree.edge_endpoints(arc_index).unwrap().1;
-                    // if self.tree[*state_pos].n_t.is_none() {
-                    //     println!("\tterminal");
+                    // if !self.tree[*state_pos].n_t.is_active() {
+                    //     eprintln!("\tterminal");
                     //     // todo!();
                     // } else {
-                    //     println!("\tnot terminal");
+                    //     eprintln!("\tnot terminal");
                     //     // todo!();
                     // }
                 },
                 Some(NextAction::Unvisited(prediction_pos)) => {
-                    let range = self.tree[*state_pos].actions.clone();
+                    let range = &self.tree[*state_pos].actions.clone();
+                    let range = (range.start as usize)..(range.end as usize);
                     debug_assert!(range.contains(&prediction_pos));
                     let prediction = &self.predictions[prediction_pos];
                     let action_id = prediction.a_id;
-                    // println!(
+                    // eprintln!(
                     //     "\tfirst visit to {action_id} (pos = {prediction_pos}) from {state_pos:?}",
                     // );
                     unsafe { path.push_unchecked(action_id) };
@@ -158,7 +160,7 @@ impl<P> SearchTree<P> {
                         Some(next_pos) => {
                             let arc_index = self.add_arc(*state_pos, *next_pos, prediction_pos);
                             // println!("\trediscovered node, resetting!\n");
-                            self.cascade_updates(arc_index);
+                            self.cascade_old_node(arc_index);
                             state.clone_from(root);
                             path.clear();
                             *state_pos = Default::default();
@@ -170,9 +172,9 @@ impl<P> SearchTree<P> {
                             let c_as = space.evaluate(cost);
                             // let c_as_star = c_as;
                             let weight = StateWeight::new(c_as);
-                            // print!("\tnew node_weight {weight:?}");
+                            // eprint!("\tnew node_weight {weight:?}");
                             let next_pos = self.add_node(path.clone(), weight);
-                            // println!(" on {next_pos:?}");
+                            // eprintln!(" on {next_pos:?}");
                             // let c_s = self.tree.node_weight(*state_pos).unwrap().c;
                             // let g_t_sa = c_s - c_as_star;
                             // let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
@@ -184,18 +186,18 @@ impl<P> SearchTree<P> {
                             let arc_index = self.add_arc(*state_pos, next_pos, prediction_pos);
                             match space.is_terminal(state) {
                                 true => {
-                                    self.tree[next_pos].assert_exhausted();
-                                    // println!("\texhausted_nodes: {:?}", self._exhausted_nodes());
-                                    self.cascade_updates(arc_index);
-                                    // println!("\t->               {:?}", self._exhausted_nodes());
+                                    self.tree[next_pos].mark_exhausted();
+                                    // eprintln!("\texhausted_nodes: {:?}", self._exhausted_nodes());
+                                    self.cascade_new_terminal(arc_index);
+                                    // eprintln!("\t->               {:?}", self._exhausted_nodes());
                                     // todo!("terminal, so cascade updates and start over!");
                                     state.clone_from(root);
                                     path.clear();
                                     *state_pos = Default::default();
-                                    // println!("\treset!\n");
+                                    // eprintln!("\treset!\n");
                                 },
                                 false => {
-                                    // println!("\trequires prediction!");
+                                    // eprintln!("\trequires prediction!");
                                     *state_pos = next_pos;
                                     return;
                                 },
@@ -237,8 +239,8 @@ impl<P> SearchTree<P> {
         let c_s = self.tree[NodeIndex::default()].c;
         for e in self.tree.edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing) {
                 let child_weight = self.tree.node_weight(e.target()).unwrap();
-                if !child_weight.n_t.is_some_and(|n_t| {
-                    n_t.get() < n_t_as_tol
+                if !child_weight.n_t.try_active().is_some_and(|n_t| {
+                    n_t.value() < n_t_as_tol
                 }) {
                     let c_as = child_weight.c;
                     let c_as_star = child_weight.c_t_star;

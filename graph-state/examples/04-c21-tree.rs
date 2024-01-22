@@ -63,6 +63,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let num_permitted_actions_range = 5..=(ACTION / 2);
+    // let num_permitted_actions_range = 3..=3;
     let cfg = AdamConfig {
         lr: 1e-4,
         betas: [0.9, 0.999],
@@ -118,8 +119,8 @@ fn main() -> eyre::Result<()> {
     let episodes: usize = 1_600;
     let n_obs_tol = 50;
     let n_as_tol = |len: usize| -> u32 {
-        const N_AS_TOL: [u32; 4] = [200, 150, 100, 50];
-        N_AS_TOL.get(len).copied().unwrap_or(25)
+        const N_AS_TOL: [u32; 3] = [50, 50, 25];
+        N_AS_TOL.get(len).copied().unwrap_or(10)
     };
 
     for epoch in 1..=epochs {
@@ -139,8 +140,7 @@ fn main() -> eyre::Result<()> {
                     .get_trees()
                     .first()
                     .unwrap()
-                    .sizes()
-                    .collect::<Vec<_>>();
+                    .sizes();
                 println!("sizes: {sizes:?}");
                 let graph = optimizer.get_trees()[0].graphviz();
                 std::fs::write("tree.png", graph).unwrap();

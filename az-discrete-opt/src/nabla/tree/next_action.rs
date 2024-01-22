@@ -1,8 +1,6 @@
-use core::num::NonZeroU32;
-
 use petgraph::visit::EdgeRef;
 
-use super::{SearchTree, EdgeIndex, NodeIndex};
+use super::{SearchTree, EdgeIndex, NodeIndex, state_weight::ActiveNumLeafDescendents};
 
 pub(crate) enum NextAction {
     Visited(EdgeIndex),
@@ -14,7 +12,7 @@ impl<P> SearchTree<P> {
         let revisit_choice = self.revisit_choice(state_pos);
         match revisit_choice {
             Some((e, n_t_as, _)) => {
-                if n_t_as.get() < n_as_tol {
+                if n_t_as.value() < n_as_tol {
                     return Some(NextAction::Visited(e));
                 }
             },
@@ -27,14 +25,17 @@ impl<P> SearchTree<P> {
         }
     }
 
-    pub(crate) fn revisit_choice(&self, state_pos: NodeIndex) -> Option<(EdgeIndex, NonZeroU32, f32)> {
+    pub(crate) fn revisit_choice(&self, state_pos: NodeIndex) -> Option<(EdgeIndex, ActiveNumLeafDescendents, f32)> {
         self.tree
             .edges_directed(state_pos, petgraph::Direction::Outgoing)
             .filter_map(|e| {
                 let child_weight = &self.tree[e.target()];
-                child_weight.n_t.map(|n_as| {
-                    (e.id(), n_as, child_weight.c_t_star)
+                child_weight.n_t.try_active().map(|n_t| {
+                    (e.id(), n_t, child_weight.c_t_star)
                 })
+                // child_weight.n_t.map(|n_as| {
+                //     (e.id(), n_as, child_weight.c_t_star)
+                // })
             })
             .min_by(|(_, n1, c_star1), (_, n2, c_star2)| {
                 n1.cmp(n2).then(c_star1.partial_cmp(c_star2).unwrap())
@@ -48,6 +49,7 @@ impl<P> SearchTree<P> {
             .map(|n_as| self.tree[n_as].c_t_star)
             .collect::<Box<_>>();
         let range = &self.tree.node_weight(state_pos).unwrap().actions;
+        let range = (range.start as usize)..(range.end as usize);
         let predictions = &self.predictions[range.clone()];
         let c_theta_star_values = predictions.iter().enumerate().filter_map(|(i, prediction)| {
             match prediction.edge_id {
