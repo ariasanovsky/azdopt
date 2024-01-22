@@ -115,7 +115,10 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_roll_out_episodes(&mut self) -> ArgminImprovement<Space::State, Space::Cost>
+    pub fn par_roll_out_episodes(
+        &mut self,
+        n_as_tol: impl Fn(usize) -> u32 + Sync,
+    ) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
@@ -171,6 +174,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                         c,
                         p,
                         pos,
+                        &n_as_tol,
                     );
                     if !p.is_empty() {
                         self.space.write_vec(s, v);
@@ -251,11 +255,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_update_model(
-        &mut self,
-        // action_weights: impl Fn(u32) -> f32 + Sync,
-        // state_weights: impl Fn(&Space::State) -> f32 + Sync,
-    ) -> f32
+    pub fn par_update_model(&mut self, n_as_tol: u32) -> f32
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
@@ -282,7 +282,9 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
         (&self.trees, h_theta_vecs, weight_vecs)
             .into_par_iter()
-            .for_each(|(t, h_theta, weights)| t.write_observations(&self.space, h_theta, weights));
+            .for_each(|(t, h_theta, weights)|
+                t.write_observations(&self.space, h_theta, weights, n_as_tol)
+            );
         self.model
             .update_model(&self.state_vecs, &self.h_theta_host, &self.action_weights)
     }

@@ -1,6 +1,6 @@
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
-use az_discrete_opt::{path::{set::ActionSet, ActionPath}, tensorboard::{tf_path, Summarize}, nabla::{model::dfdx::ActionModel, optimizer::{NablaOptimizer, ArgminImprovement}, space::NablaStateActionSpace, tree::state_weight::{StateWeight}}, log::ArgminData};
+use az_discrete_opt::{path::{set::ActionSet, ActionPath}, tensorboard::{tf_path, Summarize}, nabla::{model::dfdx::ActionModel, optimizer::{NablaOptimizer, ArgminImprovement}, space::NablaStateActionSpace, tree::state_weight::StateWeight}, log::ArgminData};
 use chrono::Utc;
 use dfdx::{nn::{modules::ReLU, builders::Linear}, tensor::AutoDevice, tensor_ops::{AdamConfig, WeightDecay}};
 use eyre::Context;
@@ -29,7 +29,7 @@ type ModelH = (
     (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 256;
+const BATCH: usize = 512;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
@@ -42,7 +42,7 @@ fn main() -> eyre::Result<()> {
     let mut writer: W = TensorboardWriter::new(writer);
     writer.write_file_version()?;
 
-    let num_permitted_actions_range = 9..=ACTION;
+    let num_permitted_actions_range = 5..=(ACTION / 2);
     let cfg = AdamConfig {
         lr: 1e-4,
         betas: [0.9, 0.999],
@@ -87,11 +87,16 @@ fn main() -> eyre::Result<()> {
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
     let episodes: usize = 1_600;
+    let n_obs_tol = 50;
+    let n_as_tol = |len: usize| -> u32 {
+        const N_AS_TOL: [u32; 4] = [200, 150, 100, 50];
+        N_AS_TOL.get(len).copied().unwrap_or(25)
+    };
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            let new_argmin = optimizer.par_roll_out_episodes();
+            let new_argmin = optimizer.par_roll_out_episodes(n_as_tol);
             match new_argmin {
                 ArgminImprovement::Improved(argmin) => {
                     let step = (episodes * (epoch - 1) + episode) as i64;
@@ -116,7 +121,7 @@ fn main() -> eyre::Result<()> {
             }
         }
 
-        let loss = optimizer.par_update_model();
+        let loss = optimizer.par_update_model(n_obs_tol);
         let summary = loss.summary();
         writer.write_summary(SystemTime::now(), (episodes * epoch) as i64, summary)?;
         writer.write_summary(
@@ -149,7 +154,8 @@ fn main() -> eyre::Result<()> {
                     state.randomize_permitted_actions(&mut rng, num_permitted_edges);
                 }
             } else {
-                n.retain(|(_, w)| w.c() < c_root);
+                let c_threshold = (c_root + 3.0 * c_root_star) / 4.0;
+                n.retain(|(_, w)| w.c() <= c_threshold);
                 let (p, _) = n.choose(&mut rng).unwrap();
                 p.actions_taken().for_each(|a| {
                     let a = space.action(a);

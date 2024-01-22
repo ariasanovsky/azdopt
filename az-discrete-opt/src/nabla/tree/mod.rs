@@ -103,6 +103,7 @@ impl<P> SearchTree<P> {
         cost: &mut Space::Cost,
         path: &mut P,
         state_pos: &mut NodeIndex,
+        n_as_tol: impl Fn(usize) -> u32,
     ) where
         Space: NablaStateActionSpace,
         Space::State: Clone,
@@ -119,7 +120,7 @@ impl<P> SearchTree<P> {
 
 
             use next_action::NextAction;
-            let next_action = self.next_action(*state_pos);
+            let next_action = self.next_action(*state_pos, n_as_tol(path.len()));
             match next_action {
                 Some(NextAction::Visited(arc_index)) => {
                     // println!(
@@ -231,14 +232,13 @@ impl<P> SearchTree<P> {
         space: &Space,
         observations: &mut [f32],
         weights: &mut [f32],
+        n_t_as_tol: u32,
     ) {
-        observations.fill(0.0);
-        weights.fill(0.0);
         let c_s = self.tree[NodeIndex::default()].c;
         for e in self.tree.edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing) {
                 let child_weight = self.tree.node_weight(e.target()).unwrap();
                 if !child_weight.n_t.is_some_and(|n_t| {
-                    n_t.get() < 25
+                    n_t.get() < n_t_as_tol
                 }) {
                     let c_as = child_weight.c;
                     let c_as_star = child_weight.c_t_star;

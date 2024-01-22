@@ -4,19 +4,17 @@ use petgraph::visit::EdgeRef;
 
 use super::{SearchTree, EdgeIndex, NodeIndex};
 
-const N_T_GOAL: u32 = 30;
-
 pub(crate) enum NextAction {
     Visited(EdgeIndex),
     Unvisited(usize),
 }
 
 impl<P> SearchTree<P> {
-    pub(crate) fn next_action(&self, state_pos: NodeIndex) -> Option<NextAction> {
+    pub(crate) fn next_action(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
         let revisit_choice = self.revisit_choice(state_pos);
         match revisit_choice {
             Some((e, n_t_as, _)) => {
-                if n_t_as.get() < N_T_GOAL {
+                if n_t_as.get() < n_as_tol {
                     return Some(NextAction::Visited(e));
                 }
             },
