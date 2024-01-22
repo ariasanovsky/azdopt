@@ -1,3 +1,5 @@
+#![feature(isqrt)]
+
 use std::{io::{BufWriter, Write}, time::SystemTime};
 
 use az_discrete_opt::{path::{set::ActionSet, ActionPath}, tensorboard::{tf_path, Summarize}, nabla::{model::dfdx::ActionModel, optimizer::{NablaOptimizer, ArgminImprovement}, space::NablaStateActionSpace, tree::state_weight::StateWeight}, log::ArgminData};
@@ -25,13 +27,31 @@ type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
-    // (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
-    (Linear<HIDDEN_3, ACTION>, ReLU),
+    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
 const BATCH: usize = 512;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
+
+const C_LOWER_BOUND: usize = 2;
+const C_UPPER_BOUND: usize = {
+    const _SQRT: usize = (N - 1).isqrt();
+    const SQRT: usize = if _SQRT * _SQRT == N - 1 {
+        _SQRT
+    } else {
+        _SQRT + 1
+    };
+    const MU_MAX: usize = (N + 1) / 2;
+    SQRT + MU_MAX
+};
+
+fn squish(x: f32) -> f32 {
+    const SLOPE: f32 = 1.0 / ((C_UPPER_BOUND - C_LOWER_BOUND) as f32);
+    let x = x - C_LOWER_BOUND as f32;
+    SLOPE * x
+}
 
 fn main() -> eyre::Result<()> {
     let out_dir = tf_path().join("04-c21-tree").join(Utc::now().to_rfc3339());
@@ -57,7 +77,14 @@ fn main() -> eyre::Result<()> {
         },
         |c| {
             let Conjecture2Dot1Cost { matching, lambda_1 } = c;
-            matching.len() as f32 + *lambda_1 as f32
+            let c = matching.len() as f32 + *lambda_1 as f32;
+            squish(c)
+        },
+        |c_s, h_theta_sa| {
+            c_s - h_theta_sa
+        },
+        |_c_s, c_as_star| {
+            c_as_star
         }
     );
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
@@ -71,13 +98,15 @@ fn main() -> eyre::Result<()> {
         BATCH,
     );
 
+    let goal: f32 = squish(5.2);
+
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
         let ArgminData { state, cost, eval } = argmin;
         println!("{eval:12}\t{cost:?}");
         writer.write_summary(SystemTime::now(), step, cost.summary())?;
         writer.get_mut().flush()?;
 
-        if *eval < 5.2 {
+        if *eval < goal {
             Err(eyre::eyre!(format!("state is optimal:\n{state}")))
         } else {
             Ok(())
