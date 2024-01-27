@@ -140,8 +140,6 @@ impl<const N: usize, B> ConnectedBitsetGraph<N, B> {
 
 #[cfg(test)]
 mod tests {
-    // use std::mem::MaybeUninit;
-
     use crate::{
         bitset::primitive::B32,
         simple_graph::{connected_bitset_graph::ConnectedBitsetGraph, edge::Edge},
@@ -174,7 +172,7 @@ mod tests {
         [3, 2, 0, 1],
         [3, 2, 1, 0],
     ];
-    
+
     fn verify_cut_edges_after_permutation<const N: usize>(
         edges: &[(usize, usize)],
         cut_edges: &[(usize, usize)],

@@ -1,50 +1,41 @@
-use core::num::NonZeroUsize;
-use std::ops::SubAssign;
+// use core::num::NonZeroUsize;
 
-pub struct ActionData {
-    a: usize,
-    next_position: Option<NonZeroUsize>,
-    g_sa: Option<f32>,
-}
+// pub struct ActionData {
+//     pub(crate) a: usize,
+//     pub(crate) next_position: Option<NextPositionData>,
+//     pub(crate) h_theta_sa: f32,
+// }
 
-impl ActionData {
-    pub(crate) fn new(a: usize, g_sa: f32) -> Self {
-        Self {
-            a,
-            next_position: None,
-            g_sa: Some(g_sa),
-        }
-    }
+// pub(crate) struct NextPositionData {
+//     pub(crate) next_position: NonZeroUsize,
+//     pub(crate) h_t_sa: f32,
+// }
 
-    pub(crate) fn g_sa(&self) -> Option<f32> {
-        self.g_sa
-    }
+// impl ActionData {
+//     pub(crate) fn new_predicted(a: usize, h_sa: f32) -> Self {
+//         Self {
+//             a,
+//             next_position: None,
+//             h_theta_sa: h_sa,
+//         }
+//     }
 
-    pub(crate) fn action(&self) -> usize {
-        self.a
-    }
+//     // pub(crate) fn action(&self) -> usize {
+//     //     // debug_assert!(self.g_sa().is_some());
+//     //     self.a
+//     // }
 
-    pub(crate) fn next_position(&self) -> Option<NonZeroUsize> {
-        self.next_position
-    }
+//     // pub(crate) fn next_position_mut(&mut self) -> &mut Option<NonZeroU32> {
+//     //     todo!()
+//     //     // debug_assert!(self.g_sa().is_some());
+//     //     // &mut self.next_position
+//     // }
 
-    pub(crate) fn next_position_mut(&mut self) -> &mut Option<NonZeroUsize> {
-        &mut self.next_position
-    }
+//     // pub(crate) fn h_theta_sa(&self) -> f32 {
+//     //     self.h_theta_sa
+//     // }
 
-    pub(crate) fn decay(&mut self, decay: f32) {
-        let g_sa = self.g_sa.as_mut().unwrap();
-        g_sa.sub_assign(decay);
-    }
-
-    pub(crate) fn exhaust(&mut self) {
-        debug_assert!(self.g_sa.is_some());
-        // println!("exhausting action {}!", self.a);
-        self.g_sa = None;
-    }
-
-    pub(crate) fn update_g_sa(&mut self, g: f32) {
-        let g_sa = self.g_sa.as_mut().unwrap();
-        *g_sa = g_sa.max(g);
-    }
-}
+//     // pub(crate) fn update_h_sa(&mut self, h: f32) {
+//     //     self.h_sa = self.h_sa.max(h)
+//     // }
+// }

@@ -1,111 +1,133 @@
-use core::num::NonZeroUsize;
-use std::{collections::BTreeMap, ops::AddAssign};
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{
-    nabla::space::NablaStateActionSpace,
-    path::{ActionPath, ActionPathFor},
-};
+use crate::nabla::tree::NodeIndex;
 
-use super::{SearchTree, Transition};
+use super::{EdgeIndex, SearchTree};
 
-struct Decay(f32);
-
-pub(crate) struct DecayTracker {
-    current_nodes: BTreeMap<NonZeroUsize, Decay>,
-    next_nodes: BTreeMap<NonZeroUsize, Decay>,
+struct CascadeInfo<I> {
+    current_nodes: BTreeMap<NodeIndex, I>,
+    next_nodes: BTreeMap<NodeIndex, I>,
 }
 
-impl DecayTracker {
-    fn new(state_pos: NonZeroUsize, decay: Decay) -> Self {
+struct NewExhaustedValues {
+    children: u32,
+    descendants: u32,
+}
+
+impl<I> CascadeInfo<I> {
+    fn new(state_pos: NodeIndex, child_info: I) -> Self {
         Self {
-            current_nodes: core::iter::once((state_pos, decay)).collect(),
+            current_nodes: core::iter::once((state_pos, child_info)).collect(),
             next_nodes: BTreeMap::new(),
         }
     }
 
-    fn pop_front(&mut self) -> Option<(NonZeroUsize, Decay)> {
+    fn pop_front(&mut self) -> Option<(NodeIndex, I)> {
         self.current_nodes.pop_first().or_else(|| {
             core::mem::swap(&mut self.current_nodes, &mut self.next_nodes);
             self.current_nodes.pop_first()
         })
     }
 
-    fn insert_or_update(&mut self, state_pos: NonZeroUsize, decay: Decay) {
-        self.next_nodes
-            .entry(state_pos)
-            .and_modify(|Decay(d)| {
-                d.add_assign(decay.0);
+    fn upsert(
+        &mut self,
+        state_pos: NodeIndex,
+        new_child_info: I,
+        update: impl FnOnce(&mut I, &I),
+    ) -> &I {
+        let entry = self.next_nodes.entry(state_pos);
+        let value = entry
+            .and_modify(|child_info| {
+                update(child_info, &new_child_info);
             })
-            .or_insert(decay);
+            .or_insert(new_child_info);
+        value
     }
 }
 
+#[derive(Clone, Copy)]
+struct Info {
+    c_t_star: f32,
+    newly_exhausted_children: u32,
+}
+
 impl<P> SearchTree<P> {
-    pub(crate) fn clear_path<Space>(
-        &mut self,
-        root: &Space::State,
-        state: &mut Space::State,
-        path: &mut P,
-        // transitions: &mut Vec<Transition>,
-        state_pos: &mut Option<NonZeroUsize>,
-        decay: f32,
-    ) where
-        Space: NablaStateActionSpace,
-        Space::State: Clone,
-        P: Ord + ActionPath + ActionPathFor<Space> + Clone,
-    {
-        // debug_assert!(!transitions.is_empty());
-        debug_assert!(self.positions.contains_key(path));
-
-        let mut reached_root = false;
-
-        let mut decay_tracker = DecayTracker::new(state_pos.unwrap(), Decay(decay));
-        while let Some((parent_pos, parent_decay)) = decay_tracker.pop_front() {
-            let parent_exhausted = self.nodes[parent_pos.get()].is_exhausted();
-            let parent_c_star = self.nodes[parent_pos.get()].c_star;
-            let children = self.in_neighborhoods.get_mut(parent_pos.get()).unwrap();
-            children.retain(
-                |Transition {
-                     state_position,
-                     action_position,
-                 }| {
-                    let child_node = &self.nodes[*state_position];
-                    let action_data = &child_node.actions[*action_position];
-                    action_data.g_sa().is_some()
-                },
-            );
-            let num_children = children.len();
-            let num_children = NonZeroUsize::new(num_children).expect("No children");
-            for Transition {
-                state_position: child_pos,
-                action_position,
-            } in self.in_neighborhoods.get(parent_pos.get()).unwrap()
-            {
-                let child_node = &mut self.nodes[*child_pos];
-                match parent_exhausted {
-                    true => {
-                        child_node.exhaust_action(*action_position);
-                    }
-                    false => {
-                        child_node.update_c_star(parent_c_star, *action_position, parent_decay.0);
-                    }
-                }
-                if let Some(child_pos) = NonZeroUsize::new(*child_pos) {
-                    decay_tracker.insert_or_update(
-                        child_pos,
-                        Decay(parent_decay.0 / num_children.get() as f32),
-                    );
-                } else {
-                    reached_root = true;
-                }
+    pub(crate) fn cascade_new_terminal(&mut self, edge_id: EdgeIndex) {
+        let a_t = &self.tree.raw_edges()[edge_id.index()];
+        let s_t = &self.tree[a_t.target()];
+        debug_assert_eq!(s_t.n_t(), 0);
+        debug_assert!(!s_t.is_active());
+        let c_t = s_t.c_t_star;
+        let parent_index = a_t.source();
+        let info = Info {
+            c_t_star: c_t,
+            newly_exhausted_children: 1,
+        };
+        let mut cascade_info = CascadeInfo::new(parent_index, info);
+        while let Some((child_index, ancestor_info)) = cascade_info.pop_front() {
+            let Info { c_t_star, newly_exhausted_children: exhausted_children } = ancestor_info;
+            let child = &mut self.tree[child_index];
+            child.exhausted_children += exhausted_children;
+            if child.c_t_star > c_t_star {
+                child.c_t_star = c_t_star;
+            } else {
+                child.n_t += 1;
+            }
+            let new_child_info = Info {
+                c_t_star,
+                newly_exhausted_children: if child.is_active() { 0 } else { 1 },
+            };
+            let mut neigh = self
+                .tree
+                .neighbors_directed(child_index, petgraph::Direction::Incoming)
+                .detach();
+            while let Some(parent_id) = neigh.next_node(&self.tree) {
+                let update = |child_info: &mut Info, new_child_info: &Info| {
+                    child_info.c_t_star = child_info.c_t_star.min(new_child_info.c_t_star);
+                    child_info.newly_exhausted_children += new_child_info.newly_exhausted_children;
+                };
+                cascade_info.upsert(parent_id, new_child_info, update);
             }
         }
+    }
 
-        debug_assert!(reached_root);
-        // transitions.clear();
-        // debug_assert_ne!(transitions.capacity(), 0);
-        path.clear();
-        state.clone_from(root);
-        *state_pos = None;
+    pub(crate) fn cascade_old_node(&mut self, edge_id: EdgeIndex) {
+        let a_t = &self.tree.raw_edges()[edge_id.index()];
+        let s_t = &self.tree[a_t.target()];
+        let n_t_s_t = s_t.n_t();
+        let newly_exhausted_children = if s_t.is_active() { 0 } else { 1 };
+        let c_t = s_t.c_t_star;
+        let parent_index = a_t.source();
+        let info = Info {
+            c_t_star: c_t,
+            newly_exhausted_children,
+        };
+        let mut cascade_info = CascadeInfo::new(parent_index, info);
+        while let Some((child_index, ancestor_info)) = cascade_info.pop_front() {
+            let Info { c_t_star, newly_exhausted_children: exhausted_children } = ancestor_info;
+            let child = &mut self.tree[child_index];
+            child.exhausted_children += exhausted_children;
+            if child.c_t_star > c_t_star {
+                child.c_t_star = c_t_star;
+            } else {
+                child.n_t += 1;
+            }
+            child.n_t = child.n_t.max(n_t_s_t);
+            let new_child_info = Info {
+                c_t_star,
+                newly_exhausted_children: if child.is_active() { 0 } else { 1 },
+            };
+            let mut neigh = self
+                .tree
+                .neighbors_directed(child_index, petgraph::Direction::Incoming)
+                .detach();
+            while let Some(parent_id) = neigh.next_node(&self.tree) {
+                let update = |child_info: &mut Info, new_child_info: &Info| {
+                    child_info.c_t_star = child_info.c_t_star.min(new_child_info.c_t_star);
+                    child_info.newly_exhausted_children += new_child_info.newly_exhausted_children;
+                };
+                cascade_info.upsert(parent_id, new_child_info, update);
+            }
+        }
     }
 }

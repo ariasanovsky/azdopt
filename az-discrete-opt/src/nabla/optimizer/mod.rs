@@ -1,4 +1,4 @@
-use core::num::NonZeroUsize;
+use petgraph::stable_graph::NodeIndex;
 
 use crate::log::ArgminData;
 
@@ -11,7 +11,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     costs: Vec<Space::Cost>,
     paths: Vec<P>,
     // transitions: Vec<Vec<Transition>>,
-    last_positions: Vec<Option<NonZeroUsize>>,
+    last_positions: Vec<NodeIndex>,
     state_vecs: Vec<f32>,
     h_theta_host: Vec<f32>,
     action_weights: Vec<f32>,
@@ -46,7 +46,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space: Sync,
         Space::State: Clone + Send + Sync,
         Space::Cost: Clone + Send + Sync,
-        P: Send + crate::path::ActionPath,
+        P: Send + crate::path::ActionPath + Ord,
     {
         use rayon::{
             iter::{
@@ -55,6 +55,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             },
             slice::{ParallelSlice, ParallelSliceMut},
         };
+
+        use crate::nabla::tree::state_weight::StateWeight;
 
         let roots: Vec<_> = (0..batch).into_par_iter().map(|_| init_states()).collect();
         let states = roots.clone();
@@ -75,12 +77,22 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             h_theta_host.par_chunks_exact(Space::ACTION_DIM),
         )
             .into_par_iter()
-            .map(|(s, c, h_theta)| SearchTree::new(&space, s, c, h_theta))
+            .map(|(s, c, h)| {
+                let mut t = SearchTree::default();
+                let c = space.evaluate(c);
+                let weight = StateWeight::new(c);
+                let root_id = t.add_node(P::new(), weight);
+                t.add_actions(root_id, &space, s, h);
+                t
+            })
             .collect();
         // let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
-        let last_positions = vec![None; batch];
+        let last_positions = vec![Default::default(); batch];
         let action_weights = vec![0.; batch * Space::ACTION_DIM];
-        let argmin_data = states
+        let argmin_data: ArgminData<
+            <Space as NablaStateActionSpace>::State,
+            <Space as NablaStateActionSpace>::Cost,
+        > = states
             .par_iter()
             .zip(costs.par_iter())
             .map(|(s, c)| (s, c, space.evaluate(c)))
@@ -94,7 +106,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states,
             costs,
             paths,
-            // transitions,
             last_positions,
             state_vecs,
             h_theta_host,
@@ -106,58 +117,32 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         }
     }
 
-    // #[cfg(feature = "rayon")]
-    // pub fn par_argmin(&self) -> Option<(&Space::State, &Space::Cost, f32)>
-    // where
-    //     Space: Sync,
-    //     Space::State: Send + Sync,
-    //     Space::Cost: Send + Sync,
-    // {
-    //     use rayon::iter::{IntoParallelIterator, ParallelIterator};
-    //     let Self {
-    //         space,
-    //         roots: _,
-    //         states,
-    //         costs,
-    //         paths: _,
-    //         transitions: _,
-    //         last_positions: _,
-    //         state_vecs: _,
-    //         h_theta_host: _,
-    //         action_weights: _,
-    //         trees: _,
-    //         model: _,
-
-    //     } = self;
-    //     (states, costs)
-    //         .into_par_iter()
-    //         .map(|(s, c)| (s, c, space.evaluate(c)))
-    //         .min_by(|(_, _, e1), (_, _, e2)| e1.partial_cmp(e2).unwrap())
-    // }
-
     #[cfg(feature = "rayon")]
     pub fn par_roll_out_episodes(
         &mut self,
-        decay: f32,
+        n_as_tol: impl Fn(usize) -> u32 + Sync,
     ) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
-        P: Ord + Clone + Send + Sync + crate::path::ActionPath + crate::path::ActionPathFor<Space>,
+        P: Ord
+            + Clone
+            + Send
+            + Sync
+            + crate::path::ActionPath
+            + crate::path::ActionPathFor<Space>
+            + core::fmt::Debug,
     {
         use rayon::{
             iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
             slice::{ParallelSlice, ParallelSliceMut},
         };
 
-        use crate::nabla::tree::node::StateNode;
-
         let trees = &mut self.trees;
         let roots = &self.roots;
         let states = &mut self.states;
         let paths = &mut self.paths;
-        // let transitions = &mut self.transitions;
         let costs = &mut self.costs;
         let last_positions = &mut self.last_positions;
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
@@ -165,7 +150,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots.len(),
             states.len(),
             paths.len(),
-            // transitions.len(),
             costs.len(),
             last_positions.len(),
             state_vecs.len(),
@@ -177,52 +161,30 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             roots,
             states,
             paths,
-            // transitions,
             costs,
             last_positions,
             state_vecs,
         )
             .into_par_iter()
-            .for_each(
-                |(
-                    t,
-                    r,
-                    s,
-                    p,
-                    // trans,
-                    c,
-                    pos,
-                    v,
-                )| {
-                    t.roll_out_episodes(
-                        &self.space,
-                        r,
-                        s,
-                        c,
-                        p,
-                        // trans,
-                        pos,
-                        decay,
-                    );
-                    if !p.is_empty() {
-                        self.space.write_vec(s, v);
-                    }
-                },
-            );
+            .for_each(|(t, r, s, p, c, pos, v)| {
+                t.roll_out_episodes(&self.space, r, s, c, p, pos, &n_as_tol);
+                if !p.is_empty() {
+                    self.space.write_vec(s, v);
+                }
+            });
         self.model
             .write_predictions(&self.state_vecs, &mut self.h_theta_host);
         (
             &mut self.trees,
             &self.states,
-            &self.costs,
+            &self.last_positions,
             &self.paths,
             self.h_theta_host.par_chunks_exact(Space::ACTION_DIM),
         )
             .into_par_iter()
-            .for_each(|(t, s, c, p, h)| {
+            .for_each(|(t, s, pos, p, h)| {
                 if !p.is_empty() {
-                    let n = StateNode::new(&self.space, s, c, h);
-                    t.push_node(n);
+                    t.add_actions(*pos, &self.space, s, h);
                 }
             });
         self.par_update_argmmim_data()
@@ -246,8 +208,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                     let n = t.nodes()[*num..]
                         .iter()
                         .enumerate()
-                        .filter(|(_, n)| n.c < min_eval)
-                        .min_by(|(_, n1), (_, n2)| n1.c.partial_cmp(&n2.c).unwrap())
+                        .filter(|(_, n)| n.weight.c < min_eval)
+                        .min_by(|(_, n1), (_, n2)| n1.weight.c.partial_cmp(&n2.weight.c).unwrap())
                         .map(|(i, n)| (tree_pos, i + *num, n));
                     // *num = 0;
                     *num = t.nodes().len();
@@ -256,14 +218,14 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                     None
                 }
             })
-            .min_by(|(_, _, n1), (_, _, n2)| n1.c.partial_cmp(&n2.c).unwrap());
+            .min_by(|(_, _, n1), (_, _, n2)| n1.weight.c.partial_cmp(&n2.weight.c).unwrap());
         match n {
             Some((tree_pos, node_pos, _n)) => {
                 let tree = &self.trees[tree_pos];
                 let ArgminData { state, cost, eval } = &mut self.argmin_data;
                 state.clone_from(&self.roots[tree_pos]);
                 let p = tree.positions().iter().find_map(|(p, pos)| {
-                    if pos.get() == node_pos {
+                    if pos.index() == node_pos {
                         Some(p)
                     } else {
                         None
@@ -284,11 +246,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_update_model(
-        &mut self,
-        // action_weights: impl Fn(u32) -> f32 + Sync,
-        // state_weights: impl Fn(&Space::State) -> f32 + Sync,
-    ) -> f32
+    pub fn par_update_model(&mut self, n_obs_tol: u32) -> f32
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
@@ -315,7 +273,9 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
         (&self.trees, h_theta_vecs, weight_vecs)
             .into_par_iter()
-            .for_each(|(t, h_theta, weights)| t.write_observations(&self.space, h_theta, weights));
+            .for_each(|(t, h_theta, weights)| {
+                t.write_observations(&self.space, h_theta, weights, n_obs_tol)
+            });
         self.model
             .update_model(&self.state_vecs, &self.h_theta_host, &self.action_weights)
     }
@@ -323,7 +283,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     #[cfg(feature = "rayon")]
     pub fn par_reset_trees(
         &mut self,
-        modify_root: impl Fn(&Space, &mut Space::State, Vec<(Option<&P>, f32, f32)>) + Sync,
+        modify_root: impl Fn(&Space, &mut Space::State, Vec<(&P, &super::tree::state_weight::StateWeight)>)
+            + Sync,
     ) where
         Space: Sync,
         P: Ord + Send + Sync + crate::path::ActionPathFor<Space>,
@@ -334,6 +295,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             iter::{IntoParallelIterator, ParallelIterator},
             slice::{ParallelSlice, ParallelSliceMut},
         };
+
+        use crate::nabla::tree::state_weight::StateWeight;
 
         let Self {
             space: _,
@@ -351,7 +314,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             num_inspected_nodes: _,
             argmin_data: _,
         } = self;
-        last_positions.fill(None);
+        last_positions.fill(Default::default());
         state_vecs.fill(0.);
         let space = &self.space;
         let trees = &self.trees;
@@ -387,7 +350,11 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         (&mut self.trees, &self.roots, &self.costs, action_vecs)
             .into_par_iter()
             .for_each(|(t, r, c, h)| {
-                *t = SearchTree::new(&self.space, r, c, h);
+                t.clear();
+                let c = space.evaluate(c);
+                let weight = StateWeight::new(c);
+                let root_id = t.add_node(P::new(), weight);
+                t.add_actions(root_id, space, r, h);
             });
         self.num_inspected_nodes.fill(0);
     }

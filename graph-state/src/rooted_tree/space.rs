@@ -1,22 +1,36 @@
-use az_discrete_opt::{space::axioms::{ActionOrderIndependent, ActionsNeverRepeat}, nabla::space::NablaStateActionSpace};
+use az_discrete_opt::{
+    nabla::space::NablaStateActionSpace,
+    space::axioms::{ActionOrderIndependent, ActionsNeverRepeat},
+};
 
 use crate::simple_graph::edge::Edge;
 
-use super::{ordered_edge::OrderedEdge, RootedOrderedTree, modify_parent_once::ROTWithActionPermissions};
+use super::{
+    modify_parent_once::ROTWithActionPermissions, ordered_edge::OrderedEdge, RootedOrderedTree,
+};
 
 pub struct ConstrainedRootedOrderedTree<const N: usize>;
 
 pub struct ROTModifyParentsOnce<const N: usize, C> {
     cost: fn(&RootedOrderedTree<N>) -> C,
     eval: fn(&C) -> f32,
+    g_theta_star_sa: fn(c_s: f32, h_theta_sa: f32) -> f32,
+    h_sa: fn(c_s: f32, c_as_star: f32) -> f32,
 }
 
 impl<const N: usize, C> ROTModifyParentsOnce<N, C> {
     pub const fn new(
         cost: fn(&RootedOrderedTree<N>) -> C,
         eval: fn(&C) -> f32,
+        g_theta_star_sa: fn(c_s: f32, h_theta_sa: f32) -> f32,
+        h_sa: fn(c_s: f32, c_as_star: f32) -> f32,
     ) -> Self {
-        Self { cost, eval }
+        Self {
+            cost,
+            eval,
+            g_theta_star_sa,
+            h_sa,
+        }
     }
 }
 
@@ -40,27 +54,36 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
     fn reward(&self, _state: &Self::State, _index: usize) -> Self::RewardHint {}
 
     fn act(&self, state: &mut Self::State, action: &Self::Action) {
-        let ROTWithActionPermissions { tree, permitted_actions } = state;
+        let ROTWithActionPermissions {
+            tree,
+            permitted_actions,
+        } = state;
         debug_assert!(permitted_actions.contains(&action.index_ignoring_edge_0_1()));
         tree.set_parent(action);
         let child = action.child();
+        let size_before = permitted_actions.len();
         for u in 0..child {
             let edge = Edge::new(u, child);
             let edge = OrderedEdge::new(edge);
             let index = edge.index_ignoring_edge_0_1();
             permitted_actions.remove(&index);
         }
+        let size_after = permitted_actions.len();
+        debug_assert!(size_after < size_before);
     }
 
     fn action_data<'a>(
         &self,
         state: &'a Self::State,
     ) -> impl Iterator<Item = (usize, Self::RewardHint)> + 'a {
-        let current_edge_positions = state.tree.edge_indices_ignoring_0_1_and_last_vertex().collect::<Vec<_>>();
+        let current_edge_positions = state
+            .tree
+            .edge_indices_ignoring_0_1_and_last_vertex()
+            .collect::<Vec<_>>();
         state.permitted_actions.iter().filter_map(move |action| {
             match current_edge_positions.contains(action) {
                 true => None,
-                false => Some((*action, ()))
+                false => Some((*action, ())),
             }
         })
     }
@@ -85,12 +108,16 @@ impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
         (self.eval)(cost)
     }
 
-    fn g_theta_star_sa(&self, c_s: &Self::Cost, _r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
-        h_theta_sa * self.evaluate(c_s)
+    fn g_theta_star_sa(&self, c_s: f32, _r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
+        // h_theta_sa * c_s
+        // h_theta_sa.min(c_s)
+        (self.g_theta_star_sa)(c_s, h_theta_sa)
     }
 
     fn h_sa(&self, c_s: f32, _c_as: f32, c_as_star: f32) -> f32 {
-        c_as_star / c_s
+        // 1. - c_as_star / c_s
+        // c_s - c_as_star
+        (self.h_sa)(c_s, c_as_star)
     }
 }
 

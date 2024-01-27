@@ -160,7 +160,7 @@ impl<const N: usize, B> BitsetGraph<N, B> {
             .enumerate()
             .flat_map(move |(v, n)| (0..v).map(move |u| n.contains(u as _).unwrap()))
     }
-    
+
     pub fn count_cliques_inside(&self, common_neighbors: B, size: usize) -> i32
     where
         B: Bitset + Clone,
@@ -172,15 +172,14 @@ impl<const N: usize, B> BitsetGraph<N, B> {
             _ => common_neighbors
                 .iter()
                 .map(|u| {
-                    let mut common_neighbors = common_neighbors.intersection(&self.neighborhoods[u]);
+                    let mut common_neighbors =
+                        common_neighbors.intersection(&self.neighborhoods[u]);
                     let up_to_u = unsafe { B::range_to_unchecked(u as _) };
                     common_neighbors.intersection_assign(&up_to_u);
                     common_neighbors
                 })
                 .filter(|n_u| 1 + n_u.cardinality() >= size as u32)
-                .map(|n_u| {
-                    self.count_cliques_inside(n_u, size - 1)
-                })
+                .map(|n_u| self.count_cliques_inside(n_u, size - 1))
                 .sum(),
         }
     }
