@@ -1,54 +1,28 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::nabla::tree::NodeIndex;
 
-use super::{state_weight::NumLeafDescendants, EdgeIndex, SearchTree};
+use super::{EdgeIndex, SearchTree};
 
-pub(crate) struct CascadeTracker {
-    current_nodes: BTreeMap<NodeIndex, NumLeafDescendants>,
-    next_nodes: BTreeMap<NodeIndex, NumLeafDescendants>,
+struct CascadeInfo<I> {
+    current_nodes: BTreeMap<NodeIndex, I>,
+    next_nodes: BTreeMap<NodeIndex, I>,
 }
 
-struct NodeTracker {
-    current_nodes: BTreeMap<NodeIndex, bool>,
-    next_nodes: BTreeMap<NodeIndex, bool>,
+struct NewExhaustedValues {
+    children: u32,
+    descendants: u32,
 }
 
-impl NodeTracker {
-    fn new(state_pos: NodeIndex) -> Self {
+impl<I> CascadeInfo<I> {
+    fn new(state_pos: NodeIndex, child_info: I) -> Self {
         Self {
-            current_nodes: core::iter::once((state_pos, false)).collect(),
+            current_nodes: core::iter::once((state_pos, child_info)).collect(),
             next_nodes: BTreeMap::new(),
         }
     }
 
-    fn pop_front(&mut self) -> Option<(NodeIndex, bool)> {
-        self.current_nodes.pop_first().or_else(|| {
-            core::mem::swap(&mut self.current_nodes, &mut self.next_nodes);
-            self.current_nodes.pop_first()
-        })
-    }
-
-    fn upsert(&mut self, state_pos: NodeIndex, child_active: bool) -> bool {
-        let entry = self.next_nodes.entry(state_pos);
-        let value = entry
-            .and_modify(|active_child_seen| {
-                *active_child_seen = *active_child_seen || child_active;
-            })
-            .or_insert(child_active);
-        *value
-    }
-}
-
-impl CascadeTracker {
-    fn new(state_pos: NodeIndex, num_child_leaf_descendants: NumLeafDescendants) -> Self {
-        Self {
-            current_nodes: core::iter::once((state_pos, num_child_leaf_descendants)).collect(),
-            next_nodes: BTreeMap::new(),
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(NodeIndex, NumLeafDescendants)> {
+    fn pop_front(&mut self) -> Option<(NodeIndex, I)> {
         self.current_nodes.pop_first().or_else(|| {
             core::mem::swap(&mut self.current_nodes, &mut self.next_nodes);
             self.current_nodes.pop_first()
@@ -58,48 +32,61 @@ impl CascadeTracker {
     fn upsert(
         &mut self,
         state_pos: NodeIndex,
-        num_child_leaf_descendants: NumLeafDescendants,
-    ) -> NumLeafDescendants {
+        new_child_info: I,
+        update: impl FnOnce(&mut I, &I),
+    ) -> &I {
         let entry = self.next_nodes.entry(state_pos);
         let value = entry
-            .and_modify(|active_child_seen| {
-                *active_child_seen = active_child_seen.join(&num_child_leaf_descendants);
+            .and_modify(|child_info| {
+                update(child_info, &new_child_info);
             })
-            .or_insert(num_child_leaf_descendants);
-        *value
+            .or_insert(new_child_info);
+        value
     }
+}
+
+#[derive(Clone, Copy)]
+struct Info {
+    c_t_star: f32,
+    newly_exhausted_children: u32,
 }
 
 impl<P> SearchTree<P> {
     pub(crate) fn cascade_new_terminal(&mut self, edge_id: EdgeIndex) {
         let a_t = &self.tree.raw_edges()[edge_id.index()];
         let s_t = &self.tree[a_t.target()];
-        debug_assert_eq!(s_t.n_t.value(), 0);
-        debug_assert!(!s_t.n_t.is_active());
+        debug_assert_eq!(s_t.n_t(), 0);
+        debug_assert!(!s_t.is_active());
         let c_t = s_t.c_t_star;
         let parent_index = a_t.source();
-        let parent_node = &mut self.tree[parent_index];
-        parent_node.c_t_star = parent_node.c_t_star.min(c_t);
-        let mut node_tracker = NodeTracker::new(parent_index);
-        while let Some((child_id, active_ancestor_seen)) = node_tracker.pop_front() {
-            let child_node_weight = match active_ancestor_seen {
-                true => &mut self.tree[child_id],
-                false => {
-                    let weight = self.update_exhaustion(child_id);
-                    // todo!();
-                    weight
-                }
+        let info = Info {
+            c_t_star: c_t,
+            newly_exhausted_children: 1,
+        };
+        let mut cascade_info = CascadeInfo::new(parent_index, info);
+        while let Some((child_index, ancestor_info)) = cascade_info.pop_front() {
+            let Info { c_t_star, newly_exhausted_children: exhausted_children } = ancestor_info;
+            let child = &mut self.tree[child_index];
+            child.exhausted_children += exhausted_children;
+            if child.c_t_star > c_t_star {
+                child.c_t_star = c_t_star;
+            } else {
+                child.n_t += 1;
+            }
+            let new_child_info = Info {
+                c_t_star,
+                newly_exhausted_children: if child.is_active() { 0 } else { 1 },
             };
-            child_node_weight.n_t.increment();
-            let child_c_t_star = child_node_weight.c_t_star;
             let mut neigh = self
                 .tree
-                .neighbors_directed(child_id, petgraph::Direction::Incoming)
+                .neighbors_directed(child_index, petgraph::Direction::Incoming)
                 .detach();
             while let Some(parent_id) = neigh.next_node(&self.tree) {
-                let parent_node = &mut self.tree[parent_id];
-                parent_node.c_t_star = parent_node.c_t_star.min(child_c_t_star);
-                node_tracker.upsert(parent_id, parent_node.n_t.is_active());
+                let update = |child_info: &mut Info, new_child_info: &Info| {
+                    child_info.c_t_star = child_info.c_t_star.min(new_child_info.c_t_star);
+                    child_info.newly_exhausted_children += new_child_info.newly_exhausted_children;
+                };
+                cascade_info.upsert(parent_id, new_child_info, update);
             }
         }
     }
@@ -107,29 +94,40 @@ impl<P> SearchTree<P> {
     pub(crate) fn cascade_old_node(&mut self, edge_id: EdgeIndex) {
         let a_t = &self.tree.raw_edges()[edge_id.index()];
         let s_t = &self.tree[a_t.target()];
-        let c_t_star = s_t.c_t_star;
+        let n_t_s_t = s_t.n_t();
+        let newly_exhausted_children = if s_t.is_active() { 0 } else { 1 };
+        let c_t = s_t.c_t_star;
         let parent_index = a_t.source();
-        let mut cascade_tracker = CascadeTracker::new(parent_index, s_t.n_t);
-        let parent_weight = &mut self.tree[parent_index];
-        parent_weight.c_t_star = parent_weight.c_t_star.min(c_t_star);
-        while let Some((child_index, num_child_leaf_descendants)) = cascade_tracker.pop_front() {
-            let child_weight = match num_child_leaf_descendants.is_active() {
-                true => &mut self.tree[child_index],
-                false => self.update_exhaustion(child_index),
+        let info = Info {
+            c_t_star: c_t,
+            newly_exhausted_children,
+        };
+        let mut cascade_info = CascadeInfo::new(parent_index, info);
+        while let Some((child_index, ancestor_info)) = cascade_info.pop_front() {
+            let Info { c_t_star, newly_exhausted_children: exhausted_children } = ancestor_info;
+            let child = &mut self.tree[child_index];
+            child.exhausted_children += exhausted_children;
+            if child.c_t_star > c_t_star {
+                child.c_t_star = c_t_star;
+            } else {
+                child.n_t += 1;
+            }
+            child.n_t = child.n_t.max(n_t_s_t);
+            let new_child_info = Info {
+                c_t_star,
+                newly_exhausted_children: if child.is_active() { 0 } else { 1 },
             };
-            child_weight.n_t = child_weight.n_t.join(&num_child_leaf_descendants);
-            let child_c_t_star = child_weight.c_t_star;
-            let child_n_t = child_weight.n_t;
             let mut neigh = self
                 .tree
                 .neighbors_directed(child_index, petgraph::Direction::Incoming)
                 .detach();
-            while let Some(parent_index) = neigh.next_node(&self.tree) {
-                let parent_weight = &mut self.tree[parent_index];
-                parent_weight.c_t_star = parent_weight.c_t_star.min(child_c_t_star);
-                cascade_tracker.upsert(parent_index, child_n_t);
+            while let Some(parent_id) = neigh.next_node(&self.tree) {
+                let update = |child_info: &mut Info, new_child_info: &Info| {
+                    child_info.c_t_star = child_info.c_t_star.min(new_child_info.c_t_star);
+                    child_info.newly_exhausted_children += new_child_info.newly_exhausted_children;
+                };
+                cascade_info.upsert(parent_id, new_child_info, update);
             }
-            // todo!()
         }
     }
 }

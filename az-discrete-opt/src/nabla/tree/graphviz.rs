@@ -3,35 +3,42 @@ use dot_structures::*;
 use graphviz_rust::{cmd::Format, exec, printer::PrinterContext};
 use petgraph::visit::IntoNodeReferences;
 
-use super::SearchTree;
+use super::{state_weight::StateWeight, SearchTree};
 
 impl<P> SearchTree<P> {
     pub fn graphviz(&self) -> Vec<u8> {
+        let foo = |u: crate::nabla::tree::NodeIndex, n: &StateWeight| -> String {
+            format!("s{}n{}x{}", u.index(), n.n_t(), n.exhausted_children)
+        };
+
         let mut g = graph!(id!("search_tree"));
         for (u, n) in self.tree.node_references() {
-            let u_id = u.index();
-            let node = match n.n_t.try_active().is_some() {
+            // let u_id = u.index();
+            let foo = foo(u, n);
+            let node = match n.is_active() {
                 false => node!(
-                    u_id;
+                    foo;
                     attr!("shape", "doublecircle")
                 ),
-                true => node!(u_id),
+                true => node!(foo),
             };
             g.add_stmt(Stmt::Node(node));
         }
         for u in self.tree.node_indices() {
-            let u_id = u.index();
+            // let u_id = u.index();
+            let u_label = foo(u, &self.tree[u]);
             for v in self
                 .tree
                 .neighbors_directed(u, petgraph::Direction::Outgoing)
             {
-                let v_id = v.index();
-                let edge = match self.tree[v].n_t.try_active().is_some() {
+                // let v_id = v.index();
+                let v_label = foo(v, &self.tree[v]);
+                let edge = match self.tree[v].is_active() {
                     false => edge!(
-                        node_id!(u_id) => node_id!(v_id)
+                        node_id!(u_label) => node_id!(v_label)
                     ),
                     true => edge!(
-                        node_id!(u_id) => node_id!(v_id);
+                        node_id!(u_label) => node_id!(v_label);
                         attr!("dir", "forward")
                     ),
                 };

@@ -246,7 +246,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_update_model(&mut self, n_as_tol: u32) -> f32
+    pub fn par_update_model(&mut self, n_obs_tol: u32) -> f32
     where
         Space: Sync,
         Space::State: Clone + Send + Sync,
@@ -274,7 +274,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         (&self.trees, h_theta_vecs, weight_vecs)
             .into_par_iter()
             .for_each(|(t, h_theta, weights)| {
-                t.write_observations(&self.space, h_theta, weights, n_as_tol)
+                t.write_observations(&self.space, h_theta, weights, n_obs_tol)
             });
         self.model
             .update_model(&self.state_vecs, &self.h_theta_host, &self.action_weights)

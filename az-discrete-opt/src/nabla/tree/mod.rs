@@ -60,7 +60,7 @@ impl<P> SearchTree<P> {
                 sizes.resize(len + 1, (0, 0));
             }
             sizes[len].0 += 1;
-            if self.tree[*i].n_t.is_active() {
+            if self.tree[*i].is_active() {
                 sizes[len].1 += 1;
             }
         }
@@ -71,7 +71,7 @@ impl<P> SearchTree<P> {
         self.tree
             .node_weights()
             .enumerate()
-            .filter_map(|(i, w)| if !w.n_t.is_active() { Some(i) } else { None })
+            .filter_map(|(i, w)| if !w.is_active() { Some(i) } else { None })
             .collect()
     }
 
@@ -79,7 +79,7 @@ impl<P> SearchTree<P> {
         for (node, weight) in self.tree.node_references() {
             print!(
                 "{node:?}\t({})\t({:?})  \t{{",
-                weight.n_t.try_active().map_or(0, |n_t| n_t.value()),
+                weight.n_t(),
                 weight.actions,
             );
             for e in self
@@ -198,7 +198,7 @@ impl<P> SearchTree<P> {
                             let arc_index = self.add_arc(*state_pos, next_pos, prediction_pos);
                             match space.is_terminal(state) {
                                 true => {
-                                    self.tree[next_pos].mark_exhausted();
+                                    // self.tree[next_pos].mark_exhausted();
                                     // eprintln!("\texhausted_nodes: {:?}", self._exhausted_nodes());
                                     self.cascade_new_terminal(arc_index);
                                     // eprintln!("\t->               {:?}", self._exhausted_nodes());
@@ -252,11 +252,7 @@ impl<P> SearchTree<P> {
             .edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing)
         {
             let child_weight = self.tree.node_weight(e.target()).unwrap();
-            if !child_weight
-                .n_t
-                .try_active()
-                .is_some_and(|n_t| n_t.value() < n_t_as_tol)
-            {
+            if !child_weight.is_active() || child_weight.n_t() >= n_t_as_tol {
                 let c_as = child_weight.c;
                 let c_as_star = child_weight.c_t_star;
                 let h_t_sa = space.h_sa(c_s, c_as, c_as_star);

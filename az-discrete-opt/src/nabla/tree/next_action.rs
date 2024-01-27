@@ -1,6 +1,6 @@
 use petgraph::visit::EdgeRef;
 
-use super::{state_weight::ActiveNumLeafDescendents, EdgeIndex, NodeIndex, SearchTree};
+use super::{EdgeIndex, NodeIndex, SearchTree};
 
 pub(crate) enum NextAction {
     Visited(EdgeIndex),
@@ -9,9 +9,12 @@ pub(crate) enum NextAction {
 
 impl<P> SearchTree<P> {
     pub(crate) fn next_action(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
+        if !self.tree[state_pos].is_active() {
+            return None;
+        }
         let revisit_choice = self.revisit_choice(state_pos);
         if let Some((e, n_t_as, _)) = revisit_choice {
-            if n_t_as.value() < n_as_tol {
+            if n_t_as < n_as_tol {
                 return Some(NextAction::Visited(e));
             }
         }
@@ -25,18 +28,24 @@ impl<P> SearchTree<P> {
     pub(crate) fn revisit_choice(
         &self,
         state_pos: NodeIndex,
-    ) -> Option<(EdgeIndex, ActiveNumLeafDescendents, f32)> {
+    ) -> Option<(EdgeIndex, u32, f32)> {
         self.tree
             .edges_directed(state_pos, petgraph::Direction::Outgoing)
             .filter_map(|e| {
                 let child_weight = &self.tree[e.target()];
-                child_weight
-                    .n_t
-                    .try_active()
-                    .map(|n_t| (e.id(), n_t, child_weight.c_t_star))
+                if child_weight.is_active() {
+                    Some((e.id(), child_weight.n_t(), child_weight.c_t_star))
+                } else {
+                    None
+                }
+                // child_weight
+                //     .n_t
+                //     .try_active()
+                //     .map(|n_t| (e.id(), n_t, child_weight.c_t_star))
                 // child_weight.n_t.map(|n_as| {
                 //     (e.id(), n_as, child_weight.c_t_star)
                 // })
+                // todo!();
             })
             .min_by(|(_, n1, c_star1), (_, n2, c_star2)| {
                 n1.cmp(n2).then(c_star1.partial_cmp(c_star2).unwrap())

@@ -131,11 +131,10 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 1_600;
-    let n_obs_tol = 50;
+    let episodes: usize = 800;
+    let n_obs_tol = 200;
     let n_as_tol = |len: usize| -> u32 {
-        const N_AS_TOL: [u32; 3] = [50, 50, 25];
-        N_AS_TOL.get(len).copied().unwrap_or(10)
+        [200, 50, 50].get(len).copied().unwrap_or(25)
     };
 
     for epoch in 1..=epochs {
