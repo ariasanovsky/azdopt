@@ -54,8 +54,8 @@ type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
-    // (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
-    (Linear<HIDDEN_3, ACTION>, ReLU),
+    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
 const BATCH: usize = 512;
@@ -80,7 +80,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let num_permitted_edges_range = 5..=(E / 2);
+    let num_permitted_edges_range = 12..=(E / 2);
     let dist = WeightedIndex::new([1., 1.,])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
@@ -123,10 +123,10 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 800;
+    let episodes: usize = 3_200;
 
     let n_as_tol = |len| {
-        [200, 25, 25, 25].get(len).copied().unwrap_or(5)
+        [200, 200, 100, 100, 50, 50, 25, 25].get(len).copied().unwrap_or(10)
     };
     let n_obs_tol = 200;
 

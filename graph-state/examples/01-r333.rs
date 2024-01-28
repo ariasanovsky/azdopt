@@ -54,8 +54,8 @@ type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
-    // (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
-    (Linear<HIDDEN_3, ACTION>, ReLU),
+    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
 const BATCH: usize = 256;
@@ -80,8 +80,8 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let num_permitted_edges_range = 5..=(E / 2);
-    let dist = WeightedIndex::new([1., 1., 1.])?;
+    let num_permitted_edges_range = 10..=(E / 2);
+    let dist = WeightedIndex::new([1., 1., 1.,])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
         let s = RamseyCounts::new(g, &SIZES);
@@ -96,7 +96,7 @@ fn main() -> eyre::Result<()> {
     };
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
-    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.]);
+    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.,]);
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE,
@@ -123,12 +123,12 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 1_600;
+    let episodes: usize = 6_400;
 
     let n_as_tol = |len| {
-        [50].get(len).copied().unwrap_or(25)
+        [200, 200, 200, 100, 100, 100, 50, 50, 50, 25, 25, 25].get(len).copied().unwrap_or(10)
     };
-    let n_obs_tol = 50;
+    let n_obs_tol = 200;
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
@@ -141,7 +141,7 @@ fn main() -> eyre::Result<()> {
                 }
                 ArgminImprovement::Unchanged => {}
             };
-            if episode % episodes == 0 {
+            if episode  == episodes {
                 println!("==== EPISODE: {episode} ====");
                 let sizes = optimizer
                     .get_trees()

@@ -163,16 +163,16 @@ where
             .sum()
     }
 
-    fn g_theta_star_sa(&self, _c_s: f32, r_sa: Self::RewardHint, h_theta_s_a: f32) -> f32 {
+    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
         let r_sa = r_sa.old_count as f32 * self.weights[r_sa.old_color]
             - r_sa.new_count as f32 * self.weights[r_sa.new_color];
-        // r_sa + h_theta_s_a.powi(2)
-        r_sa + h_theta_s_a
+        // r_sa + h_theta_s_a
+        c_s * h_theta_sa + r_sa * (1. - h_theta_sa)
     }
 
     fn h_sa(&self, _c_s: f32, c_as: f32, c_as_star: f32) -> f32 {
-        // (c_as - c_as_star).sqrt()
-        c_as - c_as_star
+        // c_as - c_as_star
+        1. - c_as_star / c_as
     }
 }
 

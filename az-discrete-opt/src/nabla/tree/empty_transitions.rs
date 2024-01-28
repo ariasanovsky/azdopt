@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::nabla::tree::NodeIndex;
 
@@ -7,11 +7,6 @@ use super::{EdgeIndex, SearchTree};
 struct CascadeInfo<I> {
     current_nodes: BTreeMap<NodeIndex, I>,
     next_nodes: BTreeMap<NodeIndex, I>,
-}
-
-struct NewExhaustedValues {
-    children: u32,
-    descendants: u32,
 }
 
 impl<I> CascadeInfo<I> {
