@@ -49,7 +49,7 @@ const STATE: usize = E * (2 * C + 1);
 const HIDDEN_1: usize = 512;
 const HIDDEN_2: usize = 1024;
 const HIDDEN_3: usize = 1024;
-const HIDDEN_4: usize = 512;
+// const HIDDEN_4: usize = 512;
 
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
@@ -60,7 +60,7 @@ type ModelH = (
     (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 1024;
+const BATCH: usize = 1;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
@@ -155,7 +155,7 @@ fn main() -> eyre::Result<()> {
                     .get_trees()
                     .first()
                     .unwrap()
-                    .sizes();
+                    .sizes::<P>();
                 println!("sizes: {sizes:?}");
 
                 let graph = optimizer.get_trees()[0].graphviz();

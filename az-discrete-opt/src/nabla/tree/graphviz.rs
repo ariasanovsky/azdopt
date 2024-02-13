@@ -5,7 +5,7 @@ use petgraph::visit::IntoNodeReferences;
 
 use super::{state_weight::StateWeight, SearchTree};
 
-impl<P> SearchTree<P> {
+impl SearchTree {
     pub fn graphviz(&self) -> Vec<u8> {
         let foo = |u: crate::nabla::tree::NodeIndex, n: &StateWeight| -> String {
             format!("s{}n{}x{}", u.index(), n.n_t(), n.exhausted_children)

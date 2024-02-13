@@ -26,7 +26,12 @@ impl ActionPath for ActionMultiset {
     }
 
     unsafe fn undo_unchecked(&mut self, action: usize) {
-        todo!()
+        let count = self.actions.get_mut(&action).unwrap();
+        if *count == 1 {
+            self.actions.remove(&action).unwrap();
+        } else {
+            *count -= 1;
+        }
     }
 
     fn is_empty(&self) -> bool {

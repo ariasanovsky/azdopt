@@ -25,36 +25,33 @@ pub mod next_action;
 pub mod node;
 pub mod state_weight;
 
-pub struct SearchTree<P> {
-    positions: BTreeMap<P, NodeIndex>,
+pub struct SearchTree {
     tree: DiGraph<StateWeight, ActionWeight>,
     predictions: Vec<ActionPrediction>,
 }
 
-impl<P> Default for SearchTree<P> {
+impl Default for SearchTree {
     fn default() -> Self {
         Self {
-            positions: Default::default(),
             tree: Default::default(),
             predictions: Default::default(),
         }
     }
 }
 
-impl<P> SearchTree<P> {
+impl SearchTree {
     pub fn clear(&mut self) {
-        self.positions.clear();
         self.tree.clear();
         self.predictions.clear();
     }
 
-    pub fn sizes(&self) -> Vec<(usize, usize)>
+    pub fn sizes<P>(&self) -> Vec<(usize, usize)>
     where
         P: ActionPath,
     {
         let mut sizes = vec![(0, 0)];
-        println!("{}", self.positions.len());
-        for (p, i) in self.positions.iter() {
+        println!("{}", self.positions::<P>().len());
+        for (p, i) in self.positions::<P>().iter() {
             let len = p.len();
             if len >= sizes.len() {
                 sizes.resize(len + 1, (0, 0));
@@ -110,7 +107,7 @@ impl<P> SearchTree<P> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn roll_out_episodes<Space>(
+    pub fn roll_out_episodes<Space, P>(
         &mut self,
         space: &Space,
         root: &Space::State,
@@ -122,7 +119,7 @@ impl<P> SearchTree<P> {
     ) where
         Space: NablaStateActionSpace,
         Space::State: Clone,
-        P: Ord + ActionPath + ActionPathFor<Space> + Clone, // + core::fmt::Debug,
+        P: ActionPath + ActionPathFor<Space>, // + core::fmt::Debug,
     {
         loop {
             // println!("path: {path:?}");
@@ -167,7 +164,7 @@ impl<P> SearchTree<P> {
                     //     "\tfirst visit to {action_id} (pos = {prediction_pos}) from {state_pos:?}",
                     // );
                     unsafe { path.push_unchecked(action_id) };
-                    let next_pos = self.positions.get(path);
+                    let next_pos: Option<&NodeIndex> = todo!(); //self.positions::<P>().get(path);
                     match next_pos {
                         Some(next_pos) => {
                             let arc_index = self.add_arc(*state_pos, *next_pos, prediction_pos);
@@ -185,7 +182,7 @@ impl<P> SearchTree<P> {
                             // let c_as_star = c_as;
                             let weight = StateWeight::new(c_as);
                             // eprint!("\tnew node_weight {weight:?}");
-                            let next_pos = self.add_node(path.clone(), weight);
+                            let next_pos = self.add_node(weight);
                             // eprintln!(" on {next_pos:?}");
                             // let c_s = self.tree.node_weight(*state_pos).unwrap().c;
                             // let g_t_sa = c_s - c_as_star;
@@ -223,21 +220,14 @@ impl<P> SearchTree<P> {
                         return;
                     }
                     false => {
-                        debug_assert!(self.positions.contains_key(path));
+                        todo!();
+                        // debug_assert!(self.positions::<P>().contains_key(path));
                         unreachable!("asdkfnasd;fkna");
                     }
                 },
             }
         }
     }
-
-    // pub(crate) fn push_node(&mut self, node: StateNode)
-    // where
-    //     P: Ord + ActionPath,
-    // {
-    //     todo!();
-    //     // self.nodes.push(node);
-    // }
 
     pub(crate) fn write_observations<Space: NablaStateActionSpace>(
         &self,
@@ -299,15 +289,17 @@ impl<P> SearchTree<P> {
         //     });
     }
 
-    pub(crate) fn node_data(&self) -> Vec<(&P, &StateWeight)> {
-        self.positions
-            .iter()
-            .map(|(p, i)| (p, &self.tree[*i]))
-            .collect()
+    pub(crate) fn node_data<P>(&self) -> Vec<(&P, &StateWeight)> {
+        todo!()
+        // self.positions
+        //     .iter()
+        //     .map(|(p, i)| (p, &self.tree[*i]))
+        //     .collect()
     }
 
-    pub(crate) fn positions(&self) -> &BTreeMap<P, NodeIndex> {
-        &self.positions
+    pub(crate) fn positions<P>(&self) -> &BTreeMap<P, NodeIndex> {
+        todo!()
+        // &self.positions
     }
 
     pub(crate) fn nodes(&self) -> &[petgraph::graph::Node<StateWeight>] {

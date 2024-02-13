@@ -15,7 +15,7 @@ pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
     state_vecs: Vec<f32>,
     h_theta_host: Vec<f32>,
     action_weights: Vec<f32>,
-    trees: Vec<SearchTree<P>>,
+    trees: Vec<SearchTree>,
     model: M,
     num_inspected_nodes: Vec<usize>,
     argmin_data: ArgminData<Space::State, Space::Cost>,
@@ -31,7 +31,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         &mut self.model
     }
 
-    pub fn get_trees(&self) -> &[SearchTree<P>] {
+    pub fn get_trees(&self) -> &[SearchTree] {
         &self.trees
     }
 
@@ -82,7 +82,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 let mut t = SearchTree::default();
                 let c = space.evaluate(c);
                 let weight = StateWeight::new(c);
-                let root_id = t.add_node(P::new(), weight);
+                let root_id = t.add_node(weight);
                 t.add_actions(root_id, &space, s, h, sample);
                 t
             })
@@ -128,9 +128,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         Space: Sync,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
-        P: Ord
-            + Clone
-            + Send
+        P: Send
             + Sync
             + crate::path::ActionPath
             + crate::path::ActionPathFor<Space>
@@ -226,7 +224,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 let tree = &self.trees[tree_pos];
                 let ArgminData { state, cost, eval } = &mut self.argmin_data;
                 state.clone_from(&self.roots[tree_pos]);
-                let p = tree.positions().iter().find_map(|(p, pos)| {
+                let p = tree.positions::<P>().iter().find_map(|(p, pos)| {
                     if pos.index() == node_pos {
                         Some(p)
                     } else {
@@ -290,7 +288,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         sample: &super::tree::graph_operations::SamplePattern,
     ) where
         Space: Sync,
-        P: Ord + Send + Sync + crate::path::ActionPathFor<Space>,
+        P: Send + Sync + crate::path::ActionPathFor<Space>,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
     {
@@ -356,7 +354,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 t.clear();
                 let c = space.evaluate(c);
                 let weight = StateWeight::new(c);
-                let root_id = t.add_node(P::new(), weight);
+                let root_id = t.add_node(weight);
                 t.add_actions(root_id, space, r, h, sample);
             });
         self.num_inspected_nodes.fill(0);

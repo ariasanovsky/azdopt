@@ -7,7 +7,7 @@ pub(crate) enum NextAction {
     Unvisited(usize),
 }
 
-impl<P> SearchTree<P> {
+impl SearchTree {
     pub(crate) fn next_action(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
         if !self.tree[state_pos].is_active() {
             return None;

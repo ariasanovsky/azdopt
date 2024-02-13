@@ -46,7 +46,7 @@ struct Info {
     newly_exhausted_children: u32,
 }
 
-impl<P> SearchTree<P> {
+impl SearchTree {
     pub(crate) fn cascade_new_terminal(&mut self, edge_id: EdgeIndex) {
         let a_t = &self.tree.raw_edges()[edge_id.index()];
         let s_t = &self.tree[a_t.target()];

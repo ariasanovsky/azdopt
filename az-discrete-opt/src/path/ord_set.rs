@@ -17,11 +17,13 @@ impl ActionPath for OrderedActionSet {
     }
 
     unsafe fn push_unchecked(&mut self, action: usize) {
+        debug_assert!(!self.actions.contains(&action));
         self.actions.push(action)
     }
 
     unsafe fn undo_unchecked(&mut self, action: usize) {
-        todo!()
+        let last = self.actions.pop().unwrap();
+        debug_assert_eq!(last, action);
     }
 
     fn is_empty(&self) -> bool {

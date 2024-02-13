@@ -21,7 +21,8 @@ impl ActionPath for ActionSequence {
     }
 
     unsafe fn undo_unchecked(&mut self, action: usize) {
-        todo!()
+        let last = self.actions.pop().unwrap();
+        debug_assert_eq!(last, action);
     }
 
     fn is_empty(&self) -> bool {

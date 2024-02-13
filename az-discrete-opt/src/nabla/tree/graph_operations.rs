@@ -4,14 +4,12 @@ use crate::nabla::{space::NablaStateActionSpace, tree::arc_weight::ActionPredict
 
 use super::{arc_weight::ActionWeight, state_weight::StateWeight, SearchTree};
 
-impl<P> SearchTree<P> {
-    pub(crate) fn add_node(&mut self, p: P, weight: StateWeight) -> NodeIndex
-    where
-        P: Ord,
+impl SearchTree {
+    pub(crate) fn add_node(&mut self, weight: StateWeight) -> NodeIndex
     {
         let index = self.tree.add_node(weight);
-        let old_index = self.positions.insert(p, index);
-        debug_assert!(old_index.is_none());
+        // let old_index = self.positions.insert(p, index);
+        // debug_assert!(old_index.is_none());
         index
     }
 
