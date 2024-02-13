@@ -41,6 +41,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         init_states: impl Fn() -> Space::State + Sync + Send,
         mut model: M,
         batch: usize,
+        sample: &super::tree::graph_operations::SamplePattern,
     ) -> Self
     where
         Space: Sync,
@@ -82,7 +83,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 let c = space.evaluate(c);
                 let weight = StateWeight::new(c);
                 let root_id = t.add_node(P::new(), weight);
-                t.add_actions(root_id, &space, s, h);
+                t.add_actions(root_id, &space, s, h, sample);
                 t
             })
             .collect();
@@ -121,6 +122,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     pub fn par_roll_out_episodes(
         &mut self,
         n_as_tol: impl Fn(usize) -> u32 + Sync,
+        sample: &super::tree::graph_operations::SamplePattern,
     ) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
@@ -184,7 +186,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             .into_par_iter()
             .for_each(|(t, s, pos, p, h)| {
                 if !p.is_empty() {
-                    t.add_actions(*pos, &self.space, s, h);
+                    t.add_actions(*pos, &self.space, s, h, sample);
                 }
             });
         self.par_update_argmmim_data()
@@ -285,6 +287,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         &mut self,
         modify_root: impl Fn(&Space, &mut Space::State, Vec<(&P, &super::tree::state_weight::StateWeight)>)
             + Sync,
+        sample: &super::tree::graph_operations::SamplePattern,
     ) where
         Space: Sync,
         P: Ord + Send + Sync + crate::path::ActionPathFor<Space>,
@@ -354,7 +357,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 let c = space.evaluate(c);
                 let weight = StateWeight::new(c);
                 let root_id = t.add_node(P::new(), weight);
-                t.add_actions(root_id, space, r, h);
+                t.add_actions(root_id, space, r, h, sample);
             });
         self.num_inspected_nodes.fill(0);
     }

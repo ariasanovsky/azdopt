@@ -35,6 +35,7 @@ impl<P> SearchTree<P> {
         space: &Space,
         state: &Space::State,
         h_theta: &[f32],
+        sample: &SamplePattern,
     ) {
         let node_weight = self.tree.node_weight_mut(id).unwrap();
         let c = node_weight.c;
@@ -44,78 +45,57 @@ impl<P> SearchTree<P> {
             let g_theta_sa = space.g_theta_star_sa(c, r_sa, h_theta_sa);
             ActionPrediction {
                 a_id,
-                // h_theta_sa,
                 g_theta_sa,
                 edge_id: None,
             }
         });
         self.predictions.extend(predictions);
-        let end = self.predictions.len();
-        debug_assert_ne!(start, end);
-        node_weight.actions = (start as u32)..(end as u32);
+        let new_predictions = &mut self.predictions[start..];
+        new_predictions.sort_by(|a, b| b.a_id.cmp(&a.a_id));
+        sample.sample_slice(new_predictions);
+        let current_end = self.predictions.len();
+        let target_end = start + sample.len();
+        if current_end > target_end {
+            self.predictions.truncate(target_end);
+            node_weight.actions = (start as u32)..(target_end as u32);
+        } else {
+            node_weight.actions = (start as u32)..(current_end as u32);
+        }
+        debug_assert_ne!(start, self.predictions.len());
+    }
+}
+
+#[derive(Clone)]
+pub struct SamplePattern {
+    pub max: usize,
+    pub mid: usize,
+    pub min: usize,
+}
+
+impl SamplePattern {
+    fn sample_slice(&self, slice: &mut [ActionPrediction]) {
+        if slice.len() > self.len() {
+            let mid_and_min = &mut slice[self.max..];
+            // pull the mid elements to the front from their current fencepost position
+            for i in 0..self.mid {
+                let mid_pos = Self::fencepost_position(i, self.mid, mid_and_min.len() - self.min);
+                mid_and_min[i] = mid_and_min[mid_pos].clone();
+            }
+            // pull the min elements to the front from the back
+            let tail = &mut mid_and_min[self.mid..];
+            for i in 0..self.min {
+                let min_pos = tail.len() - self.min + i;
+                tail[i] = tail[min_pos].clone();
+            }
+        }
     }
 
-    // pub(crate) fn update_n_t(&mut self, id: NodeIndex) -> &mut StateWeight {
-    //     todo!();
-    //     let mut d: u32 = 0;
-    //     let mut max_n_t =
-    //         self.tree.neighbors_directed(id, petgraph::Direction::Outgoing)
-    //         .map(|child| {
-    //             d += 1;
-    //             self.tree[child].n_t
-    //         }).reduce(|a, b| a.join(&b)).unwrap();
-    //     let node = &mut self.tree[id];
-    //     if !max_n_t.is_active() {
-    //         let action_range = &node.actions;
-    //         let len = action_range.end - action_range.start;
-    //         match len.cmp(&d) {
-    //             std::cmp::Ordering::Less => unreachable!(),
-    //             std::cmp::Ordering::Equal => {},
-    //             std::cmp::Ordering::Greater => max_n_t.mark_active(),
-    //         }
-    //     }
-    //     max_n_t.increment_by(d);
-    //     node.n_t = max_n_t;
-    //     node
-    // }
+    fn len(&self) -> usize {
+        self.max + self.mid + self.min
+    }
 
-    // pub(crate) fn _update_exhaustion(&mut self, id: NodeIndex) -> &mut StateWeight {
-    //     // println!("tupdating exhaustion for {id:?}");
-    //     let action_range = &self.tree[id].actions;
-    //     let action_range = (action_range.start as usize)..(action_range.end as usize);
-    //     let actions = &self.predictions[action_range.clone()];
-    //     // println!("actions: {actions:?}");
-    //     let active = actions.iter().any(|a| {
-    //         match a.edge_id {
-    //             Some(edge_id) => {
-    //                 // println!("\tedge_id: {edge_id:?}");
-    //                 let e = &self.tree.raw_edges()[edge_id.index()];
-    //                 let child = e.target();
-    //                 // println!("child weight: {:?}", self.tree[child]);
-    //                 match self.tree[child].n_t.try_active() {
-    //                     Some(_a) => {
-    //                         // println!("\t\tactive");
-    //                         true
-    //                     }
-    //                     None => {
-    //                         // println!("\t\tinactive");
-    //                         false
-    //                     }
-    //                 }
-    //             }
-    //             None => {
-    //                 // println!("\tactive");
-    //                 true
-    //             }
-    //         }
-    //     });
-    //     // println!("active: {active}");
-    //     let s_t = &mut self.tree[id];
-    //     let n_t = &mut s_t.n_t;
-    //     if !active {
-    //         debug_assert!(n_t.try_active().is_some());
-    //         n_t.mark_exhausted();
-    //     }
-    //     s_t
-    // }
+    fn fencepost_position(i: usize, k: usize, l: usize) -> usize {
+        // rounds i * (l - 1) / (k - 1) to the nearest integer with only integer arithmetic
+        (i * (l - 1) + (k - 1) / 2) / (k - 1)
+    }
 }

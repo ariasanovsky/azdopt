@@ -8,7 +8,7 @@ use az_discrete_opt::{
     nabla::{
         model::dfdx::ActionModel,
         optimizer::{ArgminImprovement, NablaOptimizer},
-        space::NablaStateActionSpace, tree::state_weight::StateWeight,
+        space::NablaStateActionSpace, tree::{graph_operations::SamplePattern, state_weight::StateWeight},
     },
     path::{set::ActionSet, ActionPath},
     tensorboard::{tf_path, Summarize},
@@ -48,29 +48,24 @@ const STATE: usize = E * (2 * C + 1);
 
 const HIDDEN_1: usize = 512;
 const HIDDEN_2: usize = 1024;
-const HIDDEN_3: usize = 512;
+const HIDDEN_3: usize = 1024;
+const HIDDEN_4: usize = 512;
 
 type ModelH = (
     (Linear<STATE, HIDDEN_1>, ReLU),
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
-    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    (Linear<HIDDEN_3, HIDDEN_4>, ReLU),
+    (Linear<HIDDEN_4, ACTION>, dfdx::nn::modules::Sigmoid),
     // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 512;
+const BATCH: usize = 1024;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
-
 fn main() -> eyre::Result<()> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-
-    let out_dir = tf_path().join("01-r333-grad").join(Utc::now().to_rfc3339());
+    let out_dir = tf_path().join("01-r44-grad").join(Utc::now().to_rfc3339());
     dbg!(&out_dir);
     let out_file = out_dir.join("tfevents-losses");
     // create the directory if it doesn't exist
@@ -80,7 +75,7 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let num_permitted_edges_range = 12..=(E / 2);
+    let num_permitted_edges_range = 10..=(4 * E / 5);
     let dist = WeightedIndex::new([1., 1.,])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
@@ -97,6 +92,11 @@ fn main() -> eyre::Result<()> {
     let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
     const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1.,]);
+    let sample = SamplePattern {
+        max: 2 * 10,
+        mid: 2 * 7,
+        min: 2 * 8,
+    };
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
         SPACE,
@@ -107,6 +107,7 @@ fn main() -> eyre::Result<()> {
         },
         model,
         BATCH,
+        &sample,
     );
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
         let ArgminData { state, cost, eval } = argmin;
@@ -123,17 +124,17 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 3_200;
+    let episodes: usize = 800;
 
     let n_as_tol = |len| {
-        [200, 200, 100, 100, 50, 50, 25, 25].get(len).copied().unwrap_or(10)
+        [25, 25, 25, 25, 25, 25, 25, 25].get(len).copied().unwrap_or(13)
     };
-    let n_obs_tol = 200;
+    let n_obs_tol = 25;
 
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            let new_argmin = optimizer.par_roll_out_episodes(n_as_tol);
+            let new_argmin = optimizer.par_roll_out_episodes(n_as_tol, &sample);
             match new_argmin {
                 ArgminImprovement::Improved(argmin) => {
                     let step = (episodes * (epoch - 1) + episode) as i64;
@@ -202,7 +203,7 @@ fn main() -> eyre::Result<()> {
                 state.randomize_permitted_edges(num_permitted_edges, &mut rng);
             }
         };
-        optimizer.par_reset_trees(modify_root);
+        optimizer.par_reset_trees(modify_root, &sample);
     }
     Ok(())
 }

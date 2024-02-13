@@ -7,7 +7,7 @@ pub struct ActionWeight {
     pub(crate) prediction_pos: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ActionPrediction {
     pub(crate) a_id: usize,
     // pub(crate) h_theta_sa: f32,

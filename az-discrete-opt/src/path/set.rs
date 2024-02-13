@@ -23,6 +23,11 @@ impl ActionPath for ActionSet {
         debug_assert!(inserted);
     }
 
+    unsafe fn undo_unchecked(&mut self, action: usize) {
+        let removed = self.actions.remove(&action);
+        debug_assert!(removed);
+    }
+
     fn is_empty(&self) -> bool {
         self.actions.is_empty()
     }

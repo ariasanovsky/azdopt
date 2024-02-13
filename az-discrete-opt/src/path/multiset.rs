@@ -25,6 +25,10 @@ impl ActionPath for ActionMultiset {
             .or_insert(1);
     }
 
+    unsafe fn undo_unchecked(&mut self, action: usize) {
+        todo!()
+    }
+
     fn is_empty(&self) -> bool {
         self.actions.is_empty()
     }
