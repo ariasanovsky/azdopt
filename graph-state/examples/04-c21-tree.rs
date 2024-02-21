@@ -10,7 +10,7 @@ use az_discrete_opt::{
     nabla::{
         model::dfdx::ActionModel,
         optimizer::{ArgminImprovement, NablaOptimizer},
-        space::NablaStateActionSpace,
+        space::DfaWithCost,
         tree::state_weight::StateWeight,
     },
     path::{set::ActionSet, ActionPath},

@@ -8,7 +8,7 @@ use az_discrete_opt::{
     nabla::{
         model::dfdx::ActionModel,
         optimizer::{ArgminImprovement, NablaOptimizer},
-        space::NablaStateActionSpace, tree::{graph_operations::SamplePattern, state_weight::StateWeight},
+        space::DfaWithCost, tree::{graph_operations::SamplePattern, state_weight::StateWeight},
     },
     path::{set::ActionSet, ActionPath},
     tensorboard::{tf_path, Summarize},

@@ -2,9 +2,9 @@ pub use petgraph::stable_graph::NodeIndex;
 
 use crate::log::ArgminData;
 
-use super::{model::NablaModel, space::NablaStateActionSpace, tree::SearchTree};
+use super::{model::NablaModel, space::DfaWithCost, tree::SearchTree};
 
-pub struct NablaOptimizer<Space: NablaStateActionSpace, M, P> {
+pub struct NablaOptimizer<Space: DfaWithCost, M, P> {
     space: Space,
     roots: Vec<Space::State>,
     states: Vec<Space::State>,
@@ -26,7 +26,7 @@ pub enum ArgminImprovement<'a, S, C> {
     Improved(&'a ArgminData<S, C>),
 }
 
-impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P> {
+impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
     pub fn model_mut(&mut self) -> &mut M {
         &mut self.model
     }
@@ -91,8 +91,8 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let last_positions = vec![Default::default(); batch];
         let action_weights = vec![0.; batch * Space::ACTION_DIM];
         let argmin_data: ArgminData<
-            <Space as NablaStateActionSpace>::State,
-            <Space as NablaStateActionSpace>::Cost,
+            <Space as DfaWithCost>::State,
+            <Space as DfaWithCost>::Cost,
         > = states
             .par_iter()
             .zip(costs.par_iter())

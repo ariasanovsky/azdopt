@@ -5,7 +5,7 @@ use self::{
     state_weight::StateWeight,
 };
 
-use super::space::NablaStateActionSpace;
+use super::space::DfaWithCost;
 
 use petgraph::{
     graph::DiGraph,
@@ -117,7 +117,7 @@ impl SearchTree {
         state_pos: &mut NodeIndex,
         n_as_tol: impl Fn(usize) -> u32,
     ) where
-        Space: NablaStateActionSpace,
+        Space: DfaWithCost,
         Space::State: Clone,
         P: ActionPath + ActionPathFor<Space>, // + core::fmt::Debug,
     {
@@ -234,7 +234,7 @@ impl SearchTree {
         }
     }
 
-    pub(crate) fn write_observations<Space: NablaStateActionSpace>(
+    pub(crate) fn write_observations<Space: DfaWithCost>(
         &self,
         space: &Space,
         observations: &mut [f32],

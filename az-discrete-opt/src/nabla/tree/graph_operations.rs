@@ -1,6 +1,6 @@
 use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
-use crate::nabla::{space::NablaStateActionSpace, tree::arc_weight::ActionPrediction};
+use crate::nabla::{space::DfaWithCost, tree::arc_weight::ActionPrediction};
 
 use super::{arc_weight::ActionWeight, state_weight::StateWeight, SearchTree};
 
@@ -27,7 +27,7 @@ impl SearchTree {
         arc_index
     }
 
-    pub(crate) fn add_actions<Space: NablaStateActionSpace>(
+    pub(crate) fn add_actions<Space: DfaWithCost>(
         &mut self,
         id: NodeIndex,
         space: &Space,

@@ -1,5 +1,5 @@
 use az_discrete_opt::{
-    nabla::space::NablaStateActionSpace,
+    nabla::space::DfaWithCost,
     space::axioms::{ActionOrderIndependent, ActionsNeverRepeat},
 };
 
@@ -34,7 +34,7 @@ impl<const N: usize, C> ROTModifyParentsOnce<N, C> {
     }
 }
 
-impl<const N: usize, C> NablaStateActionSpace for ROTModifyParentsOnce<N, C> {
+impl<const N: usize, C> DfaWithCost for ROTModifyParentsOnce<N, C> {
     type State = ROTWithActionPermissions<N>;
 
     type Action = OrderedEdge;

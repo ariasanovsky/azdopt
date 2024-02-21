@@ -1,5 +1,5 @@
 use az_discrete_opt::{
-    nabla::space::NablaStateActionSpace,
+    nabla::space::DfaWithCost,
     space::axioms::{ActionOrderIndependent, ActionsNeverRepeat},
 };
 
@@ -23,7 +23,7 @@ impl<B, const N: usize, const E: usize, const C: usize> RamseySpaceNoEdgeRecolor
     }
 }
 
-impl<B, const N: usize, const E: usize, const C: usize> NablaStateActionSpace
+impl<B, const N: usize, const E: usize, const C: usize> DfaWithCost
     for RamseySpaceNoEdgeRecolor<B, N, E, C>
 where
     B: Bitset + Clone,
@@ -190,7 +190,7 @@ unsafe impl<B, const N: usize, const E: usize, const C: usize> ActionOrderIndepe
 
 #[cfg(test)]
 mod tests {
-    use az_discrete_opt::nabla::space::NablaStateActionSpace;
+    use az_discrete_opt::nabla::space::DfaWithCost;
     use rand::seq::SliceRandom;
     use rand_distr::WeightedIndex;
 
