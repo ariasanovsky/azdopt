@@ -17,6 +17,7 @@ pub trait ActionPath {
     /// `action` must be a valid index for `Space` and `action` must be a last action in `self`
     unsafe fn undo_unchecked(&mut self, action: usize);
     fn actions_taken(&self) -> impl Iterator<Item = usize> + '_;
+    fn extends_towards(&self, action: usize, target: &Self) -> bool;
 }
 
 /// # Safety

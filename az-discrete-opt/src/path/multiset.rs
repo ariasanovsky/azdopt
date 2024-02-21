@@ -48,4 +48,8 @@ impl ActionPath for ActionMultiset {
             .flat_map(|(action, count)| (0..*count).map(move |_| action))
             .copied()
     }
+
+    fn extends_towards(&self, action: usize, target: &Self) -> bool {
+        todo!()
+    }
 }

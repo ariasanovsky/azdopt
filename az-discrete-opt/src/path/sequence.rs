@@ -36,6 +36,10 @@ impl ActionPath for ActionSequence {
     fn actions_taken(&self) -> impl Iterator<Item = usize> + '_ {
         self.actions.iter().copied()
     }
+
+    fn extends_towards(&self, action: usize, target: &Self) -> bool {
+        todo!()
+    }
 }
 
 unsafe impl<Space> ActionPathFor<Space> for ActionSequence {}

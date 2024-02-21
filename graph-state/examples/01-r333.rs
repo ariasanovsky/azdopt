@@ -7,10 +7,10 @@ use az_discrete_opt::{
     log::ArgminData,
     nabla::{
         model::dfdx::ActionModel,
-        optimizer::{ArgminImprovement, NablaOptimizer},
-        space::NablaStateActionSpace, tree::{graph_operations::SamplePattern, state_weight::StateWeight},
+        optimizer::{ArgminImprovement, NablaOptimizer, ResetPolicy},
+        tree::graph_operations::SamplePattern,
     },
-    path::{set::ActionSet, ActionPath},
+    path::set::ActionSet,
     tensorboard::{tf_path, Summarize},
 };
 use chrono::Utc;
@@ -28,7 +28,7 @@ use graph_state::{
     },
     simple_graph::bitset_graph::ColoredCompleteBitsetGraph,
 };
-use rand::{rngs::ThreadRng, seq::SliceRandom, Rng};
+use rand::{rngs::ThreadRng, Rng};
 use rand_distr::WeightedIndex;
 use tensorboard_writer::TensorboardWriter;
 
@@ -56,11 +56,11 @@ type ModelH = (
     (Linear<HIDDEN_1, HIDDEN_2>, ReLU),
     (Linear<HIDDEN_2, HIDDEN_3>, ReLU),
     // (Linear<HIDDEN_3, HIDDEN_4>, ReLU),
-    // (Linear<HIDDEN_4, ACTION>, dfdx::nn::modules::Sigmoid),
-    (Linear<HIDDEN_3, ACTION>, ReLU),
+    (Linear<HIDDEN_3, ACTION>, dfdx::nn::modules::Sigmoid),
+    // (Linear<HIDDEN_3, ACTION>, ReLU),
 );
 
-const BATCH: usize = 1;
+const BATCH: usize = 512;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 
@@ -82,7 +82,8 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let num_permitted_edges_range = 8..=(4 * E / 5);
+    let num_permitted_edges_range = 8..=(5 * E / 5);
+    let reset_edges_range = (4 * E / 5)..=(5 * E / 5);
     let dist = WeightedIndex::new([1., 1., 1.,])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
@@ -131,10 +132,10 @@ fn main() -> eyre::Result<()> {
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
     let epochs: usize = 250;
-    let episodes: usize = 800;
+    let episodes: usize = 6400;
 
     let n_as_tol = |len| {
-        [200, 200, 200, 200, 100, 100, 100, 100].get(len).copied().unwrap_or(50)
+        [200, 100, 50].get(len).copied().unwrap_or(25)
     };
     let n_obs_tol = 200;
 
@@ -151,17 +152,17 @@ fn main() -> eyre::Result<()> {
             };
             if episode  == episodes {
                 println!("==== EPISODE: {episode} ====");
-                let sizes = optimizer
-                    .get_trees()
-                    .first()
-                    .unwrap()
-                    .sizes::<P>();
-                println!("sizes: {sizes:?}");
+                // let sizes = optimizer
+                //     .trees()
+                //     .first()
+                //     .unwrap()
+                //     .sizes::<P>();
+                // println!("sizes: {sizes:?}");
 
-                let graph = optimizer.get_trees()[0].graphviz();
-                std::fs::write("tree.png", graph).unwrap();
-                let graph = optimizer.get_trees()[BATCH - 1].graphviz();
-                std::fs::write("tree2.png", graph).unwrap();
+                // let graph = optimizer.trees()[0].graphviz();
+                // std::fs::write("tree.svg", graph).unwrap();
+                // let graph = optimizer.trees()[BATCH - 1].graphviz();
+                // std::fs::write("tree2.svg", graph).unwrap();
             }
         }
 
@@ -174,43 +175,27 @@ fn main() -> eyre::Result<()> {
             optimizer.argmin_data().cost.summary(),
         )?;
         writer.get_mut().flush()?;
-        let modify_root = |space: &Space, state: &mut S, mut n: Vec<(&P, &StateWeight)>| {
-            let mut rng = rand::thread_rng();
-            let (_, state_weight) = n[0];
-            let c_root = state_weight.c();
-            let c_root_star = state_weight.c_star();
-            if c_root == c_root_star {
-                let num_permitted_edges = state.num_permitted_edges();
-                if !num_permitted_edges_range.contains(&num_permitted_edges) {
-                    unreachable!();
-                } else if num_permitted_edges == *num_permitted_edges_range.end() {
-                    let num_prohibitions = rng.gen_range(num_permitted_edges_range.clone());
-                    let counts = RamseyCounts::generate(&mut rng, &dist, &SIZES);
-                    *state = RamseyCountsNoRecolor::generate(&mut rng, counts, num_prohibitions);
+        let reset_policy = ResetPolicy {
+            greed: 0.5,
+            adjust_improved_root: |s: &mut S| {
+                let mut rng = rand::thread_rng();
+                let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                s.randomize_permitted_edges(num_permitted_edges, &mut rng);
+            },
+            adjust_unimproved_root: |s: &mut S| {
+                let mut rng = rand::thread_rng();
+                let num_permitted_edges = s.num_permitted_edges();
+                if reset_edges_range.contains(&num_permitted_edges) {
+                    let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
+                    *s = init_state(&mut rng, num_permitted_edges);
                 } else {
-                    n.retain(|(_, w)| w.c() == c_root);
-                    let (p, _) = n.choose(&mut rng).unwrap();
-                    p.actions_taken().for_each(|a| {
-                        let a = space.action(a);
-                        space.act(state, &a);
-                    });
                     let range = num_permitted_edges..=*num_permitted_edges_range.end();
                     let num_permitted_edges = rng.gen_range(range);
-                    state.randomize_permitted_edges(num_permitted_edges, &mut rng);
+                    s.randomize_permitted_edges(num_permitted_edges, &mut rng);
                 }
-            } else {
-                let c_threshold = (c_root + 7.0 * c_root_star) / 8.0;
-                n.retain(|(_, w)| w.c() <= c_threshold);
-                let (p, _) = n.choose(&mut rng).unwrap();
-                p.actions_taken().for_each(|a| {
-                    let a = space.action(a);
-                    space.act(state, &a);
-                });
-                let num_permitted_edges = rng.gen_range(num_permitted_edges_range.clone());
-                state.randomize_permitted_edges(num_permitted_edges, &mut rng);
-            }
+            },
         };
-        optimizer.par_reset_trees(modify_root, &sample);
+        optimizer.par_reset_trees(reset_policy, &sample);
     }
     Ok(())
 }

@@ -8,7 +8,24 @@ pub(crate) enum NextAction {
 }
 
 impl SearchTree {
-    pub(crate) fn next_action(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
+    pub(crate) fn next_optimal_action(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
+        if !self.tree[state_pos].is_active() {
+            return None;
+        }
+        let revisit_choice = self.revisit_choice(state_pos);
+        if let Some((e, n_t_as, _)) = revisit_choice {
+            if n_t_as < n_as_tol {
+                return Some(NextAction::Visited(e));
+            }
+        }
+        let max_greed = self.max_greed(state_pos);
+        match max_greed {
+            Some(max_greed) => Some(NextAction::Unvisited(max_greed)),
+            None => revisit_choice.map(|(i, _, _)| NextAction::Visited(i)),
+        }
+    }
+
+    pub(crate) fn sample_actions(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
         if !self.tree[state_pos].is_active() {
             return None;
         }
@@ -85,5 +102,22 @@ impl SearchTree {
                 .max_by(|(_, c1), (_, c2)| c1.partial_cmp(c2).unwrap())
                 .map(|(i, _)| i + range.start)
         }
+    }
+
+    pub(crate) fn max_greed(&self, state_pos: NodeIndex) -> Option<usize> {
+        let c_s: f32 = self.tree[state_pos].c;
+        let range = &self.tree.node_weight(state_pos).unwrap().actions;
+        let range = (range.start as usize)..(range.end as usize);
+        let predictions = &self.predictions[range.clone()];
+        let c_theta_star_values = predictions
+        .iter()
+        .enumerate()
+        .filter_map(|(i, prediction)| match prediction.edge_id {
+            Some(_) => None,
+            None => Some((i, c_s - prediction.g_theta_sa)),
+        });
+        c_theta_star_values
+            .min_by(|(_, c1), (_, c2)| c1.partial_cmp(c2).unwrap())
+            .map(|(i, _)| i + range.start)
     }
 }

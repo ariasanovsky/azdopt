@@ -166,15 +166,16 @@ where
     fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
         let r_sa = r_sa.old_count as f32 * self.weights[r_sa.old_color]
             - r_sa.new_count as f32 * self.weights[r_sa.new_color];
-        // let c_as = c_s - r_sa;
-        // h_theta_sa * c_as + r_sa
-        r_sa.max(c_s - 40. * h_theta_sa)
+        let c_as = c_s - r_sa;
+        (1. - h_theta_sa) * c_as + r_sa
+        // r_sa.max(c_s - 40. * h_theta_sa)
     }
 
     fn h_sa(&self, _c_s: f32, c_as: f32, c_as_star: f32) -> f32 {
         // c_as - c_as_star
         // 1. - c_as_star / c_as
-        c_as_star / 40.
+        c_as_star / c_as
+        // c_as_star / 40.
     }
 }
 

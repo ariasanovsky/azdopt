@@ -145,15 +145,15 @@ fn main() -> eyre::Result<()> {
             if episode  == episodes {
                 println!("==== EPISODE: {episode} ====");
                 let sizes = optimizer
-                    .get_trees()
+                    .trees()
                     .first()
                     .unwrap()
                     .sizes();
                 println!("sizes: {sizes:?}");
 
-                let graph = optimizer.get_trees()[0].graphviz();
+                let graph = optimizer.trees()[0].graphviz();
                 std::fs::write("tree.png", graph).unwrap();
-                let graph = optimizer.get_trees()[BATCH - 1].graphviz();
+                let graph = optimizer.trees()[BATCH - 1].graphviz();
                 std::fs::write("tree2.png", graph).unwrap();
             }
         }

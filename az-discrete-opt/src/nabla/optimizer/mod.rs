@@ -1,4 +1,4 @@
-use petgraph::stable_graph::NodeIndex;
+pub use petgraph::stable_graph::NodeIndex;
 
 use crate::log::ArgminData;
 
@@ -27,11 +27,11 @@ pub enum ArgminImprovement<'a, S, C> {
 }
 
 impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P> {
-    pub fn get_model_mut(&mut self) -> &mut M {
+    pub fn model_mut(&mut self) -> &mut M {
         &mut self.model
     }
 
-    pub fn get_trees(&self) -> &[SearchTree] {
+    pub fn trees(&self) -> &[SearchTree] {
         &self.trees
     }
 
@@ -224,19 +224,11 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                 let tree = &self.trees[tree_pos];
                 let ArgminData { state, cost, eval } = &mut self.argmin_data;
                 state.clone_from(&self.roots[tree_pos]);
-                let p = tree.positions::<P>().iter().find_map(|(p, pos)| {
-                    if pos.index() == node_pos {
-                        Some(p)
-                    } else {
-                        None
-                    }
+                let p: P = tree.find_path(NodeIndex::new(node_pos)).unwrap();
+                p.actions_taken().for_each(|a| {
+                    let a = self.space.action(a);
+                    self.space.act(state, &a);
                 });
-                if let Some(p) = p {
-                    p.actions_taken().for_each(|a| {
-                        let a = self.space.action(a);
-                        self.space.act(state, &a);
-                    });
-                }
                 *cost = self.space.cost(state);
                 *eval = self.space.evaluate(cost);
                 ArgminImprovement::Improved(&self.argmin_data)
@@ -281,17 +273,21 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
     }
 
     #[cfg(feature = "rayon")]
-    pub fn par_reset_trees(
+    pub fn par_reset_trees<A, B>(
         &mut self,
-        modify_root: impl Fn(&Space, &mut Space::State, Vec<(&P, &super::tree::state_weight::StateWeight)>)
-            + Sync,
+        reset_policy: ResetPolicy<A, B>,
+        // next_node: impl Fn(Vec<(NodeIndex, &super::tree::state_weight::StateWeight)>) -> NodeIndex
+        //     + Sync,
         sample: &super::tree::graph_operations::SamplePattern,
     ) where
         Space: Sync,
         P: Send + Sync + crate::path::ActionPathFor<Space>,
         Space::State: Clone + Send + Sync,
         Space::Cost: Send + Sync,
+        A: Fn(&mut Space::State) + Sync,
+        B: Fn(&mut Space::State) + Sync,
     {
+        use rand::seq::IteratorRandom;
         use rayon::{
             iter::{IntoParallelIterator, ParallelIterator},
             slice::{ParallelSlice, ParallelSliceMut},
@@ -305,7 +301,6 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             states,
             costs,
             paths,
-            // transitions,
             last_positions,
             state_vecs,
             h_theta_host,
@@ -320,7 +315,7 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
         let space = &self.space;
         let trees = &self.trees;
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
-        let modify_root = &modify_root;
+        // let next_node = &next_node;
         (
             trees, roots, states, costs, paths, // transitions,
             state_vecs,
@@ -336,13 +331,37 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
                     // trans,
                     v,
                 )| {
-                    let n = t.node_data();
-                    modify_root(space, r, n);
+                    let nodes = t.nodes();
+                    let (cost_threshold, improved) = nodes.first().map(|n| {
+                        let w = &n.weight;
+                        let (root_cost, best_cost) = (w.c, w.c_t_star);
+                        if root_cost == best_cost {
+                            (root_cost, false)
+                        } else {
+                            ((root_cost + reset_policy.greed * best_cost) / (1.0 + reset_policy.greed), true)
+                        }
+                    }).unwrap();
+                    let viable_nodes = nodes.iter().enumerate().filter_map(|(i, n)| {
+                        match n.weight.c <= cost_threshold {
+                            true => Some(i),
+                            false => None,
+                        }
+                    });
+                    let mut rng = rand::thread_rng();
+                    let next_node = viable_nodes.choose(&mut rng).map(|i| NodeIndex::new(i)).unwrap();
+                    *p = t.find_path(next_node).unwrap();
+                    for a in p.actions_taken() {
+                        let a = space.action(a);
+                        space.act(r, &a);
+                    }
+                    match improved {
+                        true => (reset_policy.adjust_improved_root)(r),
+                        false => (reset_policy.adjust_unimproved_root)(r),
+                    }
                     s.clone_from(r);
                     *c = space.cost(r);
                     self.space.write_vec(s, v);
                     p.clear();
-                    // trans.clear();
                 },
             );
         h_theta_host.fill(0.);
@@ -359,7 +378,14 @@ impl<Space: NablaStateActionSpace, M: NablaModel, P> NablaOptimizer<Space, M, P>
             });
         self.num_inspected_nodes.fill(0);
     }
+    
     pub fn argmin_data(&self) -> &ArgminData<Space::State, Space::Cost> {
         &self.argmin_data
     }
+}
+
+pub struct ResetPolicy<A, B> {
+    pub greed: f32,
+    pub adjust_improved_root: A,
+    pub adjust_unimproved_root: B,
 }

@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::path::{ActionPath, ActionPathFor};
 
 use self::{
@@ -17,7 +15,8 @@ use petgraph::{
 pub(crate) use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 
 pub mod arc_weight;
-pub mod empty_transitions;
+pub(crate) mod empty_transitions;
+pub(crate) mod find_path;
 pub mod graph_operations;
 #[cfg(feature = "graphviz")]
 pub mod graphviz;
@@ -49,18 +48,19 @@ impl SearchTree {
     where
         P: ActionPath,
     {
+        // todo!();
         let mut sizes = vec![(0, 0)];
-        println!("{}", self.positions::<P>().len());
-        for (p, i) in self.positions::<P>().iter() {
-            let len = p.len();
-            if len >= sizes.len() {
-                sizes.resize(len + 1, (0, 0));
-            }
-            sizes[len].0 += 1;
-            if self.tree[*i].is_active() {
-                sizes[len].1 += 1;
-            }
-        }
+        // println!("{}", self.positions::<P>().len());
+        // for (p, i) in self.positions::<P>().iter() {
+        //     let len = p.len();
+        //     if len >= sizes.len() {
+        //         sizes.resize(len + 1, (0, 0));
+        //     }
+        //     sizes[len].0 += 1;
+        //     if self.tree[*i].is_active() {
+        //         sizes[len].1 += 1;
+        //     }
+        // }
         sizes
     }
 
@@ -131,7 +131,11 @@ impl SearchTree {
             // self._print_neighborhoods();
 
             use next_action::NextAction;
-            let next_action = self.next_action(*state_pos, n_as_tol(path.len()));
+            let next_action = if path.is_empty() {
+                self.sample_actions(*state_pos, n_as_tol(path.len()))
+            } else {
+                self.next_optimal_action(*state_pos, n_as_tol(path.len()))
+            };
             match next_action {
                 Some(NextAction::Visited(arc_index)) => {
                     // eprintln!(
@@ -164,10 +168,11 @@ impl SearchTree {
                     //     "\tfirst visit to {action_id} (pos = {prediction_pos}) from {state_pos:?}",
                     // );
                     unsafe { path.push_unchecked(action_id) };
-                    let next_pos: Option<&NodeIndex> = todo!(); //self.positions::<P>().get(path);
+                    let next_pos: Option<NodeIndex> = self.find_node(path);
+                    // todo!(); //self.positions::<P>().get(path);
                     match next_pos {
                         Some(next_pos) => {
-                            let arc_index = self.add_arc(*state_pos, *next_pos, prediction_pos);
+                            let arc_index = self.add_arc(*state_pos, next_pos, prediction_pos);
                             // println!("\trediscovered node, resetting!\n");
                             self.cascade_old_node(arc_index);
                             state.clone_from(root);
@@ -289,18 +294,18 @@ impl SearchTree {
         //     });
     }
 
-    pub(crate) fn node_data<P>(&self) -> Vec<(&P, &StateWeight)> {
-        todo!()
-        // self.positions
-        //     .iter()
-        //     .map(|(p, i)| (p, &self.tree[*i]))
-        //     .collect()
-    }
+    // pub(crate) fn node_data(&self) -> Vec<(NodeIndex, &StateWeight)> {
+    //     todo!()
+    //     // self.positions
+    //     //     .iter()
+    //     //     .map(|(p, i)| (p, &self.tree[*i]))
+    //     //     .collect()
+    // }
 
-    pub(crate) fn positions<P>(&self) -> &BTreeMap<P, NodeIndex> {
-        todo!()
-        // &self.positions
-    }
+    // pub(crate) fn positions<P>(&self) -> &BTreeMap<P, NodeIndex> {
+    //     todo!()
+    //     // &self.positions
+    // }
 
     pub(crate) fn nodes(&self) -> &[petgraph::graph::Node<StateWeight>] {
         self.tree.raw_nodes()

@@ -85,7 +85,7 @@ impl SearchTree {
         //         g.add_stmt(e);
         //     }
         // }
-        let graph_svg = exec(g, &mut PrinterContext::default(), vec![Format::Png.into()]).unwrap();
+        let graph_svg = exec(g, &mut PrinterContext::default(), vec![Format::Svg.into()]).unwrap();
         graph_svg
     }
 }
