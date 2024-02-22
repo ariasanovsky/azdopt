@@ -7,6 +7,7 @@ use self::{
 
 use super::space::DfaWithCost;
 
+use graphviz_rust::attributes::root;
 use petgraph::{
     graph::DiGraph,
     visit::{EdgeRef, IntoNodeReferences},
@@ -257,55 +258,33 @@ impl SearchTree {
                 weights[action_id] = 1.0;
             }
         }
-        // .filter_map(|e| {
-        //     let child_weight = self.tree.node_weight(e.target()).unwrap();
-        //     child_weight.n_t.map(|n_as| {
-        //         let arc_weight = self.tree.edge_weight(e.id()).unwrap();
-        //         let prediction = &self.predictions[arc_weight.prediction_pos];
-        //         let h_theta_sa = prediction.h_theta_sa;
-        //         let n_as = n_as.get() - 1;
-        //         debug_assert_ne!(n_as, 0);
-        //         let concern = (h_t_sa - h_theta_sa).powi(2) / n_as as f32;
-        //         (e.id(), concern)
-        //     })
-        // });
-
-        // for e in self.tree.edges_directed(NodeIndex::default(), petgraph::Direction::Outgoing) {
-        //     todo!()
-        // }
-        // todo!();
-        // let root_node = &self.nodes[0];
-        // let c_s = root_node.c;
-        // dbg!(c_s);
-        // root_node
-        //     .actions
-        //     .iter()
-        //     .filter_map(|a| {
-        //         a.next_position().map(|node_as| {
-        //             let node_as = &self.nodes[node_as.get()];
-        //             (a.action(), node_as.c, node_as.c_star)
-        //         })
-        //     })
-        //     .for_each(|(a, c_as, c_as_star)| {
-        //         let h = space.h_sa(c_s, c_as, c_as_star);
-        //         // dbg!(h, a, c_as, c_as_star);
-        //         observations[a] = h;
-        //         weights[a] = 1.0;
-        //     });
     }
 
-    // pub(crate) fn node_data(&self) -> Vec<(NodeIndex, &StateWeight)> {
-    //     todo!()
-    //     // self.positions
-    //     //     .iter()
-    //     //     .map(|(p, i)| (p, &self.tree[*i]))
-    //     //     .collect()
-    // }
-
-    // pub(crate) fn positions<P>(&self) -> &BTreeMap<P, NodeIndex> {
-    //     todo!()
-    //     // &self.positions
-    // }
+    pub(crate) fn observations<'a, Space: DfaWithCost>(
+        &'a self,
+        space: &'a Space,
+        n_t_as_tol: u32,
+    ) -> impl Iterator<Item = (usize, f32)> + 'a {
+        let root_index = NodeIndex::default();
+        let c_s = self.tree[root_index].c;
+        let foo =
+            self
+            .tree
+            .edges_directed(root_index, petgraph::Direction::Outgoing)
+            .filter_map(move |e| {
+                let child_index = e.target();
+                let child_weight = &self.tree[child_index];
+                (!child_weight.is_active() || child_weight.n_t() >= n_t_as_tol).then(|| {
+                    let c_as = child_weight.c;
+                    let c_as_star = child_weight.c_t_star;
+                    let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
+                    let prediction_pos = e.weight().prediction_pos;
+                    let action_id = self.predictions[prediction_pos].a_id;
+                    (action_id, h_t_sa)
+                })
+            });
+        foo
+    }
 
     pub(crate) fn nodes(&self) -> &[petgraph::graph::Node<StateWeight>] {
         self.tree.raw_nodes()
