@@ -3,7 +3,7 @@ pub mod dfdx;
 
 pub trait NablaModel {
     fn write_predictions(&mut self, states: &[f32], predictions: &mut [f32]);
-    fn update_model(&mut self, states: &[f32], observations: &[f32], action_weights: &[f32])
+    fn update_model(&mut self, states: &[f32], observations: &[f32])
         -> f32;
 }
 
@@ -16,7 +16,6 @@ impl NablaModel for TrivialModel {
         &mut self,
         _states: &[f32],
         _observations: &[f32],
-        _action_weights: &[f32],
     ) -> f32 {
         0.
     }

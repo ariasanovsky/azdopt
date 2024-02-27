@@ -8,7 +8,7 @@ use std::{
 use az_discrete_opt::{
     log::ArgminData,
     nabla::{
-        model::dfdx::ActionModel,
+        model::dfdx::HardActionModel,
         optimizer::{ArgminImprovement, NablaOptimizer},
         space::DfaWithCost,
         tree::state_weight::StateWeight,
@@ -90,8 +90,8 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)),
     };
-    let model: ActionModel<ModelH, BATCH, STATE, ACTION> =
-        ActionModel::new(AutoDevice::default(), cfg);
+    let model: HardActionModel<ModelH, BATCH, STATE, ACTION> =
+        HardActionModel::new(AutoDevice::default(), cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
     const SPACE: Space = Space::new(
         |t| t.conjecture_2_1_cost(),

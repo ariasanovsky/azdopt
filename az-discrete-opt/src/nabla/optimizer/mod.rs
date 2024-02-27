@@ -14,7 +14,7 @@ pub struct NablaOptimizer<Space: DfaWithCost, M, P> {
     last_positions: Vec<NodeIndex>,
     state_vecs: Vec<f32>,
     h_theta_host: Vec<f32>,
-    action_weights: Vec<f32>,
+    // action_weights: Vec<f32>,
     trees: Vec<SearchTree>,
     model: M,
     num_inspected_nodes: Vec<usize>,
@@ -89,7 +89,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             .collect();
         // let transitions = (0..batch).into_par_iter().map(|_| Vec::new()).collect();
         let last_positions = vec![Default::default(); batch];
-        let action_weights = vec![0.; batch * Space::ACTION_DIM];
+        // let action_weights = vec![0.; batch * Space::ACTION_DIM];
         let argmin_data: ArgminData<
             <Space as DfaWithCost>::State,
             <Space as DfaWithCost>::Cost,
@@ -110,7 +110,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             last_positions,
             state_vecs,
             h_theta_host,
-            action_weights,
+            // action_weights,
             trees,
             model,
             num_inspected_nodes,
@@ -259,17 +259,22 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             });
 
         // fill `h_theta_host`
-        self.h_theta_host.fill(0.0);
-        self.action_weights.fill(0.0);
+        self.h_theta_host.fill(-1.0);
+        // panic!("{}", self.h_theta_host.len());
+        // self.action_weights.fill(0.0);
         let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
-        let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
-        (&self.trees, h_theta_vecs, weight_vecs)
+        // let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
+        (&self.trees, h_theta_vecs)
             .into_par_iter()
-            .for_each(|(t, h_theta, weights)| {
-                t.write_observations(&self.space, h_theta, weights, n_obs_tol)
+            .for_each(|(t, h_theta)| {
+                let foo = t.observations(&self.space, n_obs_tol);
+                for f in foo {
+                    h_theta[f.0] = f.1;
+                }
+                // t.write_observations(&self.space, h_theta, weights, n_obs_tol)
             });
         self.model
-            .update_model(&self.state_vecs, &self.h_theta_host, &self.action_weights)
+            .update_model(&self.state_vecs, &self.h_theta_host)
     }
 
     #[cfg(feature = "rayon")]
@@ -304,7 +309,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             last_positions,
             state_vecs,
             h_theta_host,
-            action_weights: _,
+            // action_weights: _,
             trees: _,
             model,
             num_inspected_nodes: _,

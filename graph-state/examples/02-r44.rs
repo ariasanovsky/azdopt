@@ -6,7 +6,7 @@ use std::{
 use az_discrete_opt::{
     log::ArgminData,
     nabla::{
-        model::dfdx::ActionModel,
+        model::dfdx::HardActionModel,
         optimizer::{ArgminImprovement, NablaOptimizer},
         space::DfaWithCost, tree::{graph_operations::SamplePattern, state_weight::StateWeight},
     },
@@ -89,7 +89,7 @@ fn main() -> eyre::Result<()> {
         eps: 1e-8,
         weight_decay: Some(WeightDecay::L2(1e-6)),
     };
-    let model: ActionModel<ModelH, BATCH, STATE, ACTION> = ActionModel::new(dev, cfg);
+    let model: HardActionModel<ModelH, BATCH, STATE, ACTION> = HardActionModel::new(dev, cfg);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
     const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1.,]);
     let sample = SamplePattern {
