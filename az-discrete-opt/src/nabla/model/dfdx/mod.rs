@@ -254,7 +254,8 @@ where
 }
 
 #[test]
-fn test_split_into_2() {
+fn split_into_2() {
+    use dfdx::{prelude::{AutoDevice, mse_loss}, tensor::TensorFrom};
     let dev = AutoDevice::default();
     type H1 = dfdx::nn::builders::Linear<5, 3>;
     type H2 = dfdx::nn::builders::Linear<5, 2>;
@@ -298,4 +299,57 @@ fn test_split_into_2() {
     let (output_1, output_2) = m.forward(input);
     let (output_1, output_2) = (output_1.array(), output_2.array());
     dbg!(output_1, output_2);
+
+    let foo = [0.0f32, 1., 0., -0., 1.];
+    let bar = f32::INFINITY;
+    let foo = dev.tensor(foo);
+    let foo = foo * bar;
+    let foo = foo.array();
+    assert_eq!(foo, [0.0f32, f32::INFINITY, 0., -0., f32::INFINITY]);
+}
+
+#[test]
+fn entropy_loss_with_softmax_mask() {
+    use dfdx::{prelude::{AutoDevice, cross_entropy_with_logits_loss}, tensor::TensorFrom};
+    let dev = AutoDevice::default();
+    let mask_value = f32::MIN;
+    let mask = [0., mask_value, 0., mask_value, 0., mask_value];
+    let mask = dev.tensor(mask);
+    let target = [0.125f32, 0., 0.875, 0., 0., 0.];
+    let target = dev.tensor(target);
+
+    const STATE: usize = 100;
+    const HIDDEN_1: usize = 1024;
+    const HIDDEN_2: usize = 1024;
+    const OUTPUT: usize = 6;
+    type M = (
+        (dfdx::nn::builders::Linear<STATE, HIDDEN_1>, dfdx::nn::builders::ReLU),
+        (dfdx::nn::builders::Linear<HIDDEN_1, HIDDEN_2>, dfdx::nn::builders::ReLU),
+        dfdx::nn::builders::Linear<HIDDEN_2, OUTPUT>,
+    );
+    let mut m = dev.build_module::<M, f32>();
+    let mut grads = m.alloc_grads();
+    let input: [f32; STATE] = core::array::from_fn(|i| i as f32);
+
+    let cfg = AdamConfig {
+        lr: 5e-3,
+        betas: [0.9, 0.999],
+        eps: 1e-8,
+        weight_decay: Some(dfdx::optim::WeightDecay::L2(1e-6)),
+    };
+    let mut opt: Adam<_, f32, _> = Adam::new(&m, cfg);
+
+    for _ in 0..150 {
+        let input = dev.tensor(input);
+        let input = input.trace(grads);
+        let output = m.forward(input);
+        let output = output + mask.clone();
+        let output = output / 3.0;
+        let loss = cross_entropy_with_logits_loss(output, target.clone());
+        dbg!(loss.array());
+        grads = loss.backward();
+        opt.update(&mut m, &mut grads).unwrap();
+        m.zero_grads(&mut grads);
+    }
+    
 }
