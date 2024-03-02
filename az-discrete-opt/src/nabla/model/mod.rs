@@ -2,20 +2,21 @@
 pub mod dfdx;
 
 pub trait NablaModel {
-    fn write_predictions(&mut self, states: &[f32], predictions: &mut [f32]);
-    fn update_model(&mut self, states: &[f32], observations: &[f32])
+    fn write_predictions(&mut self, states: &[f32], v_predictions: &mut [f32], p_predictions: &mut [f32]);
+    fn update_model(&mut self, states: &[f32], v_observations: &[f32], n_observations: &[f32])
         -> f32;
 }
 
 pub struct TrivialModel;
 
 impl NablaModel for TrivialModel {
-    fn write_predictions(&mut self, _states: &[f32], _predictions: &mut [f32]) {}
+    fn write_predictions(&mut self, _states: &[f32], _v_predictions: &mut [f32], _p_predictions: &mut [f32]) {}
 
     fn update_model(
         &mut self,
         _states: &[f32],
-        _observations: &[f32],
+        _v_predictions: &[f32],
+        _n_observations: &[f32],
     ) -> f32 {
         0.
     }

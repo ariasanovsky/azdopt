@@ -13,7 +13,8 @@ pub struct NablaOptimizer<Space: DfaWithCost, M, P> {
     // transitions: Vec<Vec<Transition>>,
     last_positions: Vec<NodeIndex>,
     state_vecs: Vec<f32>,
-    h_theta_host: Vec<f32>,
+    v_host: Vec<f32>,
+    p_host: Vec<f32>,
     // action_weights: Vec<f32>,
     trees: Vec<SearchTree>,
     model: M,
@@ -69,13 +70,14 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             .for_each(|(s, s_host)| {
                 space.write_vec(s, s_host);
             });
-        let mut h_theta_host = vec![0.; batch * Space::ACTION_DIM];
-        model.write_predictions(&state_vecs, &mut h_theta_host);
+        let mut v_host = vec![0.; batch * Space::ACTION_DIM];
+        let mut p_host = vec![0.; batch * Space::ACTION_DIM];
+        model.write_predictions(&state_vecs, &mut v_host, &mut p_host);
         // h_theta_host.par_iter_mut().for_each(|x| *x = x.sqrt());
         let trees = (
             &states,
             &costs,
-            h_theta_host.par_chunks_exact(Space::ACTION_DIM),
+            v_host.par_chunks_exact(Space::ACTION_DIM),
         )
             .into_par_iter()
             .map(|(s, c, h)| {
@@ -109,7 +111,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             paths,
             last_positions,
             state_vecs,
-            h_theta_host,
+            v_host,
+            p_host,
             // action_weights,
             trees,
             model,
@@ -173,13 +176,13 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                 }
             });
         self.model
-            .write_predictions(&self.state_vecs, &mut self.h_theta_host);
+            .write_predictions(&self.state_vecs, &mut self.v_host, &mut self.p_host);
         (
             &mut self.trees,
             &self.states,
             &self.last_positions,
             &self.paths,
-            self.h_theta_host.par_chunks_exact(Space::ACTION_DIM),
+            self.v_host.par_chunks_exact(Space::ACTION_DIM),
         )
             .into_par_iter()
             .for_each(|(t, s, pos, p, h)| {
@@ -259,10 +262,10 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             });
 
         // fill `h_theta_host`
-        self.h_theta_host.fill(-1.0);
+        self.v_host.fill(-1.0);
         // panic!("{}", self.h_theta_host.len());
         // self.action_weights.fill(0.0);
-        let h_theta_vecs = self.h_theta_host.par_chunks_exact_mut(Space::ACTION_DIM);
+        let h_theta_vecs = self.v_host.par_chunks_exact_mut(Space::ACTION_DIM);
         // let weight_vecs = self.action_weights.par_chunks_exact_mut(Space::ACTION_DIM);
         (&self.trees, h_theta_vecs)
             .into_par_iter()
@@ -274,7 +277,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                 // t.write_observations(&self.space, h_theta, weights, n_obs_tol)
             });
         self.model
-            .update_model(&self.state_vecs, &self.h_theta_host)
+            .update_model(&self.state_vecs, &self.v_host, &self.p_host)
     }
 
     #[cfg(feature = "rayon")]
@@ -308,7 +311,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             paths,
             last_positions,
             state_vecs,
-            h_theta_host,
+            v_host,
+            p_host,
             // action_weights: _,
             trees: _,
             model,
@@ -369,9 +373,9 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                     p.clear();
                 },
             );
-        h_theta_host.fill(0.);
-        model.write_predictions(&self.state_vecs, h_theta_host);
-        let action_vecs = h_theta_host.par_chunks_exact(Space::ACTION_DIM);
+        v_host.fill(0.);
+        model.write_predictions(&self.state_vecs, v_host, p_host);
+        let action_vecs = v_host.par_chunks_exact(Space::ACTION_DIM);
         (&mut self.trees, &self.roots, &self.costs, action_vecs)
             .into_par_iter()
             .for_each(|(t, r, c, h)| {

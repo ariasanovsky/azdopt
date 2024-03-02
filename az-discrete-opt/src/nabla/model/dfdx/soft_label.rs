@@ -1,8 +1,9 @@
-use dfdx::{shapes::{Const, HasShape, Rank0, Rank2}, tensor::{Cuda, CudaError, OnesTensor, Tensor, TensorFrom, ZerosTensor}, tensor_ops::{BroadcastTo, ChooseFrom, SumTo, TryLe, TryMul, TrySub}};
+use dfdx::{shapes::{Const, HasShape, Rank0, Rank1, Rank2}, tensor::{Cuda, CudaError, OnesTensor, Tensor, TensorFrom, ZerosTensor}, tensor_ops::{BroadcastTo, ChooseFrom, SumTo, TryLe, TryMatMul, TryMul, TrySub}};
 
 pub struct SoftLabel<const L: usize> {
     shift: Tensor<Rank2<2, L>, f32, Cuda>,
     scale: Tensor<Rank2<2, L>, f32, Cuda>,
+    labels: Tensor<Rank1<L>, f32, Cuda>,
     one: Tensor<Rank0, f32, Cuda>,
     zero: Tensor<Rank0, f32, Cuda>,
 }
@@ -24,8 +25,9 @@ impl<const L: usize> SoftLabel<L> {
         Ok(Self {
             shift: dev.try_tensor(shift)?,
             scale: dev.try_tensor(scale)?,
-            one: dev.try_ones::<Rank0>()?.try_broadcast()?,
-            zero: dev.try_zeros::<Rank0>()?.try_broadcast()?,
+            labels: dev.try_tensor(labels)?,
+            one: dev.try_ones::<Rank0>()?, //.try_broadcast()?,
+            zero: dev.try_zeros::<Rank0>()?, //.try_broadcast()?,
         })
     }
 
@@ -36,7 +38,7 @@ impl<const L: usize> SoftLabel<L> {
 
 impl<const L: usize> SoftLabel<L> {
     pub fn try_label(&self, input: Tensor<(usize,), f32, Cuda>) -> Result<Tensor<(usize, Const<L>), f32, Cuda>, CudaError> {
-        let Self { shift, scale, one, zero } = self;
+        let Self { shift, scale, labels: _, one, zero } = self;
         let d = input.shape().0;
         // calculate soft label weights
         let shift = shift.clone().try_broadcast_like(&(Const, d, Const))?;
@@ -59,6 +61,16 @@ impl<const L: usize> SoftLabel<L> {
 
     pub fn label(&self, input: Tensor<(usize,), f32, Cuda>) -> Tensor<(usize, Const<L>), f32, Cuda> {
         self.try_label(input).unwrap()
+    }
+
+    pub fn try_unlabel(&self, input: Tensor<(usize, Const<L>), f32, Cuda>) -> Result<Tensor<(usize,), f32, Cuda>, CudaError> {
+        let Self { shift: _, scale: _, labels, one: _, zero: _ } = self;
+        input.try_matmul(labels.clone())
+        
+    }
+
+    pub fn unlabel(&self, input: Tensor<(usize, Const<L>), f32, Cuda>) -> Tensor<(usize,), f32, Cuda> {
+        self.try_unlabel(input).unwrap()
     }
 }
 
