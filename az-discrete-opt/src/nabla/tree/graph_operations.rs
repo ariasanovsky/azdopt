@@ -33,7 +33,8 @@ impl SearchTree {
         space: &Space,
         state: &Space::State,
         h_theta: &[f32],
-        sample: &SamplePattern,
+        p_theta: &[f32],
+        budget: &ActionBudget,
     ) {
         let node_weight = self.tree.node_weight_mut(id).unwrap();
         let c = node_weight.c;
@@ -41,18 +42,20 @@ impl SearchTree {
         let predictions = space.action_data(state).map(|(a_id, r_sa)| {
             let h_theta_sa = h_theta[a_id];
             let g_theta_sa = space.g_theta_star_sa(c, r_sa, h_theta_sa);
+            let p_theta_sa = p_theta[a_id];
             ActionPrediction {
                 a_id,
                 g_theta_sa,
+                p_theta_sa,
                 edge_id: None,
             }
         });
         self.predictions.extend(predictions);
         let new_predictions = &mut self.predictions[start..];
         new_predictions.sort_by(|a, b| b.a_id.cmp(&a.a_id));
-        sample.sample_slice(new_predictions);
+        budget.sample_slice(new_predictions);
         let current_end = self.predictions.len();
-        let target_end = start + sample.len();
+        let target_end = start + budget.len();
         if current_end > target_end {
             self.predictions.truncate(target_end);
             node_weight.actions = (start as u32)..(target_end as u32);
@@ -63,37 +66,68 @@ impl SearchTree {
     }
 }
 
+// #[derive(Clone)]
+// pub struct SamplePattern {
+//     pub max: usize,
+//     pub mid: usize,
+//     pub min: usize,
+// }
+
 #[derive(Clone)]
-pub struct SamplePattern {
-    pub max: usize,
-    pub mid: usize,
-    pub min: usize,
+pub struct ActionBudget {
+    pub g_budget: usize,
+    pub p_budget: usize,
 }
 
-impl SamplePattern {
+// impl SamplePattern {
+//     fn sample_slice(&self, slice: &mut [ActionPrediction]) {
+//         if slice.len() > self.len() {
+//             let mid_and_min = &mut slice[self.max..];
+//             // pull the mid elements to the front from their current fencepost position
+//             for i in 0..self.mid {
+//                 let mid_pos = Self::fencepost_position(i, self.mid, mid_and_min.len() - self.min);
+//                 mid_and_min[i] = mid_and_min[mid_pos].clone();
+//             }
+//             // pull the min elements to the front from the back
+//             let tail = &mut mid_and_min[self.mid..];
+//             for i in 0..self.min {
+//                 let min_pos = tail.len() - self.min + i;
+//                 tail[i] = tail[min_pos].clone();
+//             }
+//         }
+//     }
+
+//     fn len(&self) -> usize {
+//         self.max + self.mid + self.min
+//     }
+
+//     fn fencepost_position(i: usize, k: usize, l: usize) -> usize {
+//         // rounds i * (l - 1) / (k - 1) to the nearest integer with only integer arithmetic
+//         (i * (l - 1) + (k - 1) / 2) / (k - 1)
+//     }
+// }
+
+impl ActionBudget {
     fn sample_slice(&self, slice: &mut [ActionPrediction]) {
         if slice.len() > self.len() {
-            let mid_and_min = &mut slice[self.max..];
-            // pull the mid elements to the front from their current fencepost position
-            for i in 0..self.mid {
-                let mid_pos = Self::fencepost_position(i, self.mid, mid_and_min.len() - self.min);
-                mid_and_min[i] = mid_and_min[mid_pos].clone();
-            }
-            // pull the min elements to the front from the back
-            let tail = &mut mid_and_min[self.mid..];
-            for i in 0..self.min {
-                let min_pos = tail.len() - self.min + i;
-                tail[i] = tail[min_pos].clone();
-            }
+            let Self { g_budget, p_budget: _ } = self;
+            // make the first `g_budget` elements the ones with the highest g_theta_sa
+            slice.sort_by(|a, b| {
+                b.g_theta_sa
+                    .partial_cmp(&a.g_theta_sa)
+                    .unwrap()
+            });
+            // make the next `p_budget` elements the ones with the highest p_theta_sa
+            let tail = &mut slice[*g_budget..];
+            tail.sort_by(|a, b| {
+                b.p_theta_sa
+                    .partial_cmp(&a.p_theta_sa)
+                    .unwrap()
+            });
         }
     }
 
     fn len(&self) -> usize {
-        self.max + self.mid + self.min
-    }
-
-    fn fencepost_position(i: usize, k: usize, l: usize) -> usize {
-        // rounds i * (l - 1) / (k - 1) to the nearest integer with only integer arithmetic
-        (i * (l - 1) + (k - 1) / 2) / (k - 1)
+        self.g_budget + self.p_budget
     }
 }

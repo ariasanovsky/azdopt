@@ -8,7 +8,7 @@ use az_discrete_opt::{
     nabla::{
         model::dfdx::SoftActionModel,
         optimizer::{ArgminImprovement, NablaOptimizer, ResetPolicy},
-        tree::graph_operations::SamplePattern,
+        tree::graph_operations::ActionBudget,
     },
     path::set::ActionSet,
     tensorboard::{tf_path, Summarize},
@@ -98,10 +98,14 @@ fn main() -> eyre::Result<()> {
     let model: SoftActionModel<ModelH, BATCH, STATE, ACTION, LABELS, AL> = SoftActionModel::new(dev, cfg, labels);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
     const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.,]);
-    let sample = SamplePattern {
-        max: 2 * 10,
-        mid: 2 * 7,
-        min: 2 * 8,
+    // let sample = SamplePattern {
+    //     max: 2 * 10,
+    //     mid: 2 * 7,
+    //     min: 2 * 8,
+    // };
+    let budget = ActionBudget {
+        g_budget: 10,
+        p_budget: 10,
     };
 
     let mut optimizer: NablaOptimizer<_, _, P> = NablaOptimizer::par_new(
@@ -113,7 +117,7 @@ fn main() -> eyre::Result<()> {
         },
         model,
         BATCH,
-        &sample,
+        &budget,
     );
     let process_argmin = |argmin: &ArgminData<S, Cost>, writer: &mut W, step: i64| {
         let ArgminData { state, cost, eval } = argmin;
@@ -140,7 +144,7 @@ fn main() -> eyre::Result<()> {
     for epoch in 1..=epochs {
         println!("==== EPOCH: {epoch} ====");
         for episode in 1..=episodes {
-            let new_argmin = optimizer.par_roll_out_episodes(n_as_tol, &sample);
+            let new_argmin = optimizer.par_roll_out_episodes(n_as_tol, &budget);
             match new_argmin {
                 ArgminImprovement::Improved(argmin) => {
                     let step = (episodes * (epoch - 1) + episode) as i64;
@@ -193,7 +197,7 @@ fn main() -> eyre::Result<()> {
                 }
             },
         };
-        optimizer.par_reset_trees(reset_policy, &sample);
+        optimizer.par_reset_trees(reset_policy, &budget);
     }
     Ok(())
 }
