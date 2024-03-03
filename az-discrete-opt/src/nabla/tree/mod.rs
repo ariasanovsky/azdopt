@@ -131,11 +131,12 @@ impl SearchTree {
             // self._print_neighborhoods();
 
             use next_action::NextAction;
-            let next_action = if path.is_empty() {
-                self.sample_actions(*state_pos, n_as_tol(path.len()))
-            } else {
-                self.next_optimal_action(*state_pos, n_as_tol(path.len()))
-            };
+            let next_action = self.action_by_upper_estimate(*state_pos);
+            // let next_action = if path.is_empty() {
+            //     self.sample_actions(*state_pos, n_as_tol(path.len()))
+            // } else {
+            //     self.next_optimal_action(*state_pos, n_as_tol(path.len()))
+            // };
             match next_action {
                 Some(NextAction::Visited(arc_index)) => {
                     // eprintln!(
