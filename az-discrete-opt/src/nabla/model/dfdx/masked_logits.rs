@@ -1,19 +1,62 @@
-use dfdx::{shapes::{Rank0, Rank1, Rank2, Shape}, tensor::{Tape, Tensor}, tensor_ops::{BroadcastTo, ChooseFrom, Device, MeanTo}};
+use dfdx::{shapes::{Axes, ConstShape, HasAxes, Rank0, Rank1, Rank2, ReduceShape, ReduceShapeTo, Shape}, tensor::{Tape, Tensor}, tensor_ops::{BroadcastTo, ChooseFrom, Device, MeanTo}};
 
-pub fn masked_logit_cross_entropy<const B: usize, const A: usize, D: Device<f32>, T: Tape<f32, D>>(
+pub fn adjust_logits_with_choice_and_sqrt_supp_old<const B: usize, const A: usize, D: Device<f32>, T: Tape<f32, D>>(
     predicted_logits: Tensor<Rank2<B, A>, f32, D, T>,
-    target_probs: Tensor<Rank2<B, A>, f32, D>,
     choice: Tensor<Rank2<B, A>, bool, D>,
     num_chosen: Tensor<Rank1<B>, f32, D>,
     mask_value: Tensor<Rank0, f32, D>,
-) -> Tensor<Rank1<B>, f32, D, T> {
+) -> Tensor<Rank2<B, A>, f32, D, T> {
     let masked_logits = choice.choose(predicted_logits, mask_value.broadcast());
     let scaled_logits = masked_logits * num_chosen.sqrt().recip().broadcast();
-    let predicted_log_probs = scaled_logits.log_softmax::<<Rank2<B, A> as Shape>::LastAxis>();
-    let mean_rescale = (B as f64).recip() as f32;
-    let losses: Tensor<Rank1<B>, f32, D, T> = (predicted_log_probs * target_probs).mean().negate() / mean_rescale;
+    scaled_logits
+}
+
+fn adjust_logits_with_choice_and_sqrt_supp<S: ConstShape, D: Device<f32>, T: Tape<f32, D>, Dst: Shape, Ax: Axes>(
+    predicted_logits: Tensor<S, f32, D, T>,
+    choice: Tensor<S, bool, D>,
+    num_chosen: Tensor<Dst, f32, D>,
+    mask_value: Tensor<Rank0, f32, D>,
+) -> Tensor<S, f32, D, T>
+where
+    S: ReduceShapeTo<Dst, Ax>,
+{
+    let masked_logits = choice.choose(predicted_logits, mask_value.broadcast());
+    let scaled_logits = masked_logits * num_chosen.sqrt().recip().broadcast();
+    scaled_logits
+}
+
+pub fn masked_logit_cross_entropy<S: ConstShape, D: Device<f32>, T: Tape<f32, D>, Dst: ConstShape, Ax: Axes>(
+    predicted_logits: Tensor<S, f32, D, T>,
+    target_probs: Tensor<S, f32, D>,
+    choice: Tensor<S, bool, D>,
+    num_chosen: Tensor<Dst, f32, D>,
+    mask_value: Tensor<Rank0, f32, D>,
+) -> Tensor<Dst, f32, D, T>
+where
+    S: ReduceShape<Ax> + ReduceShapeTo<Dst, Ax>,
+{
+    let adjusted_logits = adjust_logits_with_choice_and_sqrt_supp(predicted_logits, choice, num_chosen, mask_value);
+    let predicted_log_probs = adjusted_logits.log_softmax::<Ax>();
+    let mean_rescale = (Dst::NUMEL as f64).recip() as f32;
+    let losses: Tensor<Dst, f32, D, T> = (predicted_log_probs * target_probs).mean().negate() / mean_rescale;
     losses
 }
+
+// pub fn masked_logit_cross_entropy_old<const B: usize, const A: usize, D: Device<f32>, T: Tape<f32, D>>(
+//     predicted_logits: Tensor<Rank2<B, A>, f32, D, T>,
+//     target_probs: Tensor<Rank2<B, A>, f32, D>,
+//     choice: Tensor<Rank2<B, A>, bool, D>,
+//     num_chosen: Tensor<Rank1<B>, f32, D>,
+//     mask_value: Tensor<Rank0, f32, D>,
+// ) -> Tensor<Rank1<B>, f32, D, T> {
+//     let adjusted_logits = adjust_logits_with_choice_and_sqrt_supp(predicted_logits, choice, num_chosen, mask_value);
+//     // let masked_logits = choice.choose(predicted_logits, mask_value.broadcast());
+//     // let scaled_logits = masked_logits * num_chosen.sqrt().recip().broadcast();
+//     let predicted_log_probs = adjusted_logits.log_softmax::<<Rank2<B, A> as Shape>::LastAxis>();
+//     let mean_rescale = (B as f64).recip() as f32;
+//     let losses: Tensor<Rank1<B>, f32, D, T> = (predicted_log_probs * target_probs).mean().negate() / mean_rescale;
+//     losses
+// }
 
 #[cfg(test)]
 mod tests {

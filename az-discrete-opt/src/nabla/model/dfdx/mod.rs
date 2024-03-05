@@ -15,7 +15,7 @@ use self::soft_label::SoftLabel;
 
 use super::NablaModel;
 
-pub mod cross_entropy;
+pub mod masked_logits;
 pub mod soft_label;
 
 // pub struct HardActionModel<M, const BATCH: usize, const STATE: usize, const ACTION: usize>
