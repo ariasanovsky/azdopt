@@ -36,6 +36,13 @@ impl SearchTree {
         p_theta: &[f32],
         budget: &ActionBudget,
     ) {
+        let p_sum = p_theta.iter().sum::<f32>();
+        let p_min = p_theta.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        let p_max = p_theta.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        debug_assert!(*p_min >= 0.);
+        debug_assert!(*p_max <= 0.99);
+        debug_assert!((1. - p_sum).abs() < 1e-2);
+
         let node_weight = self.tree.node_weight_mut(id).unwrap();
         let c = node_weight.c;
         let start = self.predictions.len();

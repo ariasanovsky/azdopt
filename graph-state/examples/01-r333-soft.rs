@@ -30,10 +30,10 @@ use rand::{rngs::ThreadRng, Rng};
 use rand_distr::WeightedIndex;
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 16;
+const N: usize = 5;
 const E: usize = N * (N - 1) / 2;
 const C: usize = 3;
-const SIZES: [usize; C] = [3, 3, 3];
+const SIZES: [usize; C] = [2, 2, 2];
 
 type S = RamseyCountsNoRecolor<N, E, C, B32>;
 type Cost = TotalCounts<C>;
@@ -63,7 +63,7 @@ type ModelH = (
     dfdx::nn::modules::SplitInto<(Linear<HIDDEN_5, {ACTION * LABELS}>, Linear<HIDDEN_5, ACTION>)>,
 );
 
-const BATCH: usize = 256;
+const BATCH: usize = 1;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 

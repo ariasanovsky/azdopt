@@ -123,12 +123,12 @@ impl SearchTree {
     {
         loop {
             // println!("path: {path:?}");
-            // let possible_actions = space.action_data(state).map(|(a, _)| a).collect::<Vec<_>>();
-            // eprintln!("{state_pos:?}");
-            // eprintln!("possible_actions: {possible_actions:?}");
-            // eprintln!("permited_actions: {:?}", self._permitted_actions(*state_pos));
-            // eprintln!("exhausted_nodes: {:?}", self._exhausted_nodes());
-            // self._print_neighborhoods();
+            let possible_actions = space.action_data(state).map(|(a, _)| a).collect::<Vec<_>>();
+            eprintln!("{state_pos:?}");
+            eprintln!("possible_actions: {possible_actions:?}");
+            eprintln!("permited_actions: {:?}", self._permitted_actions(*state_pos));
+            eprintln!("exhausted_nodes: {:?}", self._exhausted_nodes());
+            self._print_neighborhoods();
 
             use next_action::NextAction;
             let next_action = self.action_by_upper_estimate(*state_pos);
