@@ -1,17 +1,17 @@
-use dfdx::{shapes::{Axes, ConstShape, HasAxes, Rank0, Rank1, Rank2, ReduceShape, ReduceShapeTo, Shape}, tensor::{Tape, Tensor}, tensor_ops::{BroadcastTo, ChooseFrom, Device, MeanTo}};
+use dfdx::{shapes::{Axes, ConstShape, Rank0, ReduceShape, ReduceShapeTo, Shape}, tensor::{Tape, Tensor}, tensor_ops::{BroadcastTo, ChooseFrom, Device, MeanTo}};
 
-pub fn adjust_logits_with_choice_and_sqrt_supp_old<const B: usize, const A: usize, D: Device<f32>, T: Tape<f32, D>>(
-    predicted_logits: Tensor<Rank2<B, A>, f32, D, T>,
-    choice: Tensor<Rank2<B, A>, bool, D>,
-    num_chosen: Tensor<Rank1<B>, f32, D>,
-    mask_value: Tensor<Rank0, f32, D>,
-) -> Tensor<Rank2<B, A>, f32, D, T> {
-    let masked_logits = choice.choose(predicted_logits, mask_value.broadcast());
-    let scaled_logits = masked_logits * num_chosen.sqrt().recip().broadcast();
-    scaled_logits
-}
+// pub fn adjust_logits_with_choice_and_sqrt_supp_old<const B: usize, const A: usize, D: Device<f32>, T: Tape<f32, D>>(
+//     predicted_logits: Tensor<Rank2<B, A>, f32, D, T>,
+//     choice: Tensor<Rank2<B, A>, bool, D>,
+//     num_chosen: Tensor<Rank1<B>, f32, D>,
+//     mask_value: Tensor<Rank0, f32, D>,
+// ) -> Tensor<Rank2<B, A>, f32, D, T> {
+//     let masked_logits = choice.choose(predicted_logits, mask_value.broadcast());
+//     let scaled_logits = masked_logits * num_chosen.sqrt().recip().broadcast();
+//     scaled_logits
+// }
 
-fn adjust_logits_with_choice_and_sqrt_supp<S: ConstShape, D: Device<f32>, T: Tape<f32, D>, Dst: Shape, Ax: Axes>(
+pub fn adjust_logits_with_choice_and_sqrt_supp<S: ConstShape, D: Device<f32>, T: Tape<f32, D>, Dst: Shape, Ax: Axes>(
     predicted_logits: Tensor<S, f32, D, T>,
     choice: Tensor<S, bool, D>,
     num_chosen: Tensor<Dst, f32, D>,
@@ -60,7 +60,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use dfdx::{nn::{builders::Linear, modules::ReLU, DeviceBuildExt, Module, ZeroGrads}, optim::{Adam, AdamConfig, Optimizer}, tensor::{AsArray, AutoDevice, OnesTensor, TensorFrom, Trace}, tensor_ops::{Backward, SumTo}};
+    use dfdx::{nn::{builders::Linear, modules::ReLU, DeviceBuildExt, Module, ZeroGrads}, optim::{Adam, AdamConfig, Optimizer}, shapes::Rank2, tensor::{AsArray, AutoDevice, OnesTensor, TensorFrom, Trace}, tensor_ops::{Backward, SumTo}};
 
     use super::*;
     

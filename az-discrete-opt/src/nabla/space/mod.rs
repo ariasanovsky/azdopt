@@ -31,81 +31,100 @@ pub trait DfaWithCost {
     //     let action_index = self.index(action);
     //     self.action_indices(state).any(|i| i == action_index)
     // }
-    fn write_vec(&self, state: &Self::State, zeroed_vector: &mut [f32]);
+    fn write_vecs(
+        &self,
+        state: &Self::State,
+        zeroed_state_vector: &mut [f32],
+        false_action_vector: &mut [bool],
+        num_actions: &mut f32,
+    );
     fn cost(&self, state: &Self::State) -> Self::Cost;
     fn evaluate(&self, cost: &Self::Cost) -> f32;
     fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::RewardHint, h_theta_sa: f32) -> f32;
     fn h_sa(&self, c_s: f32, c_as: f32, c_star_as: f32) -> f32;
 }
 
-impl<const L: usize, Space: DfaWithCost> DfaWithCost for Layered<L, Space>
-where
-    Space::State: Clone,
-{
-    type State = Layers<Space::State, L>;
+// impl<const L: usize, Space: DfaWithCost> DfaWithCost for Layered<L, Space>
+// where
+//     Space::State: Clone,
+// {
+//     type State = Layers<Space::State, L>;
 
-    type Action = Space::Action;
+//     type Action = Space::Action;
 
-    type RewardHint = Space::RewardHint;
+//     type RewardHint = Space::RewardHint;
 
-    type Cost = Space::Cost;
+//     type Cost = Space::Cost;
 
-    const STATE_DIM: usize = Space::STATE_DIM * L;
+//     const STATE_DIM: usize = Space::STATE_DIM * L;
 
-    const ACTION_DIM: usize = Space::ACTION_DIM;
+//     const ACTION_DIM: usize = Space::ACTION_DIM;
 
-    fn action(&self, index: usize) -> Self::Action {
-        self.space.action(index)
-    }
+//     fn action(&self, index: usize) -> Self::Action {
+//         self.space.action(index)
+//     }
 
-    fn reward(&self, state: &Self::State, index: usize) -> Self::RewardHint {
-        self.space.reward(state.back(), index)
-    }
+//     fn reward(&self, state: &Self::State, index: usize) -> Self::RewardHint {
+//         self.space.reward(state.back(), index)
+//     }
 
-    fn act(&self, state: &mut Self::State, action: &Self::Action) {
-        state.push_op(|s| {
-            let mut s = s.clone();
-            self.space.act(&mut s, action);
-            s
-        });
-    }
+//     fn act(&self, state: &mut Self::State, action: &Self::Action) {
+//         state.push_op(|s| {
+//             let mut s = s.clone();
+//             self.space.act(&mut s, action);
+//             s
+//         });
+//     }
 
-    fn action_data<'a>(
-        &self,
-        state: &'a Self::State,
-    ) -> impl Iterator<Item = (usize, Self::RewardHint)> + 'a {
-        self.space.action_data(state.back())
-    }
+//     fn action_data<'a>(
+//         &self,
+//         state: &'a Self::State,
+//     ) -> impl Iterator<Item = (usize, Self::RewardHint)> + 'a {
+//         self.space.action_data(state.back())
+//     }
 
-    fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
-        debug_assert!(
-            vector.len() == Self::STATE_DIM,
-            "{} != {}",
-            vector.len(),
-            Self::STATE_DIM,
-        );
-        state
-            .buffer()
-            .iter()
-            .zip(vector.chunks_exact_mut(Space::STATE_DIM))
-            .for_each(|(s, s_host)| {
-                self.space.write_vec(s, s_host);
-            });
-    }
+//     fn write_vecs(
+//         &self,
+//         state: &Self::State,
+//         zeroed_state_vector: &mut [f32],
+//         false_action_vector: &mut [bool],
+//         num_actions: &mut f32,
 
-    fn cost(&self, state: &Self::State) -> Self::Cost {
-        self.space.cost(state.back())
-    }
+//         // zeroed_state_vector: &mut [f32],
+//         // false_action_vector: &mut [bool],
+//         // num_actions: &mut f32,
 
-    fn evaluate(&self, cost: &Self::Cost) -> f32 {
-        self.space.evaluate(cost)
-    }
+//     ) {
+//         debug_assert!(
+//             zeroed_state_vector.len() == Self::STATE_DIM,
+//             "{} != {}",
+//             zeroed_state_vector.len(),
+//             Self::STATE_DIM,
+//         );
+//         state
+//             .buffer()
+//             .iter()
+//             .zip(zeroed_state_vector.chunks_exact_mut(Space::STATE_DIM))
+//             .zip(false_action_vector.chunks_exact_mut(Space::ACTION_DIM))
 
-    fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
-        self.space.g_theta_star_sa(c_s, r_sa, h_theta_sa)
-    }
+//             .for_each(|(s, s_host)| {
+//                 self.space.write_vecs(s, s_host);
+//             });
+//     }
 
-    fn h_sa(&self, c_s: f32, c_as: f32, c_as_star: f32) -> f32 {
-        self.space.h_sa(c_s, c_as, c_as_star)
-    }
-}
+//     fn cost(&self, state: &Self::State) -> Self::Cost {
+//         self.space.cost(state.back())
+//     }
+
+//     fn evaluate(&self, cost: &Self::Cost) -> f32 {
+//         self.space.evaluate(cost)
+//     }
+
+//     fn g_theta_star_sa(&self, c_s: f32, r_sa: Self::RewardHint, h_theta_sa: f32) -> f32 {
+//         self.space.g_theta_star_sa(c_s, r_sa, h_theta_sa)
+//     }
+
+//     fn h_sa(&self, c_s: f32, c_as: f32, c_as_star: f32) -> f32 {
+//         self.space.h_sa(c_s, c_as, c_as_star)
+//     }
+// }

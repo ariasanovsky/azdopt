@@ -52,8 +52,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
     {
         use rayon::{
             iter::{
-                IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-                ParallelIterator,
+                IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator
             },
             slice::{ParallelSlice, ParallelSliceMut},
         };
@@ -65,14 +64,27 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         let costs: Vec<Space::Cost> = roots.as_slice().par_iter().map(|s| space.cost(s)).collect();
         let paths = (0..batch).into_par_iter().map(|_| P::new()).collect();
         let mut state_vecs = vec![0.; batch * Space::STATE_DIM];
-        (&states, state_vecs.par_chunks_exact_mut(Space::STATE_DIM))
+        let mut action_bools = vec![false; batch * Space::ACTION_DIM];
+        let mut num_actions = vec![0.; batch];
+        (
+            &states,
+            state_vecs.par_chunks_exact_mut(Space::STATE_DIM),
+            action_bools.par_chunks_exact_mut(Space::ACTION_DIM),
+            num_actions.par_iter_mut(),
+        )
             .into_par_iter()
-            .for_each(|(s, s_host)| {
-                space.write_vec(s, s_host);
+            .for_each(|(s, s_host, a_host, num_actions)| {
+                space.write_vecs(s, s_host, a_host, num_actions);
             });
         let mut v_host = vec![0.; batch * Space::ACTION_DIM];
         let mut p_host = vec![0.; batch * Space::ACTION_DIM];
-        model.write_predictions(&state_vecs, &mut v_host, &mut p_host);
+        model.write_predictions(
+            &state_vecs,
+            todo!(),
+            todo!(),
+            &mut v_host,
+            &mut p_host,
+        );
         // h_theta_host.par_iter_mut().for_each(|x| *x = x.sqrt());
         let trees = (
             &states,
@@ -173,11 +185,17 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             .for_each(|(t, r, s, p, c, pos, v)| {
                 t.roll_out_episodes(&self.space, r, s, c, p, pos, &n_as_tol);
                 if !p.is_empty() {
-                    self.space.write_vec(s, v);
+                    self.space.write_vecs(s, v, todo!(), todo!());
                 }
             });
         self.model
-            .write_predictions(&self.state_vecs, &mut self.v_host, &mut self.p_host);
+            .write_predictions(
+                &self.state_vecs,
+                todo!(),
+                todo!(),
+                &mut self.v_host,
+                &mut self.p_host,
+            );
         (
             &mut self.trees,
             &self.states,
@@ -260,7 +278,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         (&self.roots, state_vecs)
             .into_par_iter()
             .for_each(|(s, v)| {
-                self.space.write_vec(s, v);
+                self.space.write_vecs(s, v, todo!(), todo!());
             });
 
         // fill `h_theta_host`
@@ -279,7 +297,13 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                 // t.write_observations(&self.space, h_theta, weights, n_obs_tol)
             });
         self.model
-            .update_model(&self.state_vecs, &self.v_host, &self.p_host)
+            .update_model(
+                &self.state_vecs,
+                todo!(),
+                todo!(),
+                &self.v_host,
+                &self.p_host,
+            )
     }
 
     #[cfg(feature = "rayon")]
@@ -371,12 +395,18 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                     }
                     s.clone_from(r);
                     *c = space.cost(r);
-                    self.space.write_vec(s, v);
+                    self.space.write_vecs(s, v, todo!(), todo!());
                     p.clear();
                 },
             );
         v_host.fill(0.);
-        model.write_predictions(&self.state_vecs, v_host, p_host);
+        model.write_predictions(
+            &self.state_vecs,
+            todo!(),
+            todo!(),
+            v_host,
+            p_host,
+        );
         let action_vecs = v_host.par_chunks_exact(Space::ACTION_DIM);
         let p_vecs = p_host.par_chunks_exact(Space::ACTION_DIM);
         (&mut self.trees, &self.roots, &self.costs, action_vecs, p_vecs)

@@ -1,7 +1,8 @@
 
 
 use dfdx::{
-    losses::{cross_entropy_with_logits_loss}, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, shapes::{Const, Rank0, Rank1, Rank3, Shape}, tensor::{Cuda, OnesTensor, Tensor, ZerosTensor}, tensor_ops::{ReshapeTo, SumTo, TryMatMul}
+    // losses::cross_entropy_with_logits_loss,
+    losses::cross_entropy_with_logits_loss, nn::{BuildOnDevice, DeviceBuildExt, ZeroGrads}, prelude::{Gradients, Rank2}, shapes::{Const, Rank0, Rank1, Rank3, Shape}, tensor::{Cuda, OnesTensor, Tensor, ZerosTensor}, tensor_ops::{ReshapeTo, SumTo}
 };
 
 use dfdx::{
@@ -10,6 +11,8 @@ use dfdx::{
     tensor::{AsArray, OwnedTape, Trace},
     tensor_ops::{AdamConfig, Backward},
 };
+
+use crate::nabla::model::dfdx::masked_logits::{adjust_logits_with_choice_and_sqrt_supp, masked_logit_cross_entropy};
 
 use self::soft_label::SoftLabel;
 
@@ -143,6 +146,9 @@ where
     batch_action: Tensor<Rank2<B, A>, f32, Cuda>,
     // label_one: Tensor<Rank2<L, 1>, f32, Cuda>,
     label: SoftLabel<L>,
+    logit_mask_value: Tensor<Rank0, f32, Cuda>,
+    valid_actions_dev: Tensor<Rank2<B, A>, bool, Cuda>,
+    num_actions_dev: Tensor<Rank1<B>, f32, Cuda>,
 }
 
 impl<M, const B: usize, const S: usize, const A: usize, const L: usize, const AL: usize>
@@ -168,6 +174,9 @@ where
             batch_action,
             // label_one,
             label,
+            logit_mask_value: dev.ones() * f32::MIN,
+            valid_actions_dev: dev.zeros(),
+            num_actions_dev: dev.zeros(),
         }
     }
 }
@@ -185,7 +194,14 @@ where
         Output = (Tensor<Rank2<B, AL>, f32, Cuda, OwnedTape<f32, Cuda>>, Tensor<Rank2<B, A>, f32, Cuda, OwnedTape<f32, Cuda>>),
     >,
 {
-    fn write_predictions(&mut self, states: &[f32], v_predictions: &mut [f32], p_predictions: &mut [f32]) {
+    fn write_predictions(
+        &mut self,
+        states: &[f32],
+        valid_actions: &[bool],
+        num_actions: &[f32],
+        v_predictions: &mut [f32],
+        p_predictions: &mut [f32],
+    ) {
         let Self {
             model,
             gradients: _,
@@ -195,12 +211,19 @@ where
             batch_action,
             // label_one,
             label,
+            logit_mask_value,
+            valid_actions_dev,
+            num_actions_dev,
         } = self;
         debug_assert_eq!(states.len(), B * S);
+        debug_assert_eq!(valid_actions.len(), B * A);
+        debug_assert_eq!(num_actions.len(), B);
         debug_assert_eq!(v_predictions.len(), B * A);
         debug_assert_eq!(p_predictions.len(), B * A);
         batch_state.copy_from(states);
-        let factor = (L as f32).sqrt().recip();
+        valid_actions_dev.copy_from(valid_actions);
+        num_actions_dev.copy_from(num_actions);
+        let factor = (L as f64).sqrt().recip() as f32;
         // let predictions = match model.forward(batch_state.clone()) {
         //     m => m,
         //     // _ => unreachable!(),
@@ -211,18 +234,31 @@ where
         let predicted_value_label_logits = v_label_predictions.reshape::<Rank3<B, A, L>>() * factor;
         let predicted_value_label_probs =
             predicted_value_label_logits
-            .softmax::<<(Const<B>, Const<A>, Const<L>) as Shape>::LastAxis>();
+            .softmax::<<Rank3<B, A, L> as Shape>::LastAxis>();
         // let v_predictions_dev: Tensor<Rank2<B, A>, f32, Cuda> = (predicted_value_label_probs).matmul(label_one.clone()).reshape();
         let d = B * A;
         let predicted_value_label_probs = predicted_value_label_probs.reshape_like(&(d, Const));
         let v_predictions_dev = label.unlabel(predicted_value_label_probs);
         let v_predictions_dev: Tensor<Rank2<B, A>, f32, Cuda> = v_predictions_dev.reshape_like(&(Const, Const));
         v_predictions_dev.copy_into(v_predictions);
-        let p_predictions_dev = predicted_prob_logits.softmax::<<(Const<B>, Const<A>) as Shape>::LastAxis>();
+        let predicted_prob_logits = adjust_logits_with_choice_and_sqrt_supp(
+            predicted_prob_logits,
+            valid_actions_dev.clone(),
+            num_actions_dev.clone(),
+            logit_mask_value.clone(),
+        );
+        let p_predictions_dev = predicted_prob_logits.softmax::<<Rank2<B, A> as Shape>::LastAxis>();
         p_predictions_dev.copy_into(p_predictions);
     }
 
-    fn update_model(&mut self, states: &[f32], v_observations: &[f32], n_observations: &[f32])
+    fn update_model(
+        &mut self,
+        states: &[f32],
+        valid_actions: &[bool],
+        num_actions: &[f32],
+        v_observations: &[f32],
+        n_observations: &[f32],
+    )
         -> f32 {
         let Self {
             model,
@@ -233,11 +269,18 @@ where
             batch_action,
             // label_one: _,
             label,
+            logit_mask_value,
+            valid_actions_dev,
+            num_actions_dev,
         } = self;
         debug_assert_eq!(states.len(), B * S);
+        debug_assert_eq!(valid_actions.len(), B * A);
+        debug_assert_eq!(num_actions.len(), B);
         debug_assert_eq!(v_observations.len(), B * A);
         debug_assert_eq!(n_observations.len(), B * A);
         batch_state.copy_from(states);
+        valid_actions_dev.copy_from(valid_actions);
+        num_actions_dev.copy_from(num_actions);
         batch_action.copy_from(v_observations);
         let d = B * A;
         let batch_action = batch_action.clone().reshape_like(&(d,));
@@ -252,7 +295,7 @@ where
         let gradients = gradients.take().unwrap_or_else(|| model.alloc_grads());
         let batch_state_traced = batch_state.clone().trace(gradients);
         let (predicted_value_label_logits, predicted_prob_logits) = model.forward(batch_state_traced);
-        let factor = (L as f32).sqrt().recip();
+        let factor = (L as f64).sqrt().recip() as f32;
         let predicted_value_label_logits = predicted_value_label_logits.reshape::<Rank3<B, A, L>>() * factor;
         // TODO! weight the loss for (s, a) with something like sqrt(n_observations[s, a])
         let value_loss = cross_entropy_with_logits_loss(predicted_value_label_logits, observed_label_probs);
@@ -262,9 +305,18 @@ where
         let num_observations = batch_action.clone().sum::<Rank1<B>, _>().recip();
         let probs_dev = batch_action.clone() * num_observations.broadcast();
         // TODO! mask
-        let probs_loss = cross_entropy_with_logits_loss(predicted_prob_logits, probs_dev);
+        // let probs_loss = cross_entropy_with_logits_loss(predicted_prob_logits, probs_dev);
+        
+        let probs_loss = masked_logit_cross_entropy(
+            predicted_prob_logits,
+            probs_dev,
+            valid_actions_dev.clone(),
+            num_actions_dev.clone(),
+            logit_mask_value.clone(),
+        );
+
         dbg!(probs_loss.array());
-        let total_loss = value_loss + probs_loss;
+        let total_loss = value_loss + probs_loss.sum();
         let loss = total_loss.array();
         let mut grads = total_loss.backward();
         optimizer.update(model, &mut grads).unwrap();

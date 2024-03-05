@@ -88,16 +88,24 @@ impl<const N: usize, C> DfaWithCost for ROTModifyParentsOnce<N, C> {
         })
     }
 
-    fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
-        debug_assert_eq!(vector.len(), Self::STATE_DIM);
-        vector.fill(0.);
-        let (current_parents_vec, permitted_actions_vec) = vector.split_at_mut(Self::ACTION_DIM);
+    fn write_vecs(
+        &self,
+        state: &Self::State,
+        zeroed_state_vector: &mut [f32],
+        false_action_vector: &mut [bool],
+        num_actions: &mut f32,
+    ) {
+        debug_assert_eq!(zeroed_state_vector.len(), Self::STATE_DIM);
+        // vector.fill(0.);
+        let (current_parents_vec, permitted_actions_vec) = zeroed_state_vector.split_at_mut(Self::ACTION_DIM);
         for edge_pos in state.tree.edge_indices_ignoring_0_1_and_last_vertex() {
             current_parents_vec[edge_pos] = 1.;
         }
         for &action in &state.permitted_actions {
+            false_action_vector[action] = true;
             permitted_actions_vec[action] = 1.;
         }
+        *num_actions = state.permitted_actions.len() as f32;
     }
 
     fn cost(&self, state: &Self::State) -> Self::Cost {

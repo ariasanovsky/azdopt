@@ -119,28 +119,44 @@ where
         })
     }
 
-    fn write_vec(&self, state: &Self::State, vector: &mut [f32]) {
-        debug_assert!(vector.len() == Self::STATE_DIM);
-        vector.fill(0.);
+    fn write_vecs(
+        &self,
+        state: &Self::State,
+        zeroed_state_vector: &mut [f32],
+        false_action_vector: &mut [bool],
+        num_actions: &mut f32,
+    ) {
+        debug_assert_eq!(zeroed_state_vector.len(), Self::STATE_DIM);
+        debug_assert_eq!(false_action_vector.len(), Self::ACTION_DIM);
+        // zeroed_state_vector.fill(0.);
+
         /* chunks are as follows:
          * 0..(E * C): clique counts
          * (E * C)..(2 * E * C): edge bools
          * (2 * E * C)..(2 * E * C + E): permitted edges
          */
-        let (clique_edge_vec, permit_vec) = vector.split_at_mut(2 * C * E);
+        let (clique_edge_vec, permit_vec) = zeroed_state_vector.split_at_mut(2 * C * E);
         let clique_counts = state
             .state
             .counts
             .iter()
             .flat_map(|c| c.iter())
             .map(|c| *c as f32);
+        let mut num_valid_actions = 0;
         let edge_bools = state
             .state
             .graph()
             .graphs()
             .iter()
             .flat_map(|g| g.edge_bools())
-            .map(|b| if b { 1.0f32 } else { 0. });
+            .enumerate()
+            .map(|(i, b)| if b {
+                false_action_vector[i] = true;
+                num_valid_actions += 1;
+                1.0f32
+            } else {
+                0.
+            });
         let clique_edge = clique_counts.chain(edge_bools);
         clique_edge_vec
             .iter_mut()
@@ -149,6 +165,7 @@ where
         for e_pos in state.permitted_edges.iter() {
             permit_vec[*e_pos] = 1.;
         }
+        *num_actions = num_valid_actions as f32;
     }
 
     fn cost(&self, state: &Self::State) -> Self::Cost {
