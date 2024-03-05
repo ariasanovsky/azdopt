@@ -63,7 +63,7 @@ type ModelH = (
     dfdx::nn::modules::SplitInto<(Linear<HIDDEN_5, {ACTION * LABELS}>, Linear<HIDDEN_5, ACTION>)>,
 );
 
-const BATCH: usize = 1;
+const BATCH: usize = 256;
 
 type W = TensorboardWriter<BufWriter<std::fs::File>>;
 

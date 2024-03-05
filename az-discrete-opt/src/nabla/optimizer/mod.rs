@@ -8,6 +8,8 @@ pub struct NablaOptimizer<Space: DfaWithCost, M, P> {
     space: Space,
     roots: Vec<Space::State>,
     states: Vec<Space::State>,
+    action_bools: Vec<bool>,
+    num_actions: Vec<f32>,
     costs: Vec<Space::Cost>,
     paths: Vec<P>,
     // transitions: Vec<Vec<Transition>>,
@@ -80,8 +82,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         let mut p_host = vec![0.; batch * Space::ACTION_DIM];
         model.write_predictions(
             &state_vecs,
-            todo!(),
-            todo!(),
+            &mut action_bools,
+            &mut num_actions,
             &mut v_host,
             &mut p_host,
         );
@@ -120,6 +122,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             space,
             roots,
             states,
+            action_bools,
+            num_actions,
             costs,
             paths,
             last_positions,
@@ -151,7 +155,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             + core::fmt::Debug,
     {
         use rayon::{
-            iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
+            iter::{IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
             slice::{ParallelSlice, ParallelSliceMut},
         };
 
@@ -161,7 +165,12 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         let paths = &mut self.paths;
         let costs = &mut self.costs;
         let last_positions = &mut self.last_positions;
+        self.state_vecs.fill(0.);
+        self.action_bools.fill(false);
+        self.num_actions.fill(0.);
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
+        let action_bools = self.action_bools.par_chunks_exact_mut(Space::ACTION_DIM);
+        let num_actions = self.num_actions.par_iter_mut();
         debug_assert!([
             roots.len(),
             states.len(),
@@ -169,6 +178,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             costs.len(),
             last_positions.len(),
             state_vecs.len(),
+            action_bools.len(),
+            num_actions.len(),
         ]
         .into_iter()
         .all(|l| l == trees.len()),);
@@ -180,19 +191,31 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             costs,
             last_positions,
             state_vecs,
+            action_bools,
+            num_actions,
         )
             .into_par_iter()
-            .for_each(|(t, r, s, p, c, pos, v)| {
+            .for_each(|(
+                t,
+                r,
+                s,
+                p,
+                c,
+                pos,
+                v,
+                a,
+                num_actions,
+            )| {
                 t.roll_out_episodes(&self.space, r, s, c, p, pos, &n_as_tol);
                 if !p.is_empty() {
-                    self.space.write_vecs(s, v, todo!(), todo!());
+                    self.space.write_vecs(s, v, a, num_actions);
                 }
             });
         self.model
             .write_predictions(
                 &self.state_vecs,
-                todo!(),
-                todo!(),
+                &mut self.action_bools,
+                &mut self.num_actions,
                 &mut self.v_host,
                 &mut self.p_host,
             );
@@ -269,16 +292,26 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         P: Sync,
     {
         use rayon::{
-            iter::{IntoParallelIterator, ParallelIterator},
+            iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
             slice::ParallelSliceMut,
         };
 
         // sync `costs` with `roots`
+        self.state_vecs.fill(0.);
+        self.action_bools.fill(false);
+        self.num_actions.fill(0.);
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
-        (&self.roots, state_vecs)
+        let action_bools = self.action_bools.par_chunks_exact_mut(Space::ACTION_DIM);
+        let num_actions = self.num_actions.par_iter_mut();
+        (
+            &self.roots,
+            state_vecs,
+            action_bools,
+            num_actions,
+        )
             .into_par_iter()
-            .for_each(|(s, v)| {
-                self.space.write_vecs(s, v, todo!(), todo!());
+            .for_each(|(s, v, a, num_actions)| {
+                self.space.write_vecs(s, v, a, num_actions);
             });
 
         // fill `h_theta_host`
@@ -299,8 +332,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         self.model
             .update_model(
                 &self.state_vecs,
-                todo!(),
-                todo!(),
+                &self.action_bools,
+                &self.num_actions,
                 &self.v_host,
                 &self.p_host,
             )
@@ -323,7 +356,7 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
     {
         use rand::seq::IteratorRandom;
         use rayon::{
-            iter::{IntoParallelIterator, ParallelIterator},
+            iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
             slice::{ParallelSlice, ParallelSliceMut},
         };
 
@@ -333,6 +366,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
             space: _,
             roots,
             states,
+            action_bools,
+            num_actions,
             costs,
             paths,
             last_positions,
@@ -347,13 +382,17 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
         } = self;
         last_positions.fill(Default::default());
         state_vecs.fill(0.);
+        action_bools.fill(false);
+        num_actions.fill(0.);
         let space = &self.space;
         let trees = &self.trees;
         let state_vecs = self.state_vecs.par_chunks_exact_mut(Space::STATE_DIM);
+        let action_bools = self.action_bools.par_chunks_exact_mut(Space::ACTION_DIM);
+        let num_actions = self.num_actions.par_iter_mut();
         // let next_node = &next_node;
         (
             trees, roots, states, costs, paths, // transitions,
-            state_vecs,
+            state_vecs, action_bools, num_actions,
         )
             .into_par_iter()
             .for_each(
@@ -365,6 +404,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                     p,
                     // trans,
                     v,
+                    a,
+                    num_actions,
                 )| {
                     let nodes = t.nodes();
                     let (cost_threshold, improved) = nodes.first().map(|n| {
@@ -395,15 +436,15 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
                     }
                     s.clone_from(r);
                     *c = space.cost(r);
-                    self.space.write_vecs(s, v, todo!(), todo!());
+                    self.space.write_vecs(s, v, a, num_actions);
                     p.clear();
                 },
             );
         v_host.fill(0.);
         model.write_predictions(
             &self.state_vecs,
-            todo!(),
-            todo!(),
+            &mut self.action_bools,
+            &mut self.num_actions,
             v_host,
             p_host,
         );

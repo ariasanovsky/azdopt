@@ -165,6 +165,7 @@ where
         for e_pos in state.permitted_edges.iter() {
             permit_vec[*e_pos] = 1.;
         }
+        debug_assert_ne!(num_valid_actions, 0);
         *num_actions = num_valid_actions as f32;
     }
 

@@ -25,7 +25,8 @@ impl SearchTree {
         let start = range.start as usize;
         let end = range.end as usize;
         let predictions = &self.predictions[start..end];
-        predictions.iter().enumerate().map(|(i, pred)| {
+        debug_assert!(!predictions.is_empty());
+        let next_action = predictions.iter().enumerate().map(|(i, pred)| {
             let crate::nabla::tree::arc_weight::ActionPrediction {
                 a_id: _,
                 g_theta_sa,
@@ -53,7 +54,9 @@ impl SearchTree {
             (u, e)
         })
         .max_by(|(u1, _), (u2, _)| u1.partial_cmp(u2).unwrap())
-        .map(|(_, e)| e)
+        .map(|(_, e)| e);
+        debug_assert!(next_action.is_some());
+        next_action
     }
 
     // pub(crate) fn next_optimal_action(&self, state_pos: NodeIndex, n_as_tol: u32) -> Option<NextAction> {
