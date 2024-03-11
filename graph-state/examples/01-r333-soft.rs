@@ -30,10 +30,12 @@ use rand::{rngs::ThreadRng, Rng};
 use rand_distr::WeightedIndex;
 use tensorboard_writer::TensorboardWriter;
 
-const N: usize = 5;
+const N: usize = 3;
 const E: usize = N * (N - 1) / 2;
-const C: usize = 3;
-const SIZES: [usize; C] = [2, 2, 2];
+// const C: usize = 3;
+// const SIZES: [usize; C] = [3, 3, 3];
+const C: usize = 2;
+const SIZES: [usize; C] = [3, 3];
 
 type S = RamseyCountsNoRecolor<N, E, C, B32>;
 type Cost = TotalCounts<C>;
@@ -78,9 +80,11 @@ fn main() -> eyre::Result<()> {
     writer.write_file_version()?;
 
     let dev = AutoDevice::default();
-    let num_permitted_edges_range = 8..=(4 * E / 5);
-    let reset_edges_range = (3 * E / 5)..=(4 * E / 5);
-    let dist = WeightedIndex::new([1., 1., 1.,])?;
+    // let num_permitted_edges_range = 8..=(4 * E / 5);
+    // let reset_edges_range = (3 * E / 5)..=(4 * E / 5);
+    let num_permitted_edges_range = E..=E;
+    let reset_edges_range = E..=E;
+    let dist = WeightedIndex::new([1., 0.,])?;
     let init_state = |rng: &mut ThreadRng, num_permitted_edges: usize| -> S {
         let g = ColoredCompleteBitsetGraph::generate(&dist, rng);
         let s = RamseyCounts::new(g, &SIZES);
@@ -97,7 +101,7 @@ fn main() -> eyre::Result<()> {
     labels[49] = 100.;
     let model: SoftActionModel<ModelH, BATCH, STATE, ACTION, LABELS, AL> = SoftActionModel::new(dev, cfg, labels);
     // let model = az_discrete_opt::nabla::model::TrivialModel;
-    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1., 1.,]);
+    const SPACE: Space = RamseySpaceNoEdgeRecolor::new(SIZES, [1., 1.,]);
     // let sample = SamplePattern {
     //     max: 2 * 10,
     //     mid: 2 * 7,
@@ -133,8 +137,8 @@ fn main() -> eyre::Result<()> {
     };
     let argmin = optimizer.argmin_data();
     process_argmin(&argmin, &mut writer, 0)?;
-    let epochs: usize = 250;
-    let episodes: usize = 1_600 * 4 / 4;
+    let epochs: usize = 1; //250;
+    let episodes: usize = 100 * 4 / 4;
 
     let n_as_tol = |len| {
         [200 / 5, 200 / 5, 200 / 5, 200 / 5, 200 / 5, 200 / 5, 200 / 5, 200 / 5, 200 / 5, 200 / 5, 100 / 5, 100 / 5, 100 / 5].get(len).copied().unwrap_or(50 / 5)
@@ -152,7 +156,7 @@ fn main() -> eyre::Result<()> {
                 }
                 ArgminImprovement::Unchanged => {}
             };
-            if episode  == episodes {
+            if true || episode  == episodes {
                 println!("==== EPISODE: {episode} ====");
                 // let sizes = optimizer
                 //     .trees()
@@ -161,8 +165,8 @@ fn main() -> eyre::Result<()> {
                 //     .sizes::<P>();
                 // println!("sizes: {sizes:?}");
 
-                // let graph = optimizer.trees()[0].graphviz();
-                // std::fs::write("tree.svg", graph).unwrap();
+                let graph = optimizer.trees()[0].graphviz();
+                std::fs::write("tree.svg", graph).unwrap();
                 // let graph = optimizer.trees()[BATCH - 1].graphviz();
                 // std::fs::write("tree2.svg", graph).unwrap();
             }

@@ -146,7 +146,8 @@ impl<Space: DfaWithCost, M: NablaModel, P> NablaOptimizer<Space, M, P> {
     ) -> ArgminImprovement<Space::State, Space::Cost>
     where
         Space: Sync,
-        Space::State: Clone + Send + Sync,
+        Space::State: Clone + Send + Sync + core::fmt::Display,
+        Space::Action: core::fmt::Debug,
         Space::Cost: Send + Sync,
         P: Send
             + Sync

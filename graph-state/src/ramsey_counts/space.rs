@@ -2,6 +2,7 @@ use az_discrete_opt::{
     nabla::space::DfaWithCost,
     space::axioms::{ActionOrderIndependent, ActionsNeverRepeat},
 };
+use rand::Rng;
 
 use crate::{bitset::Bitset, simple_graph::edge::Edge};
 
@@ -81,8 +82,11 @@ where
             edge_pos,
             new_color,
         } = *action;
+        eprintln!("before:\n{state}");
         let edge = Edge::from_colex_position(edge_pos);
+        eprintln!("edge: {edge:?}");
         state.reassign_color(edge, new_color, &self.sizes);
+        eprintln!("after:\n{state}");
         let removed = permitted_edges.remove(&edge_pos);
         debug_assert!(removed);
     }
@@ -126,6 +130,9 @@ where
         false_action_vector: &mut [bool],
         num_actions: &mut f32,
     ) {
+        *num_actions = 10.;
+        false_action_vector.fill(true);
+
         debug_assert_eq!(zeroed_state_vector.len(), Self::STATE_DIM);
         debug_assert_eq!(false_action_vector.len(), Self::ACTION_DIM);
         // zeroed_state_vector.fill(0.);
@@ -151,10 +158,11 @@ where
             .flat_map(|g| g.edge_bools())
             .enumerate()
             .map(|(i, b)| if b {
-                false_action_vector[i] = true;
-                num_valid_actions += 1;
                 1.0f32
             } else {
+                // todo!();
+                // false_action_vector[i] = true;
+                num_valid_actions += 1;
                 0.
             });
         let clique_edge = clique_counts.chain(edge_bools);
@@ -163,10 +171,11 @@ where
             .zip(clique_edge)
             .for_each(|(v, c)| *v = c);
         for e_pos in state.permitted_edges.iter() {
+            // todo!();
             permit_vec[*e_pos] = 1.;
         }
-        debug_assert_ne!(num_valid_actions, 0);
-        *num_actions = num_valid_actions as f32;
+        // debug_assert_ne!(num_valid_actions, 0);
+        // *num_actions = num_valid_actions as f32;
     }
 
     fn cost(&self, state: &Self::State) -> Self::Cost {
@@ -174,6 +183,9 @@ where
     }
 
     fn evaluate(&self, cost: &Self::Cost) -> f32 {
+        let mut rng = rand::thread_rng();
+        let f: f32 = rng.gen_range(0.0..1.0) * 10.;
+        return f;
         cost.0
             .iter()
             .zip(self.weights.iter())

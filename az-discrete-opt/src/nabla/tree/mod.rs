@@ -74,7 +74,7 @@ impl SearchTree {
 
     pub(crate) fn _print_neighborhoods(&self) {
         for (node, weight) in self.tree.node_references() {
-            print!(
+            eprint!(
                 "{node:?}\t({})\t({:?})  \t{{",
                 weight.n_t(),
                 weight.actions,
@@ -83,9 +83,9 @@ impl SearchTree {
                 .tree
                 .neighbors_directed(node, petgraph::Direction::Outgoing)
             {
-                print!("{e:?}, ");
+                eprint!("{e:?}, ");
             }
-            println!("}}")
+            eprintln!("}}")
         }
         for edge in self.tree.edge_references() {
             let weight = edge.weight();
@@ -93,7 +93,7 @@ impl SearchTree {
             let id = edge.id();
             let source = edge.source();
             let target = edge.target();
-            println!("{id:?}\t{source:?}\t->\t{target:?}\t{weight:?}\t{prediction:?}");
+            eprintln!("{id:?}\t{source:?}\t->\t{target:?}\t{weight:?}\t{prediction:?}");
         }
     }
 
@@ -104,6 +104,12 @@ impl SearchTree {
             .iter()
             .map(|p| p.a_id)
             .collect()
+    }
+
+    pub(crate) fn _print_predictions(&self) {
+        for (i, p) in self.predictions.iter().enumerate() {
+            eprintln!("{i:?}\t{p:?}");
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -118,18 +124,22 @@ impl SearchTree {
         n_as_tol: impl Fn(usize) -> u32,
     ) where
         Space: DfaWithCost,
-        Space::State: Clone,
-        P: ActionPath + ActionPathFor<Space>, // + core::fmt::Debug,
+        Space::State: Clone + core::fmt::Display,
+        Space::Action: core::fmt::Debug,
+        P: ActionPath + ActionPathFor<Space> + core::fmt::Debug,
     {
         loop {
-            // println!("path: {path:?}");
+            println!("path: {path:?}");
+            println!("root:\n{root}");
+            println!("state:\n{state}");
             let possible_actions = space.action_data(state).map(|(a, _)| a).collect::<Vec<_>>();
             eprintln!("{state_pos:?}");
             eprintln!("possible_actions: {possible_actions:?}");
             eprintln!("permited_actions: {:?}", self._permitted_actions(*state_pos));
             eprintln!("exhausted_nodes: {:?}", self._exhausted_nodes());
             self._print_neighborhoods();
-
+            self._print_predictions();
+            
             use next_action::NextAction;
             let next_action = self.action_by_upper_estimate(*state_pos);
             // let next_action = if path.is_empty() {
@@ -139,11 +149,11 @@ impl SearchTree {
             // };
             match next_action {
                 Some(NextAction::Visited(arc_index)) => {
-                    // eprintln!(
-                    //     "\trevisiting arc {arc_index:?} (from {:?} to {:?})",
-                    //     self.tree.edge_endpoints(arc_index).unwrap().0,
-                    //     self.tree.edge_endpoints(arc_index).unwrap().1,
-                    // );
+                    eprintln!(
+                        "\trevisiting arc {arc_index:?} (from {:?} to {:?})",
+                        self.tree.edge_endpoints(arc_index).unwrap().0,
+                        self.tree.edge_endpoints(arc_index).unwrap().1,
+                    );
 
                     let prediction_pos = self.tree[arc_index].prediction_pos;
                     let action_id = self.predictions[prediction_pos].a_id;
@@ -151,13 +161,13 @@ impl SearchTree {
                     let action = space.action(action_id);
                     space.act(state, &action);
                     *state_pos = self.tree.edge_endpoints(arc_index).unwrap().1;
-                    // if !self.tree[*state_pos].n_t.is_active() {
-                    //     eprintln!("\tterminal");
-                    //     // todo!();
-                    // } else {
-                    //     eprintln!("\tnot terminal");
-                    //     // todo!();
-                    // }
+                    if !self.tree[*state_pos].is_active() {
+                        eprintln!("\tterminal");
+                        // todo!();
+                    } else {
+                        eprintln!("\tnot terminal");
+                        // todo!();
+                    }
                 }
                 Some(NextAction::Unvisited(prediction_pos)) => {
                     let range = &self.tree[*state_pos].actions.clone();
@@ -165,16 +175,16 @@ impl SearchTree {
                     debug_assert!(range.contains(&prediction_pos));
                     let prediction = &self.predictions[prediction_pos];
                     let action_id = prediction.a_id;
-                    // eprintln!(
-                    //     "\tfirst visit to {action_id} (pos = {prediction_pos}) from {state_pos:?}",
-                    // );
+                    eprintln!(
+                        "\tfirst visit to {action_id} (pos = {prediction_pos}) from {state_pos:?}",
+                    );
                     unsafe { path.push_unchecked(action_id) };
                     let next_pos: Option<NodeIndex> = self.find_node(path);
                     // todo!(); //self.positions::<P>().get(path);
                     match next_pos {
                         Some(next_pos) => {
                             let arc_index = self.add_arc(*state_pos, next_pos, prediction_pos);
-                            // println!("\trediscovered node, resetting!\n");
+                            eprintln!("\trediscovered node, resetting!\n");
                             self.cascade_old_node(arc_index);
                             state.clone_from(root);
                             path.clear();
@@ -182,37 +192,41 @@ impl SearchTree {
                         }
                         None => {
                             let action = space.action(action_id);
+                            eprintln!(
+                                "\taction is {action:?}"
+                            );
                             space.act(state, &action);
+                            eprintln!("\n\n\nstate:\n{state}\n\n\n");
                             *cost = space.cost(state);
                             let c_as = space.evaluate(cost);
-                            // let c_as_star = c_as;
+                            let c_as_star = c_as;
                             let weight = StateWeight::new(c_as);
-                            // eprint!("\tnew node_weight {weight:?}");
+                            eprint!("\tnew node_weight {weight:?}");
                             let next_pos = self.add_node(weight);
-                            // eprintln!(" on {next_pos:?}");
-                            // let c_s = self.tree.node_weight(*state_pos).unwrap().c;
-                            // let g_t_sa = c_s - c_as_star;
-                            // let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
-                            // let arc_weight = ActionWeight {
-                            //     // g_t_sa,
-                            //     // h_t_sa: FiniteOrExhausted(h_t_sa),
-                            //     prediction_pos,
-                            // };
+                            eprintln!(" on {next_pos:?}");
+                            let c_s = self.tree.node_weight(*state_pos).unwrap().c;
+                            let g_t_sa = c_s - c_as_star;
+                            let h_t_sa = space.h_sa(c_s, c_as, c_as_star);
+                            let arc_weight = ActionWeight {
+                                // g_t_sa,
+                                // h_t_sa: FiniteOrExhausted(h_t_sa),
+                                prediction_pos,
+                            };
                             let arc_index = self.add_arc(*state_pos, next_pos, prediction_pos);
                             match space.is_terminal(state) {
                                 true => {
                                     // self.tree[next_pos].mark_exhausted();
-                                    // eprintln!("\texhausted_nodes: {:?}", self._exhausted_nodes());
+                                    eprintln!("\texhausted_nodes: {:?}", self._exhausted_nodes());
                                     self.cascade_new_terminal(arc_index);
-                                    // eprintln!("\t->               {:?}", self._exhausted_nodes());
-                                    // todo!("terminal, so cascade updates and start over!");
+                                    eprintln!("\t->               {:?}", self._exhausted_nodes());
+                                    eprintln!("\tterminal, so cascade updates and start over!");
                                     state.clone_from(root);
                                     path.clear();
                                     *state_pos = Default::default();
-                                    // eprintln!("\treset!\n");
+                                    eprintln!("\treset!\n");
                                 }
                                 false => {
-                                    // eprintln!("\trequires prediction!");
+                                    eprintln!("\trequires prediction!");
                                     *state_pos = next_pos;
                                     return;
                                 }

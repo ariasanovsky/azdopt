@@ -82,6 +82,7 @@ impl<const N: usize, const E: usize, const C: usize, B> RamseyCounts<N, E, C, B>
     {
         let (v, u) = edge.vertices();
         let old_color = self.graph.color(u, v);
+        debug_assert_ne!(old_color, new_color);
         let old_size = sizes[old_color];
         let new_size = sizes[new_color];
         unsafe { self.graph.graphs[old_color].add_or_remove_edge_unchecked(edge.clone()) };

@@ -36,12 +36,12 @@ impl SearchTree {
         p_theta: &[f32],
         budget: &ActionBudget,
     ) {
-        let p_sum = p_theta.iter().sum::<f32>();
-        let p_min = p_theta.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        let p_max = p_theta.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        debug_assert!(*p_min >= 0.);
-        debug_assert!(*p_max <= 0.99);
-        debug_assert!((1. - p_sum).abs() < 1e-2);
+        // let p_sum = p_theta.iter().sum::<f32>();
+        // let p_min = p_theta.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        // let p_max = p_theta.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+        // debug_assert!(*p_min >= 0.);
+        // debug_assert!(*p_max <= 0.99);
+        // debug_assert!((1. - p_sum).abs() < 1e-2);
 
         let node_weight = self.tree.node_weight_mut(id).unwrap();
         let c = node_weight.c;
@@ -50,6 +50,7 @@ impl SearchTree {
             let h_theta_sa = h_theta[a_id];
             let g_theta_sa = space.g_theta_star_sa(c, r_sa, h_theta_sa);
             let p_theta_sa = p_theta[a_id];
+            dbg!(p_theta_sa);
             ActionPrediction {
                 a_id,
                 g_theta_sa,
